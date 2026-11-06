@@ -153,3 +153,95 @@ fn probe_lock() {
         println!("{:<12} editRecord again, alone: {:?}", "", t.elapsed());
     }
 }
+
+/// The cell-name index against the cells themselves: for some cells, the plugins that have
+/// them as `Session::cell_holders` says (the files' framing alone) and as the parsed CELL
+/// records say (every plugin's cells read), and how long each takes. They must be equal.
+/// WG_CELLS: the cell keys to check, `;`-separated (an interior's name, an exterior's
+/// `(x, y)`), lower case.
+///   cargo test --release --test probe_find probe_cell_index -- --ignored --nocapture
+#[test]
+#[ignore]
+fn probe_cell_index() {
+    let plugins = load_order();
+    let keys = std::env::var("WG_CELLS")
+        .unwrap_or_else(|_| "(-2, -9);(0, 0);(-3, -2);(41, 16);balmora, guild of mages;seyda neen, census and excise office;no such cell".into());
+    let session = Session::new(plugins);
+
+    let t = Instant::now();
+    session.warm_cell_keys();
+    println!("cell names of {} plugin(s) read in {:?}", session.order().len(), t.elapsed());
+
+    let fast: Vec<(String, Option<Vec<String>>, std::time::Duration)> = keys
+        .split(';')
+        .map(|k| {
+            let k = k.trim().to_lowercase();
+            let t = Instant::now();
+            let h = session.cell_holders(&k);
+            (k, h, t.elapsed())
+        })
+        .collect();
+
+    let t = Instant::now();
+    session.warm(&["CELL"]);
+    println!("every plugin's cells parsed in {:?}", t.elapsed());
+
+    let mut bad = 0;
+    for (k, h, took) in &fast {
+        let slow: Vec<String> = session.order().iter().filter(|n| session.records(n, "CELL").contains_key(k)).cloned().collect();
+        let same = h.as_ref() == Some(&slow);
+        bad += usize::from(!same);
+        println!("{:<44} index {:?} -> {} plugin(s); cells {} plugin(s); {}", k, took, h.as_ref().map_or(0, Vec::len), slow.len(), if same { "same" } else { "DIFFERENT" });
+        if !same {
+            println!("   index: {h:?}\n   cells: {slow:?}");
+        }
+    }
+    assert_eq!(bad, 0, "the index and the cells disagree");
+}
+
+/// The use-report index against the scan: indexes the load order's plugins into a database
+/// in the temp folder (the first time that is every plugin read whole: minutes), then the
+/// Use Report for a record from the scan and from the index, how long each takes, and
+/// whether they agree.
+///   cargo test --release --test probe_find probe_uses_index -- --ignored --nocapture
+#[test]
+#[ignore]
+fn probe_uses_index() {
+    use editcore::cache::{Cache, MAX_BYTES};
+    let plugins = load_order();
+    let tag = std::env::var("WG_TAG").unwrap_or_else(|_| "MISC".into());
+    let id = std::env::var("WG_ID").unwrap_or_else(|_| "AB_Misc_CeramicTeapot01".into());
+    let rtype = editcore::key::type_of(&tag).expect("a record tag");
+    let paths: Vec<PathBuf> = plugins.iter().map(|(_, p)| p.clone()).collect();
+    let dir = std::env::temp_dir().join("wg-probe-use-index");
+    std::fs::create_dir_all(&dir).unwrap();
+    let cache = Cache::new(dir.join("use.sqlite3"), "editor-use-index", MAX_BYTES);
+
+    let missing = cache.missing_uses(&paths).len();
+    let t = Instant::now();
+    editcore::uses::index_missing(&cache, &paths, 4);
+    println!("indexed {missing} plugin(s) in {:?}; {} still missing", t.elapsed(), cache.missing_uses(&paths).len());
+
+    let t = Instant::now();
+    let scan = editcore::uses::report(&paths, rtype, &id);
+    println!("scan : {:?}  {} use(s)", t.elapsed(), scan.len());
+    let t = Instant::now();
+    let index = editcore::uses::from_index(&cache, &paths, rtype, &id, |_| Vec::new());
+    println!("index: {:?}  {}", t.elapsed(), index.as_ref().map_or("cannot answer".to_string(), |i| format!("{} use(s)", i.len())));
+
+    let norm = |u: &[editcore::uses::Use]| {
+        let mut v: Vec<(usize, String, String, usize, bool)> = u.iter().map(|u| (u.plugin, u.record_type.clone(), u.key.to_lowercase(), u.count, u.wins)).collect();
+        v.sort();
+        v
+    };
+    match index {
+        Some(i) if norm(&i) == norm(&scan) => println!("the same {} use(s)", i.len()),
+        Some(i) => {
+            let (a, b) = (norm(&scan), norm(&i));
+            println!("DIFFERENT: only in the scan: {:?}", a.iter().filter(|x| !b.contains(x)).take(8).collect::<Vec<_>>());
+            println!("           only in the index: {:?}", b.iter().filter(|x| !a.contains(x)).take(8).collect::<Vec<_>>());
+            panic!("the index and the scan disagree");
+        }
+        None => panic!("the index cannot answer after indexing every plugin"),
+    }
+}

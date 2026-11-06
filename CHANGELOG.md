@@ -338,6 +338,25 @@
   `Editor::uses_from` builds the answer). Sessions that read through `read_all` (the tests)
   take the old path. The scan is as long as before: the use index in the record cache
   (`uses::from_index`) is not wired to the report yet.
+- **Which plugins have a cell is read from the plugins' own cell names** (`Session::cell_holders`,
+  `session::cell_keys_of`). Placing, `find` of a cell and `cell_plugins` read the CELL records
+  of every plugin (a cell's references are most of a plugin: 6 to 14 s over 596) to learn which
+  have the cell. A cell's key is in the file's framing - an interior's name, an exterior's grid,
+  the first bit of its flags - so each plugin is walked by its record and subrecord headers,
+  the cell keys kept per plugin, and only the plugins that have the cell are read. A name that
+  is not ASCII, or a session with no plugin file to read, takes the old way. The keys are read
+  in the background when the Editor is opened (`Links::open`).
+- **The Use Report is a query once the plugins are indexed** (`Links::with_use_index`,
+  `uses::index_plugin`, `uses::index_missing`; the viewer's `editor_open` puts the database
+  beside the journal, `wraithguard_use_index.sqlite3`). `uses::from_index` was written and not
+  called. The first report scans the plugin files as before and starts indexing the plugins
+  the index lacks, on two threads in the background; once every plugin is in it, a report is
+  one query. An id with a space or a dash (not a run of word characters) is scanned, as the
+  index does not search script source here.
+- **Not done: the JSON round trip in `read_tag`** (the records of a tag are written as JSON text
+  and read back). Building the values directly (`serde_json::to_value`) would not give the
+  same values: a record's `f32` fields would come out widened to `f64` (0.1 as
+  0.10000000149011612), where the text round trip gives 0.1.
 - **Placing held the whole Editor while it read the cells** (Messages, 2026-11-05: the first
   `editPlace` took 100.1 s, and the `editRecord`, `editUses`, `editRevision` and `editColumns`
   asked meanwhile took 80 s and more, each saying `editPlace` was out when it began; the

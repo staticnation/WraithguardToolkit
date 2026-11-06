@@ -104,6 +104,10 @@ pub struct Session {
     masters: Mutex<HashMap<String, Arc<Vec<String>>>>,
     /// Per plugin: its exterior references by index, `index -> [(origin, cell key)]`.
     home: Mutex<HashMap<String, Arc<HashMap<i64, Vec<(String, String)>>>>>,
+    /// Per plugin: the keys (lower case) of its CELL records, read from the file's record and
+    /// subrecord framing alone (`cell_keys_of`): which plugins have a cell is known without
+    /// parsing a cell, and a cell's references are most of a plugin.
+    cell_keys: Mutex<HashMap<String, Arc<HashSet<String>>>>,
     /// Bumped when a plugin is forgotten: a read begun before it may be of the file as it was,
     /// and is not kept.
     generation: AtomicU64,
@@ -151,6 +155,7 @@ impl Session {
             cache: Mutex::default(),
             masters: Mutex::default(),
             home: Mutex::default(),
+            cell_keys: Mutex::default(),
             generation: AtomicU64::new(0),
             reading: Mutex::default(),
             reading_done: Condvar::new(),
@@ -171,6 +176,7 @@ impl Session {
         self.masters.lock().unwrap().remove(&name);
         self.home.lock().unwrap().remove(&name);
         self.dialogue.lock().unwrap().remove(&name);
+        self.cell_keys.lock().unwrap().remove(&name);
         true
     }
 
@@ -334,6 +340,72 @@ impl Session {
         });
     }
 
+    /// A plugin's cell keys (lower case; `cell_keys_of`), read once; `None` when the file
+    /// cannot be read.
+    fn plugin_cell_keys(&self, lower: &str) -> Option<Arc<HashSet<String>>> {
+        if let Some(k) = self.cell_keys.lock().unwrap().get(lower) {
+            return Some(k.clone());
+        }
+        let (_, path) = self.paths.get(lower)?;
+        let generation = self.generation.load(Ordering::SeqCst);
+        let file = std::fs::File::open(path).ok()?;
+        // SAFETY: the plugin is only read, and only while mapped here.
+        let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
+        let keys = Arc::new(cell_keys_of(&map));
+        // A plugin forgotten while it was read is not kept as it was read.
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.cell_keys.lock().unwrap().insert(lower.to_string(), keys.clone());
+        }
+        Some(keys)
+    }
+
+    /// Reads every plugin's cell keys that are not read yet, on several threads. Needs no more
+    /// than a `&self`, so a link can do it before the Editor's lock is taken.
+    pub fn warm_cell_keys(&self) {
+        let todo: Vec<String> = {
+            let have = self.cell_keys.lock().unwrap();
+            self.order.iter().map(|n| n.to_lowercase()).filter(|n| !have.contains_key(n)).collect()
+        };
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READERS).min(todo.len());
+        if threads <= 1 {
+            for name in &todo {
+                let _ = self.plugin_cell_keys(name);
+            }
+            return;
+        }
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    while let Some(name) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
+                        let _ = self.plugin_cell_keys(name);
+                    }
+                });
+            }
+        });
+    }
+
+    /// The plugins with a CELL record for a cell (`want`: an interior's name or an exterior's
+    /// `(x, y)`, lower case), in load order, as the load order spells them - from the plugins'
+    /// own cell names and grids, no cell parsed. `None` when this cannot say: a name that is
+    /// not ASCII (the framing cannot say what the plugin's text decodes to), or no plugin file
+    /// that can be read (the tests' sessions): the caller reads the cells then.
+    pub fn cell_holders(&self, want: &str) -> Option<Vec<String>> {
+        if want.is_empty() || !want.is_ascii() {
+            return None;
+        }
+        self.warm_cell_keys();
+        let (mut out, mut readable) = (Vec::new(), 0usize);
+        for name in &self.order {
+            let Some(keys) = self.plugin_cell_keys(&name.to_lowercase()) else { continue };
+            readable += 1;
+            if keys.contains(want) {
+                out.push(name.clone());
+            }
+        }
+        (readable > 0).then_some(out)
+    }
+
     /// Each plugin's records of a tag, in load order (`records` for all of them, the unread
     /// ones read on several threads: `warm`).
     pub fn records_all(&self, tag: &str) -> Vec<Arc<IndexMap<String, Value>>> {
@@ -400,6 +472,10 @@ impl Session {
         let tag = crate::key::tag_of(record_type)?.to_string();
         let want = rid.trim().to_lowercase();
         let mut versions: Vec<(String, Value)> = Vec::new();
+        // A cell is read from the plugins that have it (their own cell names and grids say
+        // which), not from every plugin: that parsed every cell of the load order.
+        let holders = if plugins.is_none() && record_type == "Cell" { self.cell_holders(&want) } else { None };
+        let plugins = holders.as_deref().or(plugins);
         if plugins.is_none() {
             self.warm(&[tag.as_str()]);
         }
@@ -572,4 +648,80 @@ fn same_file(a: &Path, b: &Path) -> bool {
         return true;
     }
     matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+}
+
+/// The keys (lower case) of the CELL records in a plugin's bytes, from the record and
+/// subrecord framing alone: an interior's name (its `IS_INTERIOR` flag, the first bit of
+/// `DATA`'s flags), an exterior's `(x, y)` from `DATA`'s grid - the key `record_key` gives the
+/// parsed record. A name that is not ASCII is left out (nothing ASCII asks for it).
+pub(crate) fn cell_keys_of(raw: &[u8]) -> HashSet<String> {
+    let mut keys = HashSet::new();
+    for (tag, body) in crate::frames::records(raw) {
+        if tag != b"CELL" {
+            continue;
+        }
+        let (mut name, mut data): (Option<&[u8]>, Option<&[u8]>) = (None, None);
+        for (sub, bytes) in crate::frames::subrecords(body) {
+            match sub {
+                b"NAME" if name.is_none() => name = Some(bytes),
+                b"DATA" if data.is_none() => data = Some(bytes),
+                _ => {}
+            }
+        }
+        let Some(d) = data.filter(|d| d.len() >= 12) else { continue };
+        if u32::from_le_bytes([d[0], d[1], d[2], d[3]]) & 1 != 0 {
+            let n = name.unwrap_or(&[]);
+            let n = &n[..n.iter().position(|&b| b == 0).unwrap_or(n.len())];
+            if !n.is_empty() && n.is_ascii() {
+                keys.insert(String::from_utf8_lossy(n).to_lowercase());
+            }
+        } else {
+            let x = i32::from_le_bytes([d[4], d[5], d[6], d[7]]);
+            let y = i32::from_le_bytes([d[8], d[9], d[10], d[11]]);
+            keys.insert(format!("({x}, {y})"));
+        }
+    }
+    keys
+}
+
+#[cfg(test)]
+mod cell_keys_tests {
+    use super::cell_keys_of;
+
+    fn sub(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((data.len() as u32).to_le_bytes());
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn record(tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((body.len() as u32).to_le_bytes());
+        v.extend([0u8; 8]);
+        v.extend_from_slice(body);
+        v
+    }
+
+    fn cell(name: &str, flags: u32, x: i32, y: i32) -> Vec<u8> {
+        let mut body = sub(b"NAME", &[name.as_bytes(), &[0]].concat());
+        let mut d = flags.to_le_bytes().to_vec();
+        d.extend(x.to_le_bytes());
+        d.extend(y.to_le_bytes());
+        body.extend(sub(b"DATA", &d));
+        record(b"CELL", &body)
+    }
+
+    #[test]
+    fn cells_are_keyed_from_the_framing_as_the_editor_keys_them() {
+        let mut raw = record(b"STAT", &sub(b"NAME", b"x\0"));
+        raw.extend(cell("Vivec, Arena", 1, 0, 0));
+        raw.extend(cell("Balmora", 2, -3, -2));
+        raw.extend(cell("Seyda Neen", 0, -2, -9));
+        raw.extend(cell("Caf\u{e9}", 1, 0, 0));
+        let keys = cell_keys_of(&raw);
+        let mut got: Vec<&str> = keys.iter().map(String::as_str).collect();
+        got.sort();
+        assert_eq!(got, vec!["(-2, -9)", "(-3, -2)", "vivec, arena"]);
+    }
 }

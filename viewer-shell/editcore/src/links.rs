@@ -163,6 +163,11 @@ pub struct Links {
     pub test_settings: Option<PathBuf>,
     /// Where the test plugin is written.
     pub scratch: PathBuf,
+    /// The use-report index (`with_use_index`): once every plugin is in it, a Use Report is a
+    /// query, not a scan of every plugin file. `None`: every report scans.
+    use_index: Option<Arc<crate::cache::Cache>>,
+    /// Set while the plugins the index lacks are being indexed (one run at a time).
+    indexing: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Links {
@@ -176,6 +181,12 @@ impl Links {
         }
         let session = Arc::new(session);
         let editor = Editor::new(session.clone(), queue, journal.clone());
+        // Which plugins have which cells, read now in the background (the file framing alone,
+        // a second or two): placing and every cell lookup are answered from it.
+        let warm = session.clone();
+        let _ = std::thread::Builder::new().name("cell-keys".into()).spawn(move || {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| warm.warm_cell_keys()));
+        });
         Links { editor: Arc::new(Mutex::new(editor)), session, seen: Mutex::new(seen), plugins, journal, ..Links::blank() }
     }
 
@@ -199,6 +210,33 @@ impl Links {
             folders: Vec::new(),
             test_settings: None,
             scratch: std::env::temp_dir().join("wraithguard-test"),
+            use_index: None,
+            indexing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// The Use Report's index, kept in the database at `path`: the first report scans the
+    /// plugin files as before and starts indexing the plugins in the background; once all are
+    /// in, a report is a query.
+    pub fn with_use_index(mut self, path: PathBuf) -> Links {
+        self.use_index = Some(Arc::new(crate::cache::Cache::new(path, "editor-use-index", crate::cache::MAX_BYTES)));
+        self
+    }
+
+    /// Indexes the plugins the use index lacks, on two threads of their own, if it is not
+    /// being done already.
+    fn index_in_background(&self, paths: Vec<PathBuf>) {
+        let Some(cache) = self.use_index.clone() else { return };
+        if self.indexing.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let flag = self.indexing.clone();
+        let spawned = std::thread::Builder::new().name("use-index".into()).spawn(move || {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::uses::index_missing(&cache, &paths, 2)));
+            flag.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+        if spawned.is_err() {
+            self.indexing.store(false, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -232,8 +270,8 @@ impl Links {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&tags)));
     }
 
-    /// What placing is about to read - the CELL records of every plugin, to find which of
-    /// them hold the cell - read now, on several threads, without the Editor's lock, as
+    /// What placing is about to look at - which plugins have the cell, from every plugin's own
+    /// cell names and grids - read now, on several threads, without the Editor's lock, as
     /// `warm_columns` does for a type's columns. A request that names the plugins to look in
     /// (`plugins`) reads only those, which the link does itself.
     fn warm_cells(&self, body: &str) {
@@ -241,7 +279,7 @@ impl Links {
         if named {
             return;
         }
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm(&["CELL"])));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm_cell_keys()));
     }
 
     /// `editUses`: the Use Report scans every plugin file (seconds on a big load order), so
@@ -258,8 +296,22 @@ impl Links {
             record_body(body).and_then(|req| record_request(&ed, &req)).map(|found| (found, ed.session.plugin_paths()))
         };
         Some(prepared.and_then(|(found, paths)| {
-            let hits = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::uses::report(&paths, &found.record_type, &found.key)))
-                .map_err(|_| "the viewer's Editor failed on editUses".to_string())?;
+            // From the index when every plugin is in it (an id of words: the rest are searched
+            // in the script source, which this does not do); else the files are scanned, and the
+            // plugins the index lacks are indexed behind this answer, for the next.
+            let indexed = self
+                .use_index
+                .as_ref()
+                .filter(|_| crate::uses::indexable(&found.key))
+                .and_then(|cache| crate::uses::from_index(cache, &paths, &found.record_type, &found.key, |_| Vec::new()));
+            let hits = match indexed {
+                Some(hits) => hits,
+                None => {
+                    self.index_in_background(paths.clone());
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::uses::report(&paths, &found.record_type, &found.key)))
+                        .map_err(|_| "the viewer's Editor failed on editUses".to_string())?
+                }
+            };
             let ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
             Ok(ed.uses_from(&found, &hits).to_string())
         }))

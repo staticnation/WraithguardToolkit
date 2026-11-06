@@ -5203,7 +5203,12 @@ fn editor_open(plugins: Vec<(String, String)>, journal: String, folders: Option<
     let mut slot = EDITOR.lock().unwrap_or_else(|p| p.into_inner());
     let same = slot.as_ref().is_some_and(|l| l.plugins == plugins && l.journal == journal);
     if !same {
-        let links = editcore::links::Links::open(plugins, journal).with_setup(folders.unwrap_or_default(), path(last), path(test_settings));
+        // The Use Report's index beside the journal.
+        let use_index = journal.as_ref().and_then(|j| j.parent()).map(|d| d.join("wraithguard_use_index.sqlite3"));
+        let mut links = editcore::links::Links::open(plugins, journal).with_setup(folders.unwrap_or_default(), path(last), path(test_settings));
+        if let Some(p) = use_index {
+            links = links.with_use_index(p);
+        }
         *slot = Some(std::sync::Arc::new(links));
     }
     // Link names are bare words: no escaping to do.

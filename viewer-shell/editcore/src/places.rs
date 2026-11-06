@@ -399,6 +399,10 @@ impl Editor {
         }
         let want = cell.trim().to_lowercase();
         if plugins.is_none() {
+            // The plugins' own cell names and grids say which have it; no cell is parsed.
+            if let Some(holders) = self.session.cell_holders(&want) {
+                return holders;
+            }
             self.session.warm(&["CELL"]);
         }
         self.session

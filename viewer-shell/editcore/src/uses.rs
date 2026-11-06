@@ -361,6 +361,36 @@ pub fn index_rows(records: &[Value]) -> Vec<UseRow> {
     rows
 }
 
+/// Indexes one plugin's strings in the use-report index (`Cache::put_uses`): the plugin read
+/// whole, as the scan reads it, and every record's strings stored under the file's stamp.
+pub fn index_plugin(cache: &Cache, path: &std::path::Path) -> io::Result<()> {
+    let bytes = std::fs::read(path)?;
+    let parsed = crate::plugin::read(&bytes)?;
+    drop(bytes);
+    let records: Vec<Value> = parsed.objects.iter().filter(|o| o.tag() != b"TES3").filter_map(|o| serde_json::to_value(o).ok()).collect();
+    drop(parsed);
+    cache.put_uses(path, &index_rows(&records));
+    Ok(())
+}
+
+/// Indexes the plugins the use-report index lacks (or has as they no longer are), on
+/// `threads` threads, one plugin at a time each: the work of a first Use Report's index, which
+/// the next reports are answered from.
+pub fn index_missing(cache: &Cache, paths: &[PathBuf], threads: usize) {
+    let todo = cache.missing_uses(paths);
+    let threads = threads.max(1).min(todo.len());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                while let Some(&i) = todo.get(next.fetch_add(1, std::sync::atomic::Ordering::SeqCst)) {
+                    let _ = index_plugin(cache, &paths[i]);
+                }
+            });
+        }
+    });
+}
+
 /// The Use Report from the use index (`EditorSession._uses_from_index`), when it has every
 /// plugin as it now is; `None` when it cannot answer (a plugin not indexed yet: the caller
 /// scans, and indexes in the background). For an id that is not [`indexable`], the
