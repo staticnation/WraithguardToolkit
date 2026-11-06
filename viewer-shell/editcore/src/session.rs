@@ -33,17 +33,39 @@ pub type ReadAll = dyn Fn(&Path) -> io::Result<Vec<Value>> + Send + Sync;
 
 /// A plugin's records of one tag, from the file (`plugin::records_json` with that tag).
 pub fn read_tag(path: &Path, tag: &str) -> io::Result<Vec<Value>> {
-    let bytes = std::fs::read(path)?;
     let t: [u8; 4] = tag.as_bytes().try_into().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a tag is four letters"))?;
-    let json = crate::plugin::records_json(&bytes, Some(&[t]))?;
-    serde_json::from_str(&json).map_err(io::Error::other)
+    // Mapped, not read into a Vec: a warm-up asks every plugin for twenty-odd tags, and a copy
+    // of the whole file for each one (Messages, 2026-11-06: Verify ran for minutes and
+    // starved the machine) is what the map avoids - the OS keeps one copy of the file.
+    with_file_bytes(path, |bytes| {
+        let json = crate::plugin::records_json(bytes, Some(&[t]))?;
+        serde_json::from_str(&json).map_err(io::Error::other)
+    })
+}
+
+/// `f` over a plugin's bytes, mapped (an empty file is an empty slice, which cannot be mapped).
+fn with_file_bytes<T>(path: &Path, f: impl FnOnce(&[u8]) -> io::Result<T>) -> io::Result<T> {
+    let file = std::fs::File::open(path)?;
+    if file.metadata()?.len() == 0 {
+        return f(&[]);
+    }
+    // SAFETY: the plugin is only read, and only while mapped here.
+    let map = unsafe { memmap2::Mmap::map(&file) }?;
+    f(&map)
+}
+
+/// How many plugins a warm-up reads at once: not every core, so the window and the other
+/// links keep one, and not more than eight, past which the disk is the limit.
+fn readers() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get().saturating_sub(2)).clamp(2, 8)
 }
 
 /// A plugin's topics and responses, from the file, in file order.
 pub fn read_dialogue(path: &Path) -> io::Result<Vec<Value>> {
-    let bytes = std::fs::read(path)?;
-    let json = crate::plugin::records_json(&bytes, Some(&[*b"DIAL", *b"INFO"]))?;
-    serde_json::from_str(&json).map_err(io::Error::other)
+    with_file_bytes(path, |bytes| {
+        let json = crate::plugin::records_json(bytes, Some(&[*b"DIAL", *b"INFO"]))?;
+        serde_json::from_str(&json).map_err(io::Error::other)
+    })
 }
 
 /// One record, as every plugin that defines it has it.
@@ -224,7 +246,7 @@ impl Session {
             .map(|n| (n, self.paths.get(&n.to_lowercase()).and_then(|(_, p)| std::fs::metadata(p).ok()).map_or(0, |m| m.len())))
             .collect();
         todo.sort_by_key(|t| std::cmp::Reverse(t.1));
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READERS).min(todo.len());
+        let threads = readers().min(MAX_READERS).min(todo.len());
         if threads <= 1 {
             for (name, _) in &todo {
                 self.dialogue(name);
@@ -353,7 +375,7 @@ impl Session {
             t.2 = self.paths.get(&t.0.to_lowercase()).and_then(|(_, p)| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
         }
         todo.sort_by_key(|t| std::cmp::Reverse(t.2));
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READERS).min(todo.len());
+        let threads = readers().min(MAX_READERS).min(todo.len());
         if threads <= 1 {
             for (name, tag, _) in &todo {
                 self.records(name, tag);
@@ -398,7 +420,7 @@ impl Session {
             let have = self.cell_keys.lock().unwrap();
             self.order.iter().map(|n| n.to_lowercase()).filter(|n| !have.contains_key(n)).collect()
         };
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(MAX_READERS).min(todo.len());
+        let threads = readers().min(MAX_READERS).min(todo.len());
         if threads <= 1 {
             for name in &todo {
                 let _ = self.plugin_cell_keys(name);

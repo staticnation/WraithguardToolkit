@@ -168,6 +168,9 @@ pub struct Links {
     use_index: Option<Arc<crate::cache::Cache>>,
     /// Set while the plugins the index lacks are being indexed (one run at a time).
     indexing: Arc<std::sync::atomic::AtomicBool>,
+    /// Held across Verify's warm-up: a second Verify (a double click, Check again) waits for the
+    /// first's reads and finds them cached, rather than start a second set beside them.
+    verify_warm: Mutex<()>,
 }
 
 impl Links {
@@ -212,6 +215,7 @@ impl Links {
             scratch: std::env::temp_dir().join("wraithguard-test"),
             use_index: None,
             indexing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            verify_warm: Mutex::new(()),
         }
     }
 
@@ -309,6 +313,7 @@ impl Links {
             tags.extend(VERIFY_TAGS);
             tags.sort_unstable();
             tags.dedup();
+            let _one_at_a_time = self.verify_warm.lock().unwrap_or_else(|p| p.into_inner());
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 self.session.warm(&tags);
                 self.session.warm_dialogue();
