@@ -245,3 +245,89 @@ fn probe_uses_index() {
         None => panic!("the index cannot answer after indexing every plugin"),
     }
 }
+
+/// Verify's dialogue: what a topic costs read from its own records against every plugin's dialogue
+/// read whole, and that the two agree (the records of the topic, and each response's topic).
+/// WG_TOPIC: the topic, lower case (default `greeting 0`).
+///   cargo test --release --test probe_find probe_dialogue -- --ignored --nocapture
+#[test]
+#[ignore]
+fn probe_dialogue() {
+    use serde_json::Value;
+    use std::collections::{HashMap, HashSet};
+    let plugins = load_order();
+    let want = std::env::var("WG_TOPIC").unwrap_or_else(|_| "greeting 0".into()).to_lowercase();
+    let session = Session::new(plugins);
+
+    let t = Instant::now();
+    session.warm_dialogue_index();
+    println!("every plugin's dialogue laid out (the framing) in {:?}", t.elapsed());
+
+    let t = Instant::now();
+    let fast: Vec<(String, std::sync::Arc<Vec<Value>>)> = session.order().iter().map(|p| (p.clone(), session.dialogue_for(p, &want))).collect();
+    let n: usize = fast.iter().map(|(_, r)| r.len()).sum();
+    println!("topic {want:?}: {n} record(s) from {} plugin(s), read from its own records in {:?}", fast.iter().filter(|(_, r)| !r.is_empty()).count(), t.elapsed());
+
+    // Some responses' topics from the framing, before the whole dialogue is read.
+    let sample: Vec<String> = fast.iter().flat_map(|(_, r)| r.iter()).filter(|r| r["type"] == "DialogueInfo").filter_map(|r| r["id"].as_str()).map(|s| s.to_lowercase()).take(40).collect();
+    let wanted: HashSet<String> = sample.iter().cloned().collect();
+    let t = Instant::now();
+    let owners = session.info_owners(&wanted);
+    println!("the topics of {} response(s) from the framing in {:?}", wanted.len(), t.elapsed());
+
+    let t = Instant::now();
+    session.warm_dialogue();
+    println!("every plugin's dialogue read whole in {:?}  (what Verify did, whatever the patch)", t.elapsed());
+
+    let mut bad = 0;
+    for (plugin, got) in &fast {
+        let whole = session.dialogue(plugin);
+        let mut expected: Vec<Value> = Vec::new();
+        let mut current = String::new();
+        for rec in whole.iter() {
+            let id = rec["id"].as_str().unwrap_or("").to_string();
+            match rec["type"].as_str() {
+                Some("Dialogue") => {
+                    current = id.to_lowercase();
+                    if current == want {
+                        expected.push(rec.clone());
+                    }
+                }
+                Some("DialogueInfo") if current == want => expected.push(rec.clone()),
+                _ => {}
+            }
+        }
+        if **got != expected {
+            bad += 1;
+            println!("DIFFERENT in {plugin}: {} record(s) from its own records, {} from the whole", got.len(), expected.len());
+        }
+    }
+    println!("the topic's records: {}", if bad == 0 { "the same in every plugin".to_string() } else { format!("{bad} plugin(s) DIFFERENT") });
+
+    let mut old: HashMap<String, String> = HashMap::new();
+    for plugin in session.order() {
+        let mut topic = String::new();
+        for rec in session.dialogue(plugin).iter() {
+            match rec["type"].as_str() {
+                Some("Dialogue") => topic = rec["id"].as_str().unwrap_or("").to_string(),
+                Some("DialogueInfo") if !topic.is_empty() => {
+                    let id = rec["id"].as_str().unwrap_or("").to_lowercase();
+                    if wanted.contains(&id) {
+                        old.insert(id, topic.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    match owners {
+        Some(o) if o == old => println!("the responses' topics: the same {} from the framing and the whole", o.len()),
+        Some(o) => {
+            println!("the responses' topics DIFFERENT: framing {} entries, whole {}", o.len(), old.len());
+            bad += 1;
+        }
+        None => println!("the responses' topics: the framing could not say (a name that is not ASCII)"),
+    }
+    assert_eq!(bad, 0);
+}
+

@@ -170,7 +170,7 @@ impl Editor {
         let mut latest = IndexMap::new();
         for plugin in self.session.order().to_vec() {
             let mut current = String::new();
-            for rec in self.session.dialogue(&plugin).iter() {
+            for rec in self.session.dialogue_for(&plugin, want).iter() {
                 match rec.get("type").and_then(Value::as_str) {
                     Some("Dialogue") => current = text(rec.get("id")).to_lowercase(),
                     Some("DialogueInfo") if current == want => {
@@ -192,7 +192,9 @@ impl Editor {
         let mut defs: Vec<Response> = Vec::new();
         let (mut spelled, mut kind) = (String::new(), String::new());
         for plugin in self.session.order().to_vec() {
-            let records = self.session.dialogue(&plugin);
+            // This topic's records of the plugin, not all its dialogue (what Verify and the
+            // topic view need of it).
+            let records = self.session.dialogue_for(&plugin, &want);
             for (tid, found) in responses_by_topic(&records[..], &plugin) {
                 if tid.to_lowercase() == want {
                     if spelled.is_empty() {

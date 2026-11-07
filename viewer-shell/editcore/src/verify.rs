@@ -655,22 +655,37 @@ impl Editor {
         land_heights(&found?)
     }
 
+    /// Whether the patch has anything Verify reads dialogue for: a response or a topic edited or
+    /// made (more than it needs, if anything: a warm-up it need not have done is cheap).
+    pub fn verify_needs_dialogue(&self) -> bool {
+        self.queue.fields().keys().any(|(t, _)| t == "DialogueInfo" || t == "Dialogue")
+            || self.queue.new_records().any(|m| m.record_type == "DialogueInfo" || m.record_type == "Dialogue")
+    }
+
     /// Each response's topic: lower-case id -> topic (the last plugin's word winning; the
     /// patch's own responses their own).
-    fn info_topics(&self) -> HashMap<String, String> {
-        let mut owner = HashMap::new();
-        for plugin in self.session.order() {
-            let mut topic = String::new();
-            for rec in self.session.dialogue(plugin).iter() {
-                match rec.get("type").and_then(Value::as_str) {
-                    Some("Dialogue") => topic = record_key(rec),
-                    Some("DialogueInfo") if !topic.is_empty() => {
-                        owner.insert(record_key(rec).to_lowercase(), topic.clone());
+    fn info_topics(&self, wanted: &[String]) -> HashMap<String, String> {
+        // Only the responses the patch changes are asked about: their topics come from where each
+        // plugin's records lie (the file's framing), without reading a response.
+        let mut owner = match self.session.info_owners(&wanted.iter().cloned().collect()) {
+            Some(owner) => owner,
+            None => {
+                let mut owner = HashMap::new();
+                for plugin in self.session.order() {
+                    let mut topic = String::new();
+                    for rec in self.session.dialogue(plugin).iter() {
+                        match rec.get("type").and_then(Value::as_str) {
+                            Some("Dialogue") => topic = record_key(rec),
+                            Some("DialogueInfo") if !topic.is_empty() => {
+                                owner.insert(record_key(rec).to_lowercase(), topic.clone());
+                            }
+                            _ => {}
+                        }
                     }
-                    _ => {}
                 }
+                owner
             }
-        }
+        };
         for made in self.queue.new_records() {
             if made.record_type == "DialogueInfo" && !made.topic.is_empty() {
                 owner.insert(made.key.to_lowercase(), made.topic.clone());
@@ -803,7 +818,7 @@ impl Editor {
         }
         let mut topics: BTreeMap<String, HashSet<String>> = BTreeMap::new();
         if !infos.is_empty() {
-            let owner = self.info_topics();
+            let owner = self.info_topics(&infos);
             for info in infos {
                 if let Some(t) = owner.get(&info) {
                     topics.entry(t.clone()).or_default().insert(info);

@@ -354,6 +354,17 @@
   index is read (it waits for it, so the Editor's first minute is not shared); with every plugin
   indexed already, which the index kept between runs is, it only looks and ends. A report asked
   before it finishes is answered by the scan, as before.
+- **Verify reads the dialogue it needs, not all of it** (Messages, 2026-11-07: the dialogue was
+  31.8 s of a 33.8 s "reading the load order"). Verify read every plugin's whole dialogue (every
+  topic, every response with its text and script) before it began, whatever the patch held, to
+  learn which topic a changed response is in and to read that topic. Now it reads none when the
+  patch has no response or topic to check; when it has, it lays out where each plugin's
+  topics and responses lie (the file's framing, `Session::dialogue_index_of`), names a changed
+  response's topic from that alone (`Session::info_owners`), and parses only the records of the
+  topic it checks (`Session::dialogue_for`, used by `Editor::topic` and `latest_responses`, so the
+  topic view reads one topic too, not every plugin's dialogue). A name that is not ASCII, or a
+  dialogue the tests read through their own reader, takes the old way. Tested against the whole
+  dialogue; `probe_dialogue` (`tests/probe_find.rs`) checks it against the real load order.
 - **A Use Report no longer reads every object type whole, and the key index no longer stamps
   every plugin for each question** (`Links::uses_link`, `Session::stamps`, `Cache::*_stamped`).
   After its hits, each Use Report read every record of 25 object types from every plugin (to

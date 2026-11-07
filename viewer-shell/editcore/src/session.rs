@@ -131,6 +131,13 @@ pub struct Session {
     /// subrecord framing alone (`cell_keys_of`): which plugins have a cell is known without
     /// parsing a cell, and a cell's references are most of a plugin.
     cell_keys: Mutex<HashMap<String, Arc<HashSet<String>>>>,
+    /// Per plugin: where each topic's records lie in the file (`dialogue_index_of`), so a topic
+    /// is read without reading the plugin's other topics. Only while `framing_dialogue`.
+    dialogue_index: Mutex<HashMap<String, Arc<DialogueIndex>>>,
+    /// `(plugin, topic)`: that topic's records of that plugin, read from the index's ranges.
+    dialogue_topic: Mutex<HashMap<(String, String), Arc<Vec<Value>>>>,
+    /// The dialogue is the plugin files' own (not a reader the tests give): the index applies.
+    framing_dialogue: bool,
     /// Bumped when a plugin is forgotten: a read begun before it may be of the file as it was,
     /// and is not kept.
     generation: AtomicU64,
@@ -196,6 +203,9 @@ impl Session {
             masters: Mutex::default(),
             home: Mutex::default(),
             cell_keys: Mutex::default(),
+            dialogue_index: Mutex::default(),
+            dialogue_topic: Mutex::default(),
+            framing_dialogue: true,
             generation: AtomicU64::new(0),
             reading: Mutex::default(),
             reading_done: Condvar::new(),
@@ -221,6 +231,8 @@ impl Session {
         self.home.lock().unwrap().remove(&name);
         self.dialogue.lock().unwrap().remove(&name);
         self.cell_keys.lock().unwrap().remove(&name);
+        self.dialogue_index.lock().unwrap().remove(&name);
+        self.dialogue_topic.lock().unwrap().retain(|(p, _), _| *p != name);
         self.ids.lock().unwrap().retain(|(p, _), _| *p != name);
         *self.stamp_memo.lock().unwrap() = None;
         true
@@ -241,6 +253,7 @@ impl Session {
     /// The session, reading a plugin's topics and responses through `read_dialogue`.
     pub fn with_read_dialogue(mut self, read_dialogue: Box<ReadAll>) -> Session {
         self.read_dialogue = read_dialogue;
+        self.framing_dialogue = false;
         self
     }
 
@@ -276,6 +289,125 @@ impl Session {
         let found = Arc::new(found);
         self.dialogue.lock().unwrap().insert(low, found.clone());
         found
+    }
+
+    /// A plugin's dialogue laid out from the file's framing (`dialogue_index_of`): read once;
+    /// `None` when the file cannot be read, or the dialogue is not the files' own.
+    fn plugin_dialogue_index(&self, lower: &str) -> Option<Arc<DialogueIndex>> {
+        if !self.framing_dialogue {
+            return None;
+        }
+        if let Some(i) = self.dialogue_index.lock().unwrap().get(lower) {
+            return Some(i.clone());
+        }
+        let (_, path) = self.paths.get(lower)?;
+        let generation = self.generation.load(Ordering::SeqCst);
+        let index = Arc::new(with_file_bytes(path, |bytes| Ok(dialogue_index_of(bytes))).ok()?);
+        if self.generation.load(Ordering::SeqCst) == generation {
+            self.dialogue_index.lock().unwrap().insert(lower.to_string(), index.clone());
+        }
+        Some(index)
+    }
+
+    /// Lays out every plugin's dialogue not laid out yet, on several threads (the file framing
+    /// alone: a second or two warm, the disk's time cold). Where the index does not apply, the
+    /// whole dialogue is read instead (`warm_dialogue`).
+    pub fn warm_dialogue_index(&self) {
+        if !self.framing_dialogue {
+            return self.warm_dialogue();
+        }
+        let todo: Vec<String> = {
+            let have = self.dialogue_index.lock().unwrap();
+            self.order.iter().map(|n| n.to_lowercase()).filter(|n| !have.contains_key(n)).collect()
+        };
+        let threads = readers().min(todo.len());
+        if threads <= 1 {
+            for name in &todo {
+                let _ = self.plugin_dialogue_index(name);
+            }
+            return;
+        }
+        let next = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    while let Some(name) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
+                        let _ = self.plugin_dialogue_index(name);
+                    }
+                });
+            }
+        });
+    }
+
+    /// One plugin's records of one topic (`want`, lower case): its DIAL record and the INFO
+    /// records after it, in file order - what [`Session::dialogue`] has of that topic, read
+    /// from the index's ranges without the plugin's other topics. Where the index does not
+    /// apply (a name that is not ASCII, a plugin it cannot lay out), the whole dialogue: the
+    /// callers pick their topic out of it either way.
+    pub fn dialogue_for(&self, plugin: &str, want: &str) -> Arc<Vec<Value>> {
+        let low = plugin.to_lowercase();
+        if let Some(whole) = self.dialogue.lock().unwrap().get(&low) {
+            return whole.clone();
+        }
+        if want.is_ascii()
+            && let Some(hit) = self.dialogue_topic.lock().unwrap().get(&(low.clone(), want.to_string()))
+        {
+            return hit.clone();
+        }
+        if want.is_ascii()
+            && let Some(index) = self.plugin_dialogue_index(&low)
+            && let Some((_, path)) = self.paths.get(&low)
+        {
+            let generation = self.generation.load(Ordering::SeqCst);
+            let mut buf: Vec<u8> = Vec::new();
+            let copied = with_file_bytes(path, |bytes| {
+                for b in index.blocks.iter().filter(|b| b.lower == want) {
+                    buf.extend_from_slice(bytes.get(b.dial.0..b.dial.1).ok_or_else(|| io::Error::other("the plugin changed"))?);
+                    for (_, s, e) in &b.infos {
+                        buf.extend_from_slice(bytes.get(*s..*e).ok_or_else(|| io::Error::other("the plugin changed"))?);
+                    }
+                }
+                Ok(())
+            });
+            if copied.is_ok() {
+                let records: Option<Vec<Value>> = if buf.is_empty() {
+                    Some(Vec::new())
+                } else {
+                    crate::plugin::records_json(&buf, Some(&[*b"DIAL", *b"INFO"])).ok().and_then(|j| serde_json::from_str(&j).ok())
+                };
+                if let Some(records) = records {
+                    let records = Arc::new(records);
+                    if self.generation.load(Ordering::SeqCst) == generation {
+                        self.dialogue_topic.lock().unwrap().insert((low, want.to_string()), records.clone());
+                    }
+                    return records;
+                }
+            }
+        }
+        self.dialogue(plugin)
+    }
+
+    /// Which topic each response (`wanted`: lower-case ids) belongs to, the last plugin's word
+    /// winning: id -> topic as its plugin spells it, from the index alone - no record read.
+    /// `None` when it cannot say (a name that is not ASCII, no plugin it can lay out).
+    pub fn info_owners(&self, wanted: &HashSet<String>) -> Option<HashMap<String, String>> {
+        if !self.framing_dialogue || wanted.iter().any(|w| !w.is_ascii()) {
+            return None;
+        }
+        let (mut owner, mut readable, mut odd) = (HashMap::new(), 0usize, false);
+        for name in &self.order {
+            let Some(index) = self.plugin_dialogue_index(&name.to_lowercase()) else { continue };
+            readable += 1;
+            for b in &index.blocks {
+                for (id, _, _) in &b.infos {
+                    if wanted.contains(id) {
+                        odd |= !b.topic.is_ascii();
+                        owner.insert(id.clone(), b.topic.clone());
+                    }
+                }
+            }
+        }
+        (readable > 0 && !odd).then_some(owner)
     }
 
     /// Reads, on several threads, the topics and responses of every plugin not read yet (the
@@ -928,6 +1060,46 @@ fn same_file(a: &Path, b: &Path) -> bool {
     matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
 }
 
+/// One topic's block in a plugin: its DIAL record and the INFO records that follow it.
+pub(crate) struct TopicBlock {
+    /// The topic as the plugin spells it, and lower case.
+    pub topic: String,
+    pub lower: String,
+    /// The DIAL record's bytes in the file, header included.
+    pub dial: (usize, usize),
+    /// Each response after it: its id (lower case) and its bytes.
+    pub infos: Vec<(String, usize, usize)>,
+}
+
+/// Where a plugin's topics and responses lie, from the record and subrecord framing alone.
+pub(crate) struct DialogueIndex {
+    pub blocks: Vec<TopicBlock>,
+}
+
+/// A plugin's topic blocks, in file order. A response belongs to the DIAL before it; one
+/// before any is nobody's (as `Session::dialogue`'s readers treat it).
+pub(crate) fn dialogue_index_of(raw: &[u8]) -> DialogueIndex {
+    let base = raw.as_ptr() as usize;
+    let id_of = |body: &[u8], sub: &[u8; 4]| -> String {
+        let found = crate::frames::subrecords(body).find(|(t, _)| *t == sub).map(|(_, d)| d).unwrap_or(&[]);
+        found.iter().take_while(|&&b| b != 0).map(|&b| b as char).collect()
+    };
+    let mut blocks: Vec<TopicBlock> = Vec::new();
+    for (tag, body) in crate::frames::records(raw) {
+        let end = body.as_ptr() as usize - base + body.len();
+        let start = body.as_ptr() as usize - base - 16;
+        if tag == b"DIAL" {
+            let topic = id_of(body, b"NAME");
+            blocks.push(TopicBlock { lower: topic.to_lowercase(), topic, dial: (start, end), infos: Vec::new() });
+        } else if tag == b"INFO"
+            && let Some(block) = blocks.last_mut()
+        {
+            block.infos.push((id_of(body, b"INAM").to_lowercase(), start, end));
+        }
+    }
+    DialogueIndex { blocks }
+}
+
 /// The keys (lower case) of the CELL records in a plugin's bytes, from the record and
 /// subrecord framing alone: an interior's name (its `IS_INTERIOR` flag, the first bit of
 /// `DATA`'s flags), an exterior's `(x, y)` from `DATA`'s grid - the key `record_key` gives the
@@ -1305,6 +1477,107 @@ mod key_only_tests {
         assert_eq!(cache.all_keys_stamped(&st, "STAT").map(|k| k.len()), Some(2));
         assert_eq!(cache.holders_stamped(&st, "STAT", "rock"), Some(vec![0, 1]));
         assert_eq!(cache.holders_stamped(&st, "STAT", "tree"), cache.holders(&paths, "STAT", "tree"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A plugin of three topics, the first twice (two blocks), with a response before any topic.
+    fn dialogue_plugin() -> Vec<u8> {
+        use tes3::esp::TES3Object;
+        // Whole records, as the crate's own types write them (every field the format has).
+        let topic = |id: &str| {
+            let mut v = serde_json::to_value(TES3Object::Dialogue(Default::default())).unwrap();
+            v["id"] = id.into();
+            v
+        };
+        let info = |id: &str, text: &str| {
+            let mut v = serde_json::to_value(TES3Object::DialogueInfo(Default::default())).unwrap();
+            v["id"] = id.into();
+            v["text"] = text.into();
+            v
+        };
+        let records = vec![
+            info("0900", "before any topic"),
+            topic("Greeting 0"),
+            info("1001", "one"),
+            info("1002", "two"),
+            topic("Other Topic"),
+            info("2001", "three"),
+            topic("greeting 0"),
+            info("1003", "four"),
+        ];
+        crate::plugin::records_bytes(&serde_json::Value::Array(records).to_string()).unwrap()
+    }
+
+    #[test]
+    fn a_plugins_dialogue_is_laid_out_from_its_framing() {
+        let raw = dialogue_plugin();
+        let index = super::dialogue_index_of(&raw);
+        let shape: Vec<(String, Vec<String>)> = index.blocks.iter().map(|b| (b.topic.clone(), b.infos.iter().map(|i| i.0.clone()).collect())).collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("Greeting 0".to_string(), vec!["1001".to_string(), "1002".to_string()]),
+                ("Other Topic".to_string(), vec!["2001".to_string()]),
+                ("greeting 0".to_string(), vec!["1003".to_string()]),
+            ]
+        );
+        // Each range is one whole record.
+        for b in &index.blocks {
+            assert_eq!(&raw[b.dial.0..b.dial.0 + 4], b"DIAL");
+            for (_, s, e) in &b.infos {
+                assert_eq!(&raw[*s..*s + 4], b"INFO");
+                assert!(*e > *s + 16 && *e <= raw.len());
+            }
+        }
+    }
+
+    #[test]
+    fn a_topic_read_from_its_own_records_is_what_the_whole_dialogue_has_of_it() {
+        let dir = scratch("dialogue-topic");
+        let p = dir.join("t.esp");
+        std::fs::write(&p, dialogue_plugin()).unwrap();
+        let session = Session::new(vec![("t.esp".into(), p.clone())]);
+        for want in ["greeting 0", "other topic", "no such topic"] {
+            // What the whole dialogue has of the topic, picked out the way its readers pick it.
+            let whole = Session::new(vec![("t.esp".into(), p.clone())]).dialogue("t.esp");
+            let mut expected: Vec<Value> = Vec::new();
+            let mut current = String::new();
+            for rec in whole.iter() {
+                let id = rec.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                match rec.get("type").and_then(Value::as_str) {
+                    Some("Dialogue") => {
+                        current = id.to_lowercase();
+                        if current == want {
+                            expected.push(rec.clone());
+                        }
+                    }
+                    Some("DialogueInfo") if current == want => expected.push(rec.clone()),
+                    _ => {}
+                }
+            }
+            assert_eq!(*session.dialogue_for("t.esp", want), expected, "{want}");
+        }
+        // Once the whole dialogue is read, that is what answers.
+        let whole = session.dialogue("t.esp");
+        assert!(std::sync::Arc::ptr_eq(&session.dialogue_for("t.esp", "greeting 0"), &whole));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_responses_topic_comes_from_the_framing_the_last_block_winning() {
+        let dir = scratch("dialogue-owner");
+        let p = dir.join("o.esp");
+        std::fs::write(&p, dialogue_plugin()).unwrap();
+        let session = Session::new(vec![("o.esp".into(), p.clone())]);
+        let wanted: std::collections::HashSet<String> = ["1002", "2001", "1003", "0900", "9999"].iter().map(|s| s.to_string()).collect();
+        let owner = session.info_owners(&wanted).expect("the index applies");
+        let mut got: Vec<(&str, &str)> = owner.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        got.sort();
+        // 0900 has no topic before it, and 9999 is nowhere.
+        assert_eq!(got, vec![("1002", "Greeting 0"), ("1003", "greeting 0"), ("2001", "Other Topic")]);
+        // Not where the dialogue is the tests' own reader's.
+        let mocked = Session::new(vec![("o.esp".into(), p.clone())]).with_read_dialogue(Box::new(|_| Ok(Vec::new())));
+        assert!(mocked.info_owners(&wanted).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

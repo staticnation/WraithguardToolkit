@@ -352,7 +352,10 @@ impl Links {
     /// `editDialoguePlay` 71 s, `editLandPending` 40 s, each held the Editor while it read
     /// one plugin after another, and the links asked meanwhile waited).
     fn warm_for(&self, name: &str) {
-        if DIALOGUE_LINKS.contains(&name) {
+        if name == "editTopic" {
+            // One topic: where each plugin's records of it lie, not every plugin's dialogue read whole.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm_dialogue_index()));
+        } else if DIALOGUE_LINKS.contains(&name) {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.session.warm_dialogue()));
         } else if name == "editVerify" {
             // Verify checks the ids its records name against every type's ids over the load
@@ -373,7 +376,12 @@ impl Links {
                 let ids_ms = t.elapsed().as_millis() as u64;
                 self.session.warm(&["GMST"]);
                 let settings_ms = t.elapsed().as_millis() as u64 - ids_ms;
-                self.session.warm_dialogue();
+                // Dialogue only when the patch has a response or a topic to check, and then only
+                // where each plugin's topics lie: the topics' own records are read when asked.
+                let needs = self.editor.lock().unwrap_or_else(|p| p.into_inner()).verify_needs_dialogue();
+                if needs {
+                    self.session.warm_dialogue_index();
+                }
                 let dialogue_ms = t.elapsed().as_millis() as u64 - ids_ms - settings_ms;
                 *self.verify_parts.lock().unwrap_or_else(|p| p.into_inner()) = [wait_ms, ids_ms, settings_ms, dialogue_ms];
             }));
@@ -595,7 +603,6 @@ const VERIFY_TAGS: [&str; 14] = ["CELL", "CLAS", "ENCH", "FACT", "GLOB", "GMST",
 /// The links that read the topics and responses of the plugins (`Session::dialogue`).
 const DIALOGUE_LINKS: &[&str] = &[
     "editTopics",
-    "editTopic",
     "editNewResponse",
     "editMoveResponse",
     "editCopyTopic",
