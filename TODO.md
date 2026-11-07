@@ -151,6 +151,13 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
 ## Release and CI
 
+- The dependency audit (`audit.yml`, first run 2026-11-07: no vulnerability in any of the 15
+  `Cargo.lock`, none in the page tests' npm lockfile) warns of four things in
+  `viewer-shell/Cargo.lock`: `paste` 1.0.15 and `proc-macro-error` 1.0.4 (unmaintained),
+  `glib` 0.18.5 (`RUSTSEC-2024-0429`, unsound; it comes in with Tauri's Linux stack, so a
+  Tauri bump is the way off it), `tokio` 1.53.1 (`RUSTSEC-2026-0386`, `AsyncFd` I/O safety,
+  published 2026-10-13: `cargo update -p tokio` when a fixed release is out) and a yanked
+  `yoke-derive` 0.8.3 (`cargo update -p yoke-derive`). None fails the job.
 - `viewer-shell/physcore`'s tests and clippy are in neither `ci.yml` nor
   `build_and_check_rust.ps1` yet: add them to both.
 - Actions are pinned to a commit of their current major; moving to the Node 24 majors
