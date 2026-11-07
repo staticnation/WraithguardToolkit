@@ -366,6 +366,11 @@
   now asked once and shared for a second and a half.
 - Verify's "reading the load order" line says where the time went: waited for another Verify,
   the ids, the game settings, the dialogue (`took.parts`).
+- **The Editor's record cache holds 4 GiB, not 1** (`cache::RECORD_CACHE_BYTES`). Over its size a
+  cache dropped the largest type whole, silently (the warning went to a console a window program
+  has not got): the dialogue, the biggest, was dropped when a placed cell's records pushed it
+  over, and the next Verify read it again (Messages, 2026-11-07: dialogue 31.8 s of a 33.8 s
+  reading). Verify's line now ends with the cache's size and how often it dropped something.
 - **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
   runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
   Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the

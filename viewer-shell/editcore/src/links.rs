@@ -228,7 +228,7 @@ impl Links {
     /// type and which keys it has, valid while the plugin's size and date are the same.
     pub fn with_record_cache(self, path: PathBuf) -> Links {
         let parser = format!("editcore-records-1-{}", env!("CARGO_PKG_VERSION"));
-        self.session.set_disk_cache(Arc::new(crate::cache::Cache::new(path, &parser, crate::cache::MAX_BYTES)));
+        self.session.set_disk_cache(Arc::new(crate::cache::Cache::new(path, &parser, crate::cache::RECORD_CACHE_BYTES)));
         self
     }
 
@@ -574,6 +574,9 @@ impl Links {
                 let [wait, ids, settings, dialogue] = *self.verify_parts.lock().unwrap_or_else(|p| p.into_inner());
                 v["took"] = json!({"read_ms": read_ms as u64, "lock_ms": lock_ms as u64, "check_ms": check_ms as u64,
                     "parts": {"wait_ms": wait, "ids_ms": ids, "settings_ms": settings, "dialogue_ms": dialogue}});
+                if let Some((bytes, drops)) = self.session.disk_cache_info() {
+                    v["took"]["cache"] = json!({"mb": bytes / (1 << 20), "drops": drops});
+                }
                 return v.to_string();
             }
             text

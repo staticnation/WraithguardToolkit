@@ -534,6 +534,12 @@ impl Session {
         self.order.iter().map(|n| self.records(n, tag)).collect()
     }
 
+    /// The disk cache's size in bytes and how many times it dropped something for size this
+    /// run (`None` without one).
+    pub fn disk_cache_info(&self) -> Option<(i64, usize)> {
+        self.disk.get().map(|d| (d.size_bytes(), d.drops()))
+    }
+
     /// The plugins' stamps (size and date), each file asked once and kept for a second and a
     /// half: the key index is asked about thirty types in a Verify and twenty-five in a Use
     /// Report, and each question stamped every file (about 1,200 `stat`s a question: seconds).

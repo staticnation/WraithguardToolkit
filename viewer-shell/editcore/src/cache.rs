@@ -29,6 +29,12 @@ pub const SCHEMA: i64 = 5;
 /// How much of the file the record bodies may take before the largest tag's go.
 pub const MAX_BYTES: u64 = 1 << 30;
 
+/// The Editor's record cache holds a plugin's records of every type it has read and every
+/// plugin's dialogue: more than the other caches, and a cache over its size drops a whole type
+/// (the largest first), which the next read pays for again - 30 s for the dialogue (Messages,
+/// 2026-11-07).
+pub const RECORD_CACHE_BYTES: u64 = 4 << 30;
+
 /// Reports kept for the load order as it is (the oldest go first).
 pub const REPORTS_KEPT: i64 = 2000;
 
@@ -95,6 +101,9 @@ pub struct Cache {
     pub max_bytes: u64,
     state: Mutex<State>,
     warn: Box<Warn>,
+    /// How many times a type's records or the use index were dropped for size, since this
+    /// run began (`drops`: the warning goes to a console a window program has not got).
+    drops: std::sync::atomic::AtomicUsize,
 }
 
 fn locked(e: &rusqlite::Error) -> bool {
@@ -114,7 +123,7 @@ impl Cache {
 
     /// As [`Cache::new`], with warnings going to `warn`.
     pub fn with_warn(path: PathBuf, parser: &str, max_bytes: u64, warn: Box<Warn>) -> Cache {
-        Cache { path, parser: parser.to_string(), max_bytes, state: Mutex::new(State { conn: None, dead: false }), warn }
+        Cache { path, parser: parser.to_string(), max_bytes, state: Mutex::new(State { conn: None, dead: false }), warn, drops: std::sync::atomic::AtomicUsize::new(0) }
     }
 
     /// Runs `f` on the open connection; `None` when the cache cannot be had.
@@ -320,6 +329,7 @@ impl Cache {
             dropped += 1;
         }
         if dropped > 0 {
+            self.drops.fetch_add(dropped, std::sync::atomic::Ordering::SeqCst);
             self.shrink(c);
         }
     }
@@ -334,6 +344,11 @@ impl Cache {
         if let Err(e) = c.execute_batch("VACUUM; PRAGMA wal_checkpoint(TRUNCATE);") {
             (self.warn)(&format!("editor: record cache could not be compacted: {e}"));
         }
+    }
+
+    /// How many times something was dropped for size since this run began.
+    pub fn drops(&self) -> usize {
+        self.drops.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The bytes of the database in use (0 when the cache is out).

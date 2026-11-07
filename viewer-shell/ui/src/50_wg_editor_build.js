@@ -125,7 +125,7 @@ Object.assign(WgEditor, {
       this._verify=await this.ask('editVerify', {});
       const t=this._verify && this._verify.took;
       if(t && typeof WgLog==='object' && WgLog.add)
-        WgLog.add('Verify: reading the load order '+(t.read_ms/1000).toFixed(1)+' s, waiting for the Editor '+(t.lock_ms/1000).toFixed(1)+' s, checking '+(t.check_ms/1000).toFixed(1)+' s'+(t.parts?' (reading: waited '+(t.parts.wait_ms/1000).toFixed(1)+' s, ids '+(t.parts.ids_ms/1000).toFixed(1)+' s, settings '+(t.parts.settings_ms/1000).toFixed(1)+' s, dialogue '+(t.parts.dialogue_ms/1000).toFixed(1)+' s)':''), 'warn');
+        WgLog.add('Verify: reading the load order '+(t.read_ms/1000).toFixed(1)+' s, waiting for the Editor '+(t.lock_ms/1000).toFixed(1)+' s, checking '+(t.check_ms/1000).toFixed(1)+' s'+(t.parts?' (reading: waited '+(t.parts.wait_ms/1000).toFixed(1)+' s, ids '+(t.parts.ids_ms/1000).toFixed(1)+' s, settings '+(t.parts.settings_ms/1000).toFixed(1)+' s, dialogue '+(t.parts.dialogue_ms/1000).toFixed(1)+' s'+(t.cache?'; cache '+t.cache.mb+' MB, dropped '+t.cache.drops+'x':'')+')':''), 'warn');
     }
     catch(e){ body.innerHTML='<div class="hint edBad">'+escHtml(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''))+'</div>'; return null; }
     const sel=d.querySelector('#edVerCheck'), was=sel.value;
