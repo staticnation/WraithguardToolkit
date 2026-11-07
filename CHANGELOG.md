@@ -364,6 +364,8 @@
   for each of thirty types in a Verify and twenty-five in a report: the 3-9 s Verify spent
   "reading the load order" warm and the 3.6-3.9 s of every later report. The plugins' stamps are
   now asked once and shared for a second and a half.
+- Verify's "reading the load order" line says where the time went: waited for another Verify,
+  the ids, the game settings, the dialogue (`took.parts`).
 - **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
   runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
   Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the

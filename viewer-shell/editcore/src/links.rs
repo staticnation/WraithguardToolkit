@@ -171,6 +171,9 @@ pub struct Links {
     /// Held across Verify's warm-up: a second Verify (a double click, Check again) waits for the
     /// first's reads and finds them cached, rather than start a second set beside them.
     verify_warm: Mutex<()>,
+    /// Where Verify's last warm-up went, in ms: waiting for another's, the ids, the game
+    /// settings, the dialogue (told in its answer, `took.parts`).
+    verify_parts: Mutex<[u64; 4]>,
 }
 
 impl Links {
@@ -216,6 +219,7 @@ impl Links {
             use_index: None,
             indexing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             verify_warm: Mutex::new(()),
+            verify_parts: Mutex::new([0; 4]),
         }
     }
 
@@ -358,13 +362,20 @@ impl Links {
             tags.extend(VERIFY_TAGS);
             tags.sort_unstable();
             tags.dedup();
+            let t_wait = std::time::Instant::now();
             let _one_at_a_time = self.verify_warm.lock().unwrap_or_else(|p| p.into_inner());
+            let wait_ms = t_wait.elapsed().as_millis() as u64;
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let t = std::time::Instant::now();
                 // The ids: from the key index, or the files' framing - no record parsed. Only the
                 // game settings are read whole (a few records), and a land is read when a cell asks.
                 self.session.warm_ids(&tags);
+                let ids_ms = t.elapsed().as_millis() as u64;
                 self.session.warm(&["GMST"]);
+                let settings_ms = t.elapsed().as_millis() as u64 - ids_ms;
                 self.session.warm_dialogue();
+                let dialogue_ms = t.elapsed().as_millis() as u64 - ids_ms - settings_ms;
+                *self.verify_parts.lock().unwrap_or_else(|p| p.into_inner()) = [wait_ms, ids_ms, settings_ms, dialogue_ms];
             }));
         } else if name == "editLandPending" {
             // Only when the patch has landscape changes, which are looked up in every plugin's LAND.
@@ -560,7 +571,9 @@ impl Links {
                 && let Ok(mut v) = serde_json::from_str::<Value>(&text)
                 && v.is_object()
             {
-                v["took"] = json!({"read_ms": read_ms as u64, "lock_ms": lock_ms as u64, "check_ms": check_ms as u64});
+                let [wait, ids, settings, dialogue] = *self.verify_parts.lock().unwrap_or_else(|p| p.into_inner());
+                v["took"] = json!({"read_ms": read_ms as u64, "lock_ms": lock_ms as u64, "check_ms": check_ms as u64,
+                    "parts": {"wait_ms": wait, "ids_ms": ids, "settings_ms": settings, "dialogue_ms": dialogue}});
                 return v.to_string();
             }
             text
