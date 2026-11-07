@@ -139,7 +139,8 @@ Object.assign(WgEditor, {
     const body=d.querySelector('#edVerBody'), only=d.querySelector('#edVerCheck').value;
     const rows=v.findings.filter(f=>!only || f.check===only);
     const errs=v.findings.filter(f=>f.level==='error').length;
-    const head='<div class="hint">'+v.checked+' record'+(v.checked===1?'':'s')+' checked: '+
+    // A placed copy or a new record is not checked, so a patch of only those has none to check.
+    const head='<div class="hint">'+(v.checked? v.checked+' record'+(v.checked===1?'':'s')+' checked' : 'No edited records to check (placed copies and new records are not checked)')+': '+
       (v.findings.length? errs+' error'+(errs===1?'':'s')+', '+(v.findings.length-errs)+' warning'+(v.findings.length-errs===1?'':'s') : 'nothing found')+'</div>';
     body.innerHTML=head+(rows.length? '<table class="edVerTable"><thead><tr><th></th><th>Check</th><th>Record</th><th>Field</th><th>What is wrong</th></tr></thead><tbody>'+
       rows.map((f,i)=>'<tr data-i="'+i+'" class="'+escHtml(f.level)+'" title="Double-click: open '+escHtml(f.id)+'"><td>'+(f.level==='error'? '✖' : '⚠')+'</td><td>'+escHtml(f.check)+'</td><td>'+escHtml((this.NAMES[f.tag]||f.tag)+' '+f.id)+'</td><td>'+escHtml(f.path)+'</td><td>'+escHtml(f.message)+'</td></tr>').join('')+

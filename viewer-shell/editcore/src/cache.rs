@@ -241,7 +241,10 @@ impl Cache {
     /// One plugin's cached body of a tag, when the plugin is unchanged since; else `None`.
     pub fn get(&self, plugin: &Path, tag: &str) -> Option<Vec<u8>> {
         let s = stamp(plugin)?;
-        self.with(|c| {
+        // The stored bytes are fetched under the connection's lock and unpacked after it is let
+        // go: threads reading many plugins at once each unpack their own, rather than take turns
+        // at it (Messages, 2026-11-06: a type's columns took 16 s on a warm cache).
+        let data = self.with(|c| {
             let row: Option<(i64, i64, Vec<u8>)> = c
                 .query_row("SELECT size, mtime_ns, data FROM records WHERE plugin=? AND tag=?", params![s.key, tag], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -252,8 +255,9 @@ impl Cache {
             if size != s.size || mtime != s.mtime_ns {
                 return None;
             }
-            zstd::decode_all(data.as_slice()).ok()
-        })
+            Some(data)
+        })?;
+        zstd::decode_all(data.as_slice()).ok()
     }
 
     /// Keeps a plugin's body of a tag, as the plugin is now; `keys` (lower case) indexes

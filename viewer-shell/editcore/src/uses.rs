@@ -220,7 +220,9 @@ fn scan(data: &[u8], plugin: usize, record_type: &str, want: &str, words: &Finde
 pub fn report(paths: &[PathBuf], record_type: &str, id: &str) -> Vec<Use> {
     let want = id.trim().to_lowercase();
     let words = Finder::new(&want, true);
-    let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 16).min(paths.len().max(1));
+    // Not every core: a scan of every plugin file held the rest of the Editor up while it ran
+    // (Messages, 2026-11-06: the columns and a place took tens of seconds beside it).
+    let n = std::thread::available_parallelism().map_or(4, |n| n.get().saturating_sub(2)).clamp(2, 8).min(paths.len().max(1));
     let mut results: Vec<Option<(Vec<Use>, HashSet<([u8; 4], String)>)>> = (0..paths.len()).map(|_| None).collect();
     std::thread::scope(|s| {
         let handles: Vec<_> = (0..n)

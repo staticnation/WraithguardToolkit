@@ -165,6 +165,9 @@ impl Drop for Claim<'_> {
 /// The most plugins read at once.
 const MAX_READERS: usize = 16;
 
+/// What a plugin's topics and responses are kept under in the disk cache (not a record tag).
+const DIALOGUE_TAG: &str = "~DIALOGUE";
+
 impl Session {
     /// A session over the load order `(file name, path)`, reading the files.
     pub fn new(plugins: Vec<(String, PathBuf)>) -> Session {
@@ -243,11 +246,26 @@ impl Session {
         if let Some(hit) = self.dialogue.lock().unwrap().get(&low) {
             return hit.clone();
         }
+        let generation = self.generation.load(Ordering::SeqCst);
         let mut found = Vec::new();
         if let Some((_, path)) = self.paths.get(&low) {
-            match (self.read_dialogue)(path) {
-                Ok(recs) => found = recs,
-                Err(e) => eprintln!("editor: cannot read {}: {e}", path.display()),
+            // From the disk cache when the plugin is as it was read (every launch read every
+            // plugin's dialogue again, for Verify and the topics), else from the plugin.
+            let kept = self.disk.get().and_then(|d| d.get(path, DIALOGUE_TAG)).and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok());
+            match kept {
+                Some(recs) => found = recs,
+                None => match (self.read_dialogue)(path) {
+                    Ok(recs) => {
+                        if let Some(d) = self.disk.get()
+                            && self.generation.load(Ordering::SeqCst) == generation
+                            && let Ok(body) = serde_json::to_vec(&recs)
+                        {
+                            d.put(path, DIALOGUE_TAG, &body, None);
+                        }
+                        found = recs;
+                    }
+                    Err(e) => eprintln!("editor: cannot read {}: {e}", path.display()),
+                },
             }
         }
         let found = Arc::new(found);
@@ -1203,6 +1221,35 @@ mod key_only_tests {
         std::fs::write(&p, [named(b"STAT", "Rock_A"), named(b"STAT", "Rock_B")].concat()).unwrap();
         assert_eq!(session(reads.clone()).records("r.esp", "STAT").len(), 2);
         assert_eq!(reads.load(Ordering::SeqCst), 2, "a changed plugin is read again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dialogue_read_once_comes_from_the_disk_cache_until_the_plugin_changes() {
+        use crate::cache::Cache;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let dir = scratch("dialogue");
+        let p = dir.join("d.esp");
+        std::fs::write(&p, named(b"DIAL", "greeting 0")).unwrap();
+        let cache = Arc::new(Cache::new(dir.join("c.sqlite3"), "t", 1 << 24));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let session = |reads: Arc<AtomicUsize>| {
+            let s = Session::new(vec![("d.esp".into(), p.clone())]).with_read_dialogue(Box::new(move |path| {
+                reads.fetch_add(1, Ordering::SeqCst);
+                super::read_dialogue(path)
+            }));
+            s.set_disk_cache(cache.clone());
+            s
+        };
+        let first = session(reads.clone()).dialogue("d.esp");
+        assert_eq!(first.len(), 1);
+        let again = session(reads.clone()).dialogue("d.esp");
+        assert_eq!(reads.load(Ordering::SeqCst), 1, "the second run read nothing");
+        assert_eq!(*first, *again);
+        std::fs::write(&p, [named(b"DIAL", "greeting 0"), named(b"DIAL", "greeting 1")].concat()).unwrap();
+        assert_eq!(session(reads.clone()).dialogue("d.esp").len(), 2);
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

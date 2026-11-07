@@ -330,6 +330,15 @@
 
 ### Fixed
 
+- **The disk cache's reads no longer take turns, the dialogue is kept, and the Use Report scan
+  leaves cores free** (Messages, 2026-11-06, a warm second launch: `editColumns` 16 s, `editUses`
+  36 s, `editPlace` 10.9 s). A cached body was unpacked (zstd) while the cache's one connection
+  was locked, so threads reading many plugins at once took turns at it; it is now fetched under
+  the lock and unpacked after (`Cache::get`). A plugin's topics and responses are kept between
+  runs as its records are (`Session::dialogue`, under `~DIALOGUE`, tested to be read once until
+  the plugin changes). The Use Report's scan uses at most eight threads and leaves two cores
+  free, as the warm-ups do (`uses::report`). Verify's header no longer says "0 records checked:
+  nothing found" of a patch that has only placed copies and new records, which are not checked.
 - **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
   runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
   Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the
