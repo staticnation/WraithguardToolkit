@@ -37,18 +37,23 @@ jobs:
       matrix:
         language: [javascript-typescript, rust]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      # The other workflows pin each action to a commit. GitHub's own advice for CodeQL is the
-      # major tag, which follows its fixes and query updates; pin it to a commit (and let
-      # Dependabot move it) if you want it to match them.
-      - uses: github/codeql-action/init@v4
+      - name: Strip the page wrapper from the script fragments
+        if: matrix.language == 'javascript-typescript'
+        # The page is built from fragments (viewer-shell/ui/ORDER): the first opens the page's
+        # <script> and the last closes it with </body></html>, which no JavaScript parser reads
+        # (CodeQL: "could not process some files due to syntax errors", 03_core.js and
+        # 11_events.js). Only this checkout loses the lines.
+        run: sed -i -E '/^(<\/?script[^>]*>|<\/body>|<\/html>)$/d' viewer-shell/ui/src/*.js
+      # Pinned to a commit like the other workflows' actions; move it with Dependabot.
+      - uses: github/codeql-action/init@f3bbb05694c2f74569081c28664c0866d64dec21 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           build-mode: none
           queries: security-extended
           config-file: ./.github/codeql/codeql-config.yml
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@f3bbb05694c2f74569081c28664c0866d64dec21 # v4.39.3
         with:
           category: "/language:${{ matrix.language }}"

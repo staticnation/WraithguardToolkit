@@ -111,6 +111,25 @@ The region map, cell borders, the path grid's drag tools and the key binding pag
 and Test in OpenMW (the region's weather and sounds there), make a row of exteriors off the
 coast, a path grid joined by a box, a key moved and the controller's A moved to B.
 
+### Editor stalls (Messages "Editor link ... took N s", 2026-11-06)
+
+Done (`CHANGELOG.md`, 5.0.1): the Editor's lock is not held across a plugin read, a scan or
+a Verify; the reads are on threads before it; the cell names, the ids, the use index, the
+dialogue and the records are kept. Left:
+
+- Measure on the real order, on a warm second launch (open Static, wait, place, Use Report,
+  Verify; Messages has the lines): the columns' read outside the cache's lock, the dialogue
+  kept on disk, the Use Report's scan on at most eight threads, the use index brought up to
+  date after the world loads. Any "Editor link" over 1.5 s with nothing out when it began is
+  a read slow by itself.
+- Two cell indexes: `Session::cell_keys` (the framing, in memory, `cell_holders`) and the
+  ids index kept on disk (`ids_of`, `id_holders`). They agree; fold one onto the other.
+- Not done, on purpose: `read_tag` builds its values through JSON text (a record's `f32`
+  fields would come out widened to `f64` from `serde_json::to_value`); `editRevision` is not
+  answered without the lock (a stale revision would hide the refresh the poll is for).
+- The first launch with no cache reads every plugin file from disk (about 45 s on Static's
+  order, the disk, not the parsing): nothing to do but not to need it twice.
+
 ### The record cache (`editcore::cache`)
 
 - Measure on the real 621-plugin order: the first indexing, how much of it the viewer's

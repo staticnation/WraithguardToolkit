@@ -1,0 +1,66 @@
+# Dependency audit: the advisory database (RustSec) against every Cargo.lock in the
+# repository, and npm's against the page tests' lockfile. Complements sast.yml (CodeQL reads our
+# own code) and ci.yml (which is hermetic - no network - so the database cannot be fetched there).
+#
+# Runs when a lockfile changes and once a week, because an advisory can be published against a
+# dependency that has not changed. Fails on a vulnerability; an unmaintained or yanked crate is
+# a warning in the log only.
+
+name: Audit
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "**/Cargo.lock"
+      - "viewer-shell/ui/tests/package-lock.json"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    paths:
+      - "**/Cargo.lock"
+      - "viewer-shell/ui/tests/package-lock.json"
+      - ".github/workflows/audit.yml"
+  schedule:
+    - cron: "41 4 * * 1"   # Mondays, 04:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # the stable branch
+        with:
+          toolchain: stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Audit every Cargo.lock
+        # One lockfile per crate here (there is no workspace), so each is audited on its own;
+        # a failure in one does not hide the others.
+        run: |
+          status=0
+          for lock in $(git ls-files '*Cargo.lock'); do
+            echo "::group::$lock"
+            cargo audit --file "$lock" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Audit the page tests' lockfile
+        # From the lockfile alone: nothing is installed. High and above fails the run.
+        run: npm audit --package-lock-only --audit-level=high --prefix viewer-shell/ui/tests

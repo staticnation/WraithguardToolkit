@@ -312,6 +312,25 @@
   to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
   ticking, dragging and re-sorting, and the rows are only lit, not hidden, so the order
   around a match stays in view.
+- **The app build on macOS ran on a retired runner, and CI ran on Node 20 actions** (Actions,
+  2026-11-06: `Build the app (Tauri)` #18, "The configuration 'macos-14-arm64-us-default' is not
+  supported"). GitHub retired the `macos-14` image on 2026-11-02; the arm64 build is on
+  `macos-15` (`build-app.yml`; the Intel one stays on `macos-15-intel`). The actions that
+  warned of Node 20 are moved to their first Node 24 releases, each pinned to its commit as
+  before: `actions/checkout` v6.1.0, `actions/cache` v5.1.0, `actions/upload-artifact` v6.0.0,
+  `actions/setup-node` v5.0.0 (each commit's `action.yml` says `node24`), and CodeQL's actions
+  are pinned to v4.39.3 where they followed `@v4`.
+- **CodeQL could not parse two of the page's scripts** (Security, 2026-11-07: "Could not process
+  some files due to syntax errors", `language:javascript-typescript`, one warning and one
+  like it). The page is built from fragments (`viewer-shell/ui/ORDER`): `03_core.js` opens the
+  page's `<script>` and `11_events.js` ends with `</script></body></html>`. The workflow
+  strips those lines from its own checkout before the scan (`sast.yml`), so both files are
+  analysed; the repository's files are not changed.
+- **A dependency audit in CI** (`.github/workflows/audit.yml`). `cargo audit` against the
+  RustSec database for every `Cargo.lock` in the repository (each crate has its own), and
+  `npm audit` for the page tests' lockfile, when a lockfile changes and every Monday: an
+  advisory can be published against a dependency that has not changed. A vulnerability fails
+  the run; an unmaintained or yanked crate is a warning. `ci.yml` stays hermetic (no network).
 - **Static analysis in CI** (`.github/workflows/sast.yml`, `.github/codeql/codeql-config.yml`).
   CodeQL reads the page's JavaScript and the Rust crates on every push and pull request and
   weekly, with the security-extended queries, and reports to the Security tab. The vendored
