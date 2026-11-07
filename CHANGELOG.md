@@ -312,25 +312,6 @@
   to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
   ticking, dragging and re-sorting, and the rows are only lit, not hidden, so the order
   around a match stays in view.
-- **The app build on macOS ran on a retired runner, and CI ran on Node 20 actions** (Actions,
-  2026-11-06: `Build the app (Tauri)` #18, "The configuration 'macos-14-arm64-us-default' is not
-  supported"). GitHub retired the `macos-14` image on 2026-11-02; the arm64 build is on
-  `macos-15` (`build-app.yml`; the Intel one stays on `macos-15-intel`). The actions that
-  warned of Node 20 are moved to their first Node 24 releases, each pinned to its commit as
-  before: `actions/checkout` v6.1.0, `actions/cache` v5.1.0, `actions/upload-artifact` v6.0.0,
-  `actions/setup-node` v5.0.0 (each commit's `action.yml` says `node24`), and CodeQL's actions
-  are pinned to v4.39.3 where they followed `@v4`.
-- **CodeQL could not parse two of the page's scripts** (Security, 2026-11-07: "Could not process
-  some files due to syntax errors", `language:javascript-typescript`, one warning and one
-  like it). The page is built from fragments (`viewer-shell/ui/ORDER`): `03_core.js` opens the
-  page's `<script>` and `11_events.js` ends with `</script></body></html>`. The workflow
-  strips those lines from its own checkout before the scan (`sast.yml`), so both files are
-  analysed; the repository's files are not changed.
-- **A dependency audit in CI** (`.github/workflows/audit.yml`). `cargo audit` against the
-  RustSec database for every `Cargo.lock` in the repository (each crate has its own), and
-  `npm audit` for the page tests' lockfile, when a lockfile changes and every Monday: an
-  advisory can be published against a dependency that has not changed. A vulnerability fails
-  the run; an unmaintained or yanked crate is a warning. `ci.yml` stays hermetic (no network).
 - **Static analysis in CI** (`.github/workflows/sast.yml`, `.github/codeql/codeql-config.yml`).
   CodeQL reads the page's JavaScript and the Rust crates on every push and pull request and
   weekly, with the security-extended queries, and reports to the Security tab. The vendored
@@ -373,6 +354,16 @@
   index is read (it waits for it, so the Editor's first minute is not shared); with every plugin
   indexed already, which the index kept between runs is, it only looks and ends. A report asked
   before it finishes is answered by the scan, as before.
+- **A Use Report no longer reads every object type whole, and the key index no longer stamps
+  every plugin for each question** (`Links::uses_link`, `Session::stamps`, `Cache::*_stamped`).
+  After its hits, each Use Report read every record of 25 object types from every plugin (to
+  name the other types the id is also defined as, which has asked the key index since the
+  Verify change): the first report of each launch took 22-60 s however the index stood
+  (Messages, 2026-11-07). It now asks for the ids only. And each question to the key index
+  (`stale_of`, `holders`, `all_keys`) asked every plugin's size and date, about 1,200 `stat`s,
+  for each of thirty types in a Verify and twenty-five in a report: the 3-9 s Verify spent
+  "reading the load order" warm and the 3.6-3.9 s of every later report. The plugins' stamps are
+  now asked once and shared for a second and a half.
 - **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
   runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
   Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the

@@ -371,8 +371,19 @@ impl Cache {
 
     /// The plugins (indices into `plugins`) whose keys of a tag are not indexed as they
     /// now are; `None` when the cache is out.
+    /// The plugins' stamps, each file asked once: the `_stamped` queries below take them, so a
+    /// caller asking many tags (Verify asks about thirty) does not ask every file's size and
+    /// date for each (Messages, 2026-11-07: tens of thousands of `stat`s a click).
+    pub fn stamps_of(plugins: &[PathBuf]) -> Vec<Option<Stamp>> {
+        plugins.iter().map(|p| stamp(p)).collect()
+    }
+
     pub fn stale_of(&self, plugins: &[PathBuf], tag: &str) -> Option<Vec<usize>> {
-        let stamps: Vec<Option<Stamp>> = plugins.iter().map(|p| stamp(p)).collect();
+        self.stale_of_stamped(&Cache::stamps_of(plugins), tag)
+    }
+
+    /// `stale_of` for stamps taken already (`stamps_of`).
+    pub fn stale_of_stamped(&self, stamps: &[Option<Stamp>], tag: &str) -> Option<Vec<usize>> {
         let keyed: Vec<&str> = stamps.iter().flatten().map(|s| s.key.as_str()).collect();
         let have = self.with(|c| {
             let mut have: HashMap<String, (i64, i64)> = HashMap::new();
@@ -415,17 +426,26 @@ impl Cache {
 
     /// Stamps of the plugins that can be looked at, with their indices.
     fn stamped(plugins: &[PathBuf]) -> Vec<(usize, Stamp)> {
-        plugins.iter().enumerate().filter_map(|(i, p)| stamp(p).map(|s| (i, s))).collect()
+        Cache::stamped_of(&Cache::stamps_of(plugins))
+    }
+
+    fn stamped_of(stamps: &[Option<Stamp>]) -> Vec<(usize, Stamp)> {
+        stamps.iter().enumerate().filter_map(|(i, s)| s.clone().map(|s| (i, s))).collect()
     }
 
     /// Which of these plugins (indices, in the order given) have a key, from the index;
     /// `None` when the index cannot answer (a plugin not indexed as it now is, or the
     /// cache out).
     pub fn holders(&self, plugins: &[PathBuf], tag: &str, key: &str) -> Option<Vec<usize>> {
-        if !self.stale_of(plugins, tag)?.is_empty() {
+        self.holders_stamped(&Cache::stamps_of(plugins), tag, key)
+    }
+
+    /// `holders` for stamps taken already (`stamps_of`).
+    pub fn holders_stamped(&self, stamps: &[Option<Stamp>], tag: &str, key: &str) -> Option<Vec<usize>> {
+        if !self.stale_of_stamped(stamps, tag)?.is_empty() {
             return None;
         }
-        let stamped = Cache::stamped(plugins);
+        let stamped = Cache::stamped_of(stamps);
         let names: Vec<&str> = stamped.iter().map(|(_, s)| s.key.as_str()).collect();
         let found = self.with(|c| {
             let mut found: HashSet<String> = HashSet::new();
@@ -444,10 +464,15 @@ impl Cache {
 
     /// Every key of a tag over these plugins, from the index; `None` when it cannot answer.
     pub fn all_keys(&self, plugins: &[PathBuf], tag: &str) -> Option<HashSet<String>> {
-        if !self.stale_of(plugins, tag)?.is_empty() {
+        self.all_keys_stamped(&Cache::stamps_of(plugins), tag)
+    }
+
+    /// `all_keys` for stamps taken already (`stamps_of`).
+    pub fn all_keys_stamped(&self, stamps: &[Option<Stamp>], tag: &str) -> Option<HashSet<String>> {
+        if !self.stale_of_stamped(stamps, tag)?.is_empty() {
             return None;
         }
-        let stamped = Cache::stamped(plugins);
+        let stamped = Cache::stamped_of(stamps);
         let names: Vec<&str> = stamped.iter().map(|(_, s)| s.key.as_str()).collect();
         self.with(|c| {
             let mut out = HashSet::new();

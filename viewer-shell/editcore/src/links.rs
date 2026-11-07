@@ -434,7 +434,9 @@ impl Links {
             // every object type of every plugin: on threads, and not with the Editor locked
             // (Messages, 2026-11-05: `editUses` 101 s, `editRevision` 94 s behind it).
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.session.warm(&crate::verify::object_tags().into_iter().filter(|t| *t != found.tag.as_str()).collect::<Vec<_>>())
+                // Which plugins have the id as another type: the ids, from the key index or the files'
+                // framing, no record parsed (every record of every object type was read here).
+                self.session.warm_ids(&crate::verify::object_tags().into_iter().filter(|t| *t != found.tag.as_str()).collect::<Vec<_>>())
             }));
             let ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
             let mut answer = ed.uses_from(&found, &hits);

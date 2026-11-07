@@ -17,7 +17,7 @@ use ordercore::cells::CellKey;
 use ordercore::refs::{origin, winner, Version};
 use serde_json::Value;
 
-use crate::cache::Cache;
+use crate::cache::{Cache, Stamp};
 use crate::key::{deletes, record_key, type_name, type_of};
 use crate::queue::PatchQueue;
 
@@ -147,6 +147,9 @@ pub struct Session {
     /// Whether the plugins are read from the files (`new`), so a key can be found from the
     /// file itself; the tests' sessions read through their own `read`.
     from_files: bool,
+    /// The plugins' sizes and dates as asked a moment ago (`stamps`): a link that asks the key
+    /// index about thirty types shares one round of `stat`s.
+    stamp_memo: Mutex<Option<(std::time::Instant, Arc<Vec<Option<Stamp>>>)>>,
 }
 
 /// A read under way, let go when it ends (or panics), so that those waiting for it go on.
@@ -199,6 +202,7 @@ impl Session {
             disk: OnceLock::new(),
             ids: Mutex::default(),
             from_files: false,
+            stamp_memo: Mutex::new(None),
         }
     }
 
@@ -218,6 +222,7 @@ impl Session {
         self.dialogue.lock().unwrap().remove(&name);
         self.cell_keys.lock().unwrap().remove(&name);
         self.ids.lock().unwrap().retain(|(p, _), _| *p != name);
+        *self.stamp_memo.lock().unwrap() = None;
         true
     }
 
@@ -529,6 +534,21 @@ impl Session {
         self.order.iter().map(|n| self.records(n, tag)).collect()
     }
 
+    /// The plugins' stamps (size and date), each file asked once and kept for a second and a
+    /// half: the key index is asked about thirty types in a Verify and twenty-five in a Use
+    /// Report, and each question stamped every file (about 1,200 `stat`s a question: seconds).
+    fn stamps(&self) -> Arc<Vec<Option<Stamp>>> {
+        let mut memo = self.stamp_memo.lock().unwrap();
+        if let Some((at, got)) = memo.as_ref()
+            && at.elapsed() < std::time::Duration::from_millis(1500)
+        {
+            return got.clone();
+        }
+        let got = Arc::new(Cache::stamps_of(&self.plugin_paths()));
+        *memo = Some((std::time::Instant::now(), got.clone()));
+        got
+    }
+
     /// Whether a tag's keys can be found from a plugin's framing alone (`ids_of`), without
     /// parsing its records.
     pub fn key_only(tag: &str) -> bool {
@@ -573,11 +593,11 @@ impl Session {
     /// framing cannot key is left for when it is asked. Needs no more than a `&self`, so a
     /// link can do it before the Editor's lock.
     pub fn warm_ids(&self, tags: &[&str]) {
-        let paths = self.plugin_paths();
+        let stamps = self.stamps();
         let mut todo: Vec<(String, &str, u64)> = Vec::new();
         for tag in tags.iter().filter(|t| !self.from_files || Session::key_only(t)) {
             // Every plugin's keys already kept on disk: the key index answers.
-            if self.disk.get().and_then(|d| d.stale_of(&paths, tag)).is_some_and(|s| s.is_empty()) {
+            if self.disk.get().and_then(|d| d.stale_of_stamped(&stamps, tag)).is_some_and(|s| s.is_empty()) {
                 continue;
             }
             let have = self.ids.lock().unwrap();
@@ -614,7 +634,7 @@ impl Session {
     /// framing, no record parsed for a cell, a land or an object - which fills the index.
     pub fn plugin_ids(&self, tag: &str) -> HashSet<String> {
         if let Some(d) = self.disk.get()
-            && let Some(keys) = d.all_keys(&self.plugin_paths(), tag)
+            && let Some(keys) = d.all_keys_stamped(&self.stamps(), tag)
         {
             return keys;
         }
@@ -631,7 +651,7 @@ impl Session {
     /// A record a plugin deletes still counts as its.
     pub fn id_holders(&self, tag: &str, key: &str) -> Vec<String> {
         if let Some(d) = self.disk.get()
-            && let Some(at) = d.holders(&self.plugin_paths(), tag, key)
+            && let Some(at) = d.holders_stamped(&self.stamps(), tag, key)
         {
             return at.into_iter().filter_map(|i| self.order.get(i).cloned()).collect();
         }
@@ -1256,6 +1276,29 @@ mod key_only_tests {
         std::fs::write(&p, [named(b"DIAL", "greeting 0"), named(b"DIAL", "greeting 1")].concat()).unwrap();
         assert_eq!(session(reads.clone()).dialogue("d.esp").len(), 2);
         assert_eq!(reads.load(Ordering::SeqCst), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_stamped_queries_answer_as_the_plain_ones() {
+        use crate::cache::Cache;
+        let dir = scratch("stamped");
+        let (a, b) = (dir.join("a.esp"), dir.join("b.esp"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "bb").unwrap();
+        let cache = Cache::new(dir.join("c.sqlite3"), "t", 1 << 24);
+        let paths = vec![a.clone(), b.clone()];
+        cache.put_keys(&a, "STAT", &["rock".to_string()]);
+        let st = Cache::stamps_of(&paths);
+        assert_eq!(cache.stale_of_stamped(&st, "STAT"), cache.stale_of(&paths, "STAT"));
+        assert_eq!(cache.stale_of_stamped(&st, "STAT"), Some(vec![1]), "b has no keys yet");
+        assert_eq!(cache.all_keys_stamped(&st, "STAT"), None, "and a tag is answered only when every plugin is in");
+        cache.put_keys(&b, "STAT", &["rock".to_string(), "tree".to_string()]);
+        let st = Cache::stamps_of(&paths);
+        assert_eq!(cache.all_keys_stamped(&st, "STAT"), cache.all_keys(&paths, "STAT"));
+        assert_eq!(cache.all_keys_stamped(&st, "STAT").map(|k| k.len()), Some(2));
+        assert_eq!(cache.holders_stamped(&st, "STAT", "rock"), Some(vec![0, 1]));
+        assert_eq!(cache.holders_stamped(&st, "STAT", "tree"), cache.holders(&paths, "STAT", "tree"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
