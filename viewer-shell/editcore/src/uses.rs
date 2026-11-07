@@ -283,6 +283,23 @@ pub fn indexable(rid: &str) -> bool {
     !want.is_empty() && want.chars().count() <= MAX_VALUE && want.chars().all(word_char)
 }
 
+/// From `records` (a plugin's scripts and responses), those whose script source mentions `rid`
+/// as `from_index` counts it - the word rule, any case - cloned and no others: the sources
+/// searched beside the index for an id that is not [`indexable`] are every script and
+/// response of the load order, and `from_index` takes its sources by value.
+pub fn with_mentions<'a>(rid: &str, records: impl Iterator<Item = &'a Value>) -> Vec<Value> {
+    let words = Finder::new(&rid.trim().to_lowercase(), true);
+    records
+        .filter(|rec| {
+            source_field(type_name(rec))
+                .and_then(|field| rec.get(field))
+                .and_then(Value::as_str)
+                .is_some_and(|text| words.count(text) > 0)
+        })
+        .cloned()
+        .collect()
+}
+
 /// Every string in a value with its dotted path.
 fn strings<'a>(v: &'a Value, path: &mut String, out: &mut Vec<(String, &'a str)>) {
     match v {

@@ -339,6 +339,15 @@
   the plugin changes). The Use Report's scan uses at most eight threads and leaves two cores
   free, as the warm-ups do (`uses::report`). Verify's header no longer says "0 records checked:
   nothing found" of a patch that has only placed copies and new records, which are not checked.
+- **The Use Report of an id with a non-word character uses the index** (`Links::editUses`,
+  `uses::with_mentions`). `^_l_imp_corner_01`, an id with a space or a dash: `indexable` is false
+  for them, so every such report scanned all 619 plugin files - 25-34 s on every launch, however
+  complete the index (Messages, 2026-11-06; the index file, 290 MB, had not been written since
+  its last build). The index has every string that equals the id; the scripts and responses are
+  now searched for the rest, as the Python Editor did, once the index has every plugin: their
+  records come from the disk cache, and only those that mention the id are copied. Tested to
+  give the report the whole sources give (`tests/mentions.rs`). Until the index is complete the
+  files are scanned as before.
 - **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
   runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
   Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the

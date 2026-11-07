@@ -359,11 +359,28 @@ impl Links {
             // From the index when every plugin is in it (an id of words: the rest are searched
             // in the script source, which this does not do); else the files are scanned, and the
             // plugins the index lacks are indexed behind this answer, for the next.
-            let indexed = self
-                .use_index
-                .as_ref()
-                .filter(|_| crate::uses::indexable(&found.key))
-                .and_then(|cache| crate::uses::from_index(cache, &paths, &found.record_type, &found.key, |_| Vec::new()));
+            let indexed = self.use_index.as_ref().and_then(|cache| {
+                if crate::uses::indexable(&found.key) {
+                    return crate::uses::from_index(cache, &paths, &found.record_type, &found.key, |_| Vec::new());
+                }
+                // An id with a space, a dash or another non-word character (`^_l_imp_corner_01`):
+                // the index has every string that equals it, and the scripts and responses are
+                // searched for the rest, as the Python Editor did - once the index has every
+                // plugin, else the files are scanned. Their records come from the disk cache,
+                // and only those that mention the id are copied.
+                if !cache.missing_uses(&paths).is_empty() {
+                    return None;
+                }
+                self.session.warm(&["SCPT"]);
+                self.session.warm_dialogue();
+                let order = self.session.order().to_vec();
+                crate::uses::from_index(cache, &paths, &found.record_type, &found.key, |i| {
+                    let Some(name) = order.get(i) else { return Vec::new() };
+                    let scripts = self.session.records(name, "SCPT");
+                    let dialogue = self.session.dialogue(name);
+                    crate::uses::with_mentions(&found.key, scripts.values().chain(dialogue.iter()))
+                })
+            });
             let mut index_state = None;
             let hits = match indexed {
                 Some(hits) => hits,
