@@ -5208,7 +5208,7 @@ fn editor_open(plugins: Vec<(String, String)>, journal: String, folders: Option<
         let record_cache = journal.as_ref().and_then(|j| j.parent()).map(|d| d.join("wraithguard_record_cache.sqlite3"));
         let mut links = editcore::links::Links::open(plugins, journal).with_setup(folders.unwrap_or_default(), path(last), path(test_settings));
         if let Some(p) = use_index {
-            links = links.with_use_index(p);
+            links = links.with_use_index(p).start_indexing();
         }
         // What it reads from the plugins is kept between runs, beside the journal as the Python
         // Editor kept it.

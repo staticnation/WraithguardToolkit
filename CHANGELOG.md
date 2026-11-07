@@ -348,6 +348,12 @@
   records come from the disk cache, and only those that mention the id are copied. Tested to
   give the report the whole sources give (`tests/mentions.rs`). Until the index is complete the
   files are scanned as before.
+- **The use index is brought up to date in the background after the world loads**
+  (`Links::start_indexing`). A plugin new or changed since the last run was indexed only when
+  the first Use Report scanned for it. One thread now indexes what is missing, after the cell
+  index is read (it waits for it, so the Editor's first minute is not shared); with every plugin
+  indexed already, which the index kept between runs is, it only looks and ends. A report asked
+  before it finishes is answered by the scan, as before.
 - **Verify no longer fills the machine's memory, and the Editor keeps what it reads between
   runs again** (`editcore::session`, `editcore::verify`, `editcore::links`). Since 5.0.0 the
   Rust Editor had no disk cache: `cache.rs` was ported and the session never used it (the

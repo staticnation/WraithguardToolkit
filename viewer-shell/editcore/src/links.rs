@@ -236,6 +236,42 @@ impl Links {
         self
     }
 
+    /// Starts indexing the plugins the use index lacks (a plugin new or changed since the last
+    /// run), once the world has loaded, so a first Use Report is a query and not a scan of every
+    /// file: one background thread, behind the cell index the Editor waits on first. With every
+    /// plugin indexed already - the index is kept between runs - it only looks, and ends.
+    pub fn start_indexing(self) -> Links {
+        let Some(cache) = self.use_index.clone() else { return self };
+        if self.indexing.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return self;
+        }
+        let (session, flag) = (self.session.clone(), self.indexing.clone());
+        let spawned = std::thread::Builder::new().name("use-index-start".into()).spawn({
+            let flag = flag.clone();
+            move || {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // Not before the cell index is read (up to five minutes' wait: it is a
+                    // minute at most, and the Editor is unusable without it).
+                    for _ in 0..600 {
+                        if session.cell_keys_ready() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                    let paths = session.plugin_paths();
+                    if !cache.missing_uses(&paths).is_empty() {
+                        crate::uses::index_missing(&cache, &paths, 1);
+                    }
+                }));
+                flag.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        if spawned.is_err() {
+            flag.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        self
+    }
+
     /// Indexes the plugins the use index lacks, on two threads of their own, if it is not
     /// being done already.
     fn index_in_background(&self, paths: Vec<PathBuf>) {

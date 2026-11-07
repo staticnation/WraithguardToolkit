@@ -495,6 +495,12 @@ impl Session {
         });
     }
 
+    /// Whether every plugin's cell keys are read (`warm_cell_keys` has finished, wherever it ran).
+    pub fn cell_keys_ready(&self) -> bool {
+        let have = self.cell_keys.lock().unwrap();
+        self.order.iter().all(|n| have.contains_key(&n.to_lowercase()))
+    }
+
     /// The plugins with a CELL record for a cell (`want`: an interior's name or an exterior's
     /// `(x, y)`, lower case), in load order, as the load order spells them - from the plugins'
     /// own cell names and grids, no cell parsed. `None` when this cannot say: a name that is
