@@ -372,6 +372,17 @@
   the cell as before. `Links::warm_cells` no longer parses the plugin's cells before the lock
   either. Tested against the parsed record; `probe_place_cell` (`tests/probe_find.rs`) checks it
   on the real load order.
+- **Merge Lands reads each plugin once** (`landcore::read::read_terrain_records`, used by
+  `service::records_of`). It read every plugin of the order twice - the whole file into memory,
+  scanned byte by byte for `LAND` and `LTEX` (`has_landscape`), then the whole file again for the
+  records - on every run. The framing walk already skips a record by its size and finds nothing
+  in a plugin with no terrain, so the scan was only a second pass; one read gives the same
+  records, none and no failure for a file that is not a TES3 plugin, the same words for one that
+  cannot be read (tested against the scan-then-read on terrain, none, tag letters inside text,
+  a deleted land, a truncated record, a non-TES3 file, an empty and a missing one; the
+  Python-parity merge cases pass). A synthetic order gave 2.6x on the read; how much of a real
+  Merge Lands that is has not been measured: `tests/probe_land_read.rs` times it over real
+  plugins and checks the two agree.
 - **Verify reads the dialogue it needs, not all of it** (Messages, 2026-11-07: the dialogue was
   31.8 s of a 33.8 s "reading the load order"). Verify read every plugin's whole dialogue (every
   topic, every response with its text and script) before it began, whatever the patch held, to

@@ -141,6 +141,20 @@ pub fn read_landscape_records(path: &Path) -> Result<Vec<Record>, String> {
     landscape_records_of(&data, &name)
 }
 
+/// A plugin's terrain records as the merge wants them, the file read once: none, without a
+/// failure, for a file that is not a TES3 plugin or has no terrain. What `has_landscape` then
+/// `read_landscape_records` gave, without the second read and the scan of every byte for the
+/// two tags first (the framing walk below skips a record by its size, and finds none in a
+/// plugin with no terrain as surely).
+pub fn read_terrain_records(path: &Path) -> Result<Vec<Record>, String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let data = std::fs::read(path).map_err(|e| format!("could not read {name}: {e}"))?;
+    if !data.starts_with(b"TES3") {
+        return Ok(Vec::new());
+    }
+    landscape_records_of(&data, &name)
+}
+
 /// Whether a plugin mentions landscape at all (`has_landscape`): `LAND` or `LTEX` anywhere
 /// in a file that starts `TES3`; `true` when it cannot be read, so the real reader says why.
 pub fn has_landscape(path: &Path) -> bool {
@@ -149,4 +163,92 @@ pub fn has_landscape(path: &Path) -> bool {
         return false;
     }
     data.windows(4).any(|w| w == b"LAND" || w == b"LTEX")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sub(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((data.len() as u32).to_le_bytes());
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn record(tag: &[u8; 4], flags: u32, body: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((body.len() as u32).to_le_bytes());
+        v.extend([0u8; 4]);
+        v.extend(flags.to_le_bytes());
+        v.extend_from_slice(body);
+        v
+    }
+
+    fn header() -> Vec<u8> {
+        record(b"TES3", 0, &sub(b"HEDR", &[0u8; 300]))
+    }
+
+    fn land(x: i32, y: i32) -> Vec<u8> {
+        let mut grid = x.to_le_bytes().to_vec();
+        grid.extend(y.to_le_bytes());
+        let mut heights = 12.5f32.to_le_bytes().to_vec();
+        heights.extend((0..VHGT_SIZE - 4).map(|i| (i % 251) as u8));
+        let mut body = sub(b"INTV", &grid);
+        body.extend(sub(b"DATA", &9u32.to_le_bytes()));
+        body.extend(sub(b"VHGT", &heights));
+        record(b"LAND", 0, &body)
+    }
+
+    fn ltex(id: &str, index: u32, file: &str) -> Vec<u8> {
+        let mut body = sub(b"NAME", &[id.as_bytes(), &[0]].concat());
+        body.extend(sub(b"INTV", &index.to_le_bytes()));
+        body.extend(sub(b"DATA", &[file.as_bytes(), &[0]].concat()));
+        record(b"LTEX", 0, &body)
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("wg-landread-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// What the merge did before: `has_landscape`, then a second read.
+    fn before(path: &Path) -> Result<Vec<Record>, String> {
+        if !has_landscape(path) {
+            return Ok(Vec::new());
+        }
+        read_landscape_records(path)
+    }
+
+    #[test]
+    fn one_read_gives_what_the_scan_then_the_read_gave() {
+        let dir = scratch("same");
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            ("terrain.esp", [header(), ltex("tx_a", 3, "tx_a.dds"), land(-2, -9), land(3, -11), ltex("tx_b", 4, "tx_b.dds")].concat()),
+            ("none.esp", [header(), record(b"STAT", 0, &sub(b"NAME", b"rock\0"))].concat()),
+            // The tag's letters inside a string, not as a record.
+            ("inside.esp", [header(), record(b"BOOK", 0, &sub(b"TEXT", b"the LAND and LTEX of Vvardenfell\0"))].concat()),
+            ("deleted.esp", [header(), record(b"LAND", DELETED, &sub(b"INTV", &[1, 0, 0, 0, 2, 0, 0, 0]))].concat()),
+            ("truncated.esp", { let mut v = [header(), land(1, 1)].concat(); v.extend(b"LAND\xff\xff\xff\x7f"); v }),
+            ("skyrim.esp", b"TES4 not a morrowind plugin LAND LTEX".to_vec()),
+            ("empty.esp", Vec::new()),
+            ("tiny.esp", b"TES".to_vec()),
+        ];
+        for (name, bytes) in &cases {
+            let p = dir.join(name);
+            std::fs::write(&p, bytes).unwrap();
+            assert_eq!(read_terrain_records(&p), before(&p), "{name}");
+        }
+        let terrain = read_terrain_records(&dir.join("terrain.esp")).unwrap();
+        assert_eq!(terrain.len(), 4, "two lands and two textures");
+        assert!(read_terrain_records(&dir.join("none.esp")).unwrap().is_empty());
+        assert!(read_terrain_records(&dir.join("skyrim.esp")).unwrap().is_empty(), "not a TES3 plugin: no terrain, no failure");
+        // A file that is not there fails as it did, in the same words.
+        let missing = dir.join("missing.esp");
+        assert_eq!(read_terrain_records(&missing), before(&missing));
+        assert!(read_terrain_records(&missing).unwrap_err().starts_with("could not read missing.esp"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

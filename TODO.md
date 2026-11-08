@@ -133,6 +133,29 @@ records, against every plugin's dialogue). What is left is small:
 - The first launch with no cache reads every plugin file from disk (about 45 s on Static's
   order, the disk, not the parsing): nothing to do but not to need it twice.
 
+### Merged Lands and the caches the port may have lost (audit, 2026-11-07)
+
+Found auditing the Python's caches against the port. The Editor's record cache and the key
+index were the ones lost, and are back (`CHANGELOG.md`, 5.0.1).
+
+- Merged Lands: `landcore::service::records_of` read each plugin twice, after a scan of every
+  byte for `LAND`/`LTEX`; it now reads each once (`read::read_terrain_records`, tested to give
+  the same records as the scan-then-read, and by the Python-parity merge cases). That is a
+  saving of roughly a second over a load order of this size by a synthetic run, not measured on
+  the real one. Next, measure before building anything: run `probe_land_read`
+  (`tests/probe_land_read.rs`, `WG_DATA` = the data folders) for the read's share, and time a
+  whole Merge Lands on the real order for the rest. Only if the read is still a large share,
+  keep each plugin's `LAND`/`LTEX` records on disk as the Python kept `<stem>.land.json` and
+  asked the scan cache whether a plugin has terrain (`landcore` does not depend on `editcore`:
+  a shared cache crate, or move the cache).
+- Not yet checked for a cache lost in the port: the Lua archive scripts (the Python unpacked
+  them into `wraithguard_lua_archives`; `luacore/scan.rs` says the engine has its own overlay,
+  archives included: read the code, not the header) and the Conflicts window's per-scan result
+  caches (the Python's `_conf_singles`, `_conflict_adjacency_cache`; the page is JavaScript
+  now). Checked and kept: the NIF measurements (`nif_batch`, scan cache), the overlay's file
+  index (`wraithguard_overlay_index.bin`), the conflict scan's keys, cells and terrain flags
+  (`wraithguard_scan_cache.sqlite3`), the dialogue graph's lookups.
+
 ### The record cache (`editcore::cache`)
 
 - Measure on the real 621-plugin order: the first indexing, how much of it the viewer's
@@ -159,8 +182,9 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   `viewer-shell/Cargo.lock`: `paste` 1.0.15 and `proc-macro-error` 1.0.4 (unmaintained),
   `glib` 0.18.5 (`RUSTSEC-2024-0429`, unsound; it comes in with Tauri's Linux stack, so a
   Tauri bump is the way off it), `tokio` 1.53.1 (`RUSTSEC-2026-0386`, `AsyncFd` I/O safety,
-  published 2026-10-13: `cargo update -p tokio` when a fixed release is out) and a yanked
-  `yoke-derive` 0.8.3 (`cargo update -p yoke-derive`). None fails the job.
+  published 2026-10-13; patched from 1.53.3: `cargo update -p tokio` took it to 1.54.1) and a
+  yanked `yoke-derive` 0.8.3 (`cargo update -p yoke-derive` took it to 0.8.4; commit
+  `viewer-shell/Cargo.lock`). None fails the job.
 - `viewer-shell/physcore`'s tests and clippy are in neither `ci.yml` nor
   `build_and_check_rust.ps1` yet: add them to both.
 - Actions are pinned to a commit of their current major; moving to the Node 24 majors

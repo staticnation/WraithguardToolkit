@@ -14,7 +14,7 @@ use crate::emit::{attach_texture_indices, build_landscape_record, build_texture_
 use crate::landmass::{build_reference, Landmass, PluginRecords};
 use crate::meta::{self, PluginMeta, Strategy, LAYER_NAMES};
 use crate::pipeline::{finish, merge_landmass, DiffModel, MergeOutcome};
-use crate::read::{has_landscape, read_landscape_records, Record};
+use crate::read::{read_terrain_records, Record};
 use crate::textures::{compact_textures, KnownTextures};
 use crate::grid::Value;
 
@@ -158,15 +158,13 @@ pub fn resolve_plugin(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
 /// One plugin's terrain records (`_records_via` then `_records_natively`, the native path):
 /// none, without a failure, for a plugin with no terrain.
 fn records_of(path: &Path) -> (Vec<Record>, String) {
-    if !has_landscape(path) {
-        return (Vec::new(), String::new());
-    }
-    match read_landscape_records(path) {
+    // The file read once (it was read twice, after a scan of every byte for the two tags).
+    match read_terrain_records(path) {
         Ok(r) => (r, String::new()),
         Err(first) => {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let why = format!("reading {name} directly failed: {first}");
-            match read_landscape_records(path) {
+            match read_terrain_records(path) {
                 Ok(r) => (r, String::new()),
                 Err(again) => (Vec::new(), format!("{why}; reading it directly also failed: {again}")),
             }
