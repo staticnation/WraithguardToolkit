@@ -330,6 +330,14 @@
 
 ### Fixed
 
+- **The Editor's stalls, measured** (Messages, 2026-11-07, a warm second launch of Static's
+  619-plugin order). Where the session began with `editPlace` 100 s, `editUses` 101 s,
+  `editTopics` 52 s, `editVerify` 357.8 s and `editRevision` waiting 94 s behind them: Verify
+  takes 2.7 s (reading the load order 1.1 s, checking 1.6 s, dialogue 0.0 s when the patch has
+  none to check), the first open of a type 4.0 s cold and the next almost instant, and no
+  other link is slow enough to be said (1.5 s). Probes on the same order (`tests/probe_find.rs`)
+  agree with the parsed records for the cell holders, the use index, a topic's records and a
+  placed cell's spelling. The changes are the entries below.
 - **The disk cache's reads no longer take turns, the dialogue is kept, and the Use Report scan
   leaves cores free** (Messages, 2026-11-06, a warm second launch: `editColumns` 16 s, `editUses`
   36 s, `editPlace` 10.9 s). A cached body was unpacked (zstd) while the cache's one connection

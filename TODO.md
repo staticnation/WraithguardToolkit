@@ -111,19 +111,22 @@ The region map, cell borders, the path grid's drag tools and the key binding pag
 and Test in OpenMW (the region's weather and sounds there), make a row of exteriors off the
 coast, a path grid joined by a box, a key moved and the controller's A moved to B.
 
-### Editor stalls (Messages "Editor link ... took N s", 2026-11-06)
+### Editor stalls (Messages "Editor link ... took N s"): done, 2026-11-07
 
-Done (`CHANGELOG.md`, 5.0.1): the Editor's lock is not held across a plugin read, a scan or
-a Verify; the reads are on threads before it; the cell names, the ids, the use index, the
-dialogue and the records are kept. Left:
+Done and measured (`CHANGELOG.md`, 5.0.1): the Editor's lock is not held across a plugin read, a
+scan or a Verify; reads run on threads before it; cell names, ids, the use index, dialogue
+and records are kept between launches. Verify went from over 6 minutes (357.8 s, the PC
+pinned) to 2.7 s warm; the first open of a type is about 4 s cold and the next almost instant;
+placing reads a cell's spelling from the file framing (0.10 s against 5.03 s of parsing the
+cells of `TR_Mainland.esm`, same key); a topic is read from its own records (48 ms for 1,446
+records, against every plugin's dialogue). What is left is small:
 
-- Measure on the real order, on a warm second launch (open Static, wait, place, Use Report,
-  Verify; Messages has the lines): the columns' read outside the cache's lock, the dialogue
-  kept on disk, the Use Report's scan on at most eight threads, the use index brought up to
-  date after the world loads. Any "Editor link" over 1.5 s with nothing out when it began is
-  a read slow by itself.
 - Two cell indexes: `Session::cell_keys` (the framing, in memory, `cell_holders`) and the
   ids index kept on disk (`ids_of`, `id_holders`). They agree; fold one onto the other.
+- Verify's game settings (`GMST`, 0.7 s of its 2.7 s) are read each launch; they could be kept
+  on disk with the rest.
+- The Use Report was not in the last measured session: click it once on a warm launch and read
+  Messages (the first of a launch took 22-60 s before it stopped reading every object type).
 - Not done, on purpose: `read_tag` builds its values through JSON text (a record's `f32`
   fields would come out widened to `f64` from `serde_json::to_value`); `editRevision` is not
   answered without the lock (a stale revision would hide the refresh the poll is for).
