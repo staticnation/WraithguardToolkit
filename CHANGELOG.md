@@ -354,6 +354,16 @@
   index is read (it waits for it, so the Editor's first minute is not shared); with every plugin
   indexed already, which the index kept between runs is, it only looks and ends. A report asked
   before it finishes is answered by the scan, as before.
+- **Placing no longer parses every cell of a plugin to learn one cell's name**
+  (Messages, 2026-11-07: `editPlace` 5.8 s, with `editRevision` 4.5 s behind it). Placing read
+  the CELL records of the last plugin that has the cell (every cell, references and all) and
+  took one thing from the record: the cell's key as that plugin spells it, an interior's name
+  with its case, an exterior's `(x, y)`. That is in the file framing (`session::cell_name_of`,
+  `Session::cell_spelled`: the plugin's cell headers and their `NAME` and `DATA`), so placing
+  reads nothing of a cell; where the framing cannot say (a name that is not ASCII), it reads
+  the cell as before. `Links::warm_cells` no longer parses the plugin's cells before the lock
+  either. Tested against the parsed record; `probe_place_cell` (`tests/probe_find.rs`) checks it
+  on the real load order.
 - **Verify reads the dialogue it needs, not all of it** (Messages, 2026-11-07: the dialogue was
   31.8 s of a 33.8 s "reading the load order"). Verify read every plugin's whole dialogue (every
   topic, every response with its text and script) before it began, whatever the patch held, to

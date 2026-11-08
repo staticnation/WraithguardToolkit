@@ -331,3 +331,33 @@ fn probe_dialogue() {
     assert_eq!(bad, 0);
 }
 
+/// What placing needs of a cell: its key as the last plugin that has it spells it. For some cells,
+/// the key from that plugin's file framing (`Session::cell_spelled`) against the parsed cell's
+/// (every cell of the plugin read: what placing did), how long each takes, and whether they agree.
+/// WG_CELLS: the cell keys, `;`-separated, lower case (the defaults are Morrowind's).
+///   cargo test --release --test probe_find probe_place_cell -- --ignored --nocapture
+#[test]
+#[ignore]
+fn probe_place_cell() {
+    let plugins = load_order();
+    let keys = std::env::var("WG_CELLS")
+        .unwrap_or_else(|_| "(-2, -9);(0, 0);(-3, -2);(41, 16);balmora, guild of mages;seyda neen, census and excise office;vivec, arena canton".into());
+    let session = Session::new(plugins);
+    session.warm_cell_keys();
+    let mut bad = 0;
+    for want in keys.split(';').map(|k| k.trim().to_lowercase()) {
+        let Some(holders) = session.cell_holders(&want) else { println!("{want:<44} no index answer"); continue };
+        let Some(last) = holders.last().cloned() else { println!("{want:<44} no plugin has it"); continue };
+        let t = Instant::now();
+        let fast = session.cell_spelled(&last, &want);
+        let fast_took = t.elapsed();
+        let t = Instant::now();
+        let slow = editcore::key::record_key(&session.records(&last, "CELL").get(&want).cloned().unwrap_or(serde_json::Value::Null));
+        let slow_took = t.elapsed();
+        let same = fast.as_deref() == Some(slow.as_str());
+        bad += usize::from(!same);
+        println!("{want:<44} {last}: framing {fast_took:?} -> {fast:?}; cells parsed {slow_took:?} -> {slow:?}; {}", if same { "same" } else { "DIFFERENT" });
+    }
+    assert_eq!(bad, 0, "the framing and the parsed cells disagree");
+}
+

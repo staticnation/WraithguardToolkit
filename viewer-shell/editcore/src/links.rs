@@ -327,23 +327,13 @@ impl Links {
     /// cell names and grids - read now, on several threads, without the Editor's lock, as
     /// `warm_columns` does for a type's columns. A request that names the plugins to look in
     /// (`plugins`) reads only those, which the link does itself.
-    fn warm_cells(&self, name: &str, body: &str) {
-        let req = body_of(body).ok();
-        let named = req.as_ref().and_then(|r| r.get("plugins").and_then(Value::as_array).map(|a| !a.is_empty())).unwrap_or(false);
+    fn warm_cells(&self, body: &str) {
+        let named = body_of(body).ok().and_then(|r| r.get("plugins").and_then(Value::as_array).map(|a| !a.is_empty())).unwrap_or(false);
         if named {
             return;
         }
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.session.warm_cell_keys();
-            // Placing then reads the cell's record from the last plugin that has it (a big
-            // plugin's cells can take seconds): read it now, outside the lock too.
-            if name == "editPlace"
-                && let Some(cell) = req.as_ref().and_then(|r| r.get("cell")).and_then(Value::as_str)
-                && let Some(holders) = self.session.cell_holders(&cell.trim().to_lowercase())
-                && let Some(last) = holders.last()
-            {
-                self.session.records(last, "CELL");
-            }
         }));
     }
 
@@ -543,7 +533,7 @@ impl Links {
             self.warm_columns(body);
         }
         if CELL_LINKS.contains(&name) {
-            self.warm_cells(name, body);
+            self.warm_cells(body);
         }
         let t_read = std::time::Instant::now();
         self.warm_for(name);

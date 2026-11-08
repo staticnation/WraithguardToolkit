@@ -587,6 +587,17 @@ impl Session {
         });
     }
 
+    /// A cell's key as one plugin spells it (`cell_name_of`), from that plugin's file framing:
+    /// what placing needs of the plugin's cell, without parsing its cells. `None` when the
+    /// framing cannot say - the caller reads the cell.
+    pub fn cell_spelled(&self, plugin: &str, want: &str) -> Option<String> {
+        if !want.is_ascii() {
+            return None;
+        }
+        let (_, path) = self.paths.get(&plugin.to_lowercase())?;
+        with_file_bytes(path, |bytes| Ok(cell_name_of(bytes, want))).ok().flatten()
+    }
+
     /// A plugin's cell keys (lower case; `cell_keys_of`), read once; `None` when the file
     /// cannot be read.
     fn plugin_cell_keys(&self, lower: &str) -> Option<Arc<HashSet<String>>> {
@@ -1142,6 +1153,46 @@ fn cell_keys_checked(raw: &[u8]) -> (HashSet<String>, bool) {
     (keys, left_out)
 }
 
+/// A cell's key as its plugin spells it - an interior's name with its case, an exterior's
+/// `(x, y)` - from the record and subrecord framing alone: what `record_key` gives the parsed
+/// record, without parsing the cells (their references are most of a plugin). `want` is the key
+/// in lower case; `None` when no CELL record has it, or when `want` is not ASCII (the framing
+/// cannot say what the plugin's text decodes to). The last record with the key counts, as in
+/// `Session::records`.
+pub(crate) fn cell_name_of(raw: &[u8], want: &str) -> Option<String> {
+    if want.is_empty() || !want.is_ascii() {
+        return None;
+    }
+    let mut found = None;
+    for (tag, body) in crate::frames::records(raw) {
+        if tag != b"CELL" {
+            continue;
+        }
+        let (mut name, mut data): (Option<&[u8]>, Option<&[u8]>) = (None, None);
+        for (sub, bytes) in crate::frames::subrecords(body) {
+            match sub {
+                b"NAME" if name.is_none() => name = Some(bytes),
+                b"DATA" if data.is_none() => data = Some(bytes),
+                _ => {}
+            }
+        }
+        let Some(d) = data.filter(|d| d.len() >= 12) else { continue };
+        if u32::from_le_bytes([d[0], d[1], d[2], d[3]]) & 1 != 0 {
+            let n = name.unwrap_or(&[]);
+            let n = &n[..n.iter().position(|&b| b == 0).unwrap_or(n.len())];
+            if n.is_ascii() && n.eq_ignore_ascii_case(want.as_bytes()) {
+                found = Some(String::from_utf8_lossy(n).into_owned());
+            }
+        } else {
+            let key = format!("({}, {})", i32::from_le_bytes([d[4], d[5], d[6], d[7]]), i32::from_le_bytes([d[8], d[9], d[10], d[11]]));
+            if key == want {
+                found = Some(key);
+            }
+        }
+    }
+    found
+}
+
 /// The tags whose records are keyed by their first `NAME` subrecord alone (the id, as
 /// `record_key` reads `id`).
 const NAME_KEYED: [&str; 32] = [
@@ -1579,5 +1630,20 @@ mod key_only_tests {
         let mocked = Session::new(vec![("o.esp".into(), p.clone())]).with_read_dialogue(Box::new(|_| Ok(Vec::new())));
         assert!(mocked.info_owners(&wanted).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cells_spelling_comes_from_the_framing_as_the_parsed_record_gives_it() {
+        let raw = [cell("Vivec, Arena", true, 0, 0), cell("Balmora", false, -3, -2), cell("Seyda Neen, Census", true, 0, 0), cell("Vivec, Arena", true, 0, 0)].concat();
+        let parsed: Vec<Value> = serde_json::from_str(&crate::plugin::records_json(&raw, Some(&[*b"CELL"])).unwrap()).unwrap();
+        for rec in &parsed {
+            let key = crate::key::record_key(rec);
+            assert_eq!(super::cell_name_of(&raw, &key.to_lowercase()), Some(key.clone()), "{key}");
+        }
+        assert_eq!(super::cell_name_of(&raw, "no such cell"), None);
+        assert_eq!(super::cell_name_of(&cell("Caf\u{e9}", true, 0, 0), "caf\u{e9}"), None, "not ASCII: left to the parse");
+        // The last record with the key counts: a plugin that spells it twice.
+        let twice = [cell("The Hall", true, 0, 0), cell("THE HALL", true, 0, 0)].concat();
+        assert_eq!(super::cell_name_of(&twice, "the hall"), Some("THE HALL".to_string()));
     }
 }

@@ -417,10 +417,17 @@ impl Editor {
     pub fn place(&mut self, cell: &str, found: &Found, translation: &Value, rotation: Option<&Value>, plugins: Option<&[String]>) -> Result<NewRef, EditError> {
         let holders = self.cell_plugins(cell, plugins);
         let base = if found.new { String::new() } else { found.winner().to_string() };
-        let rec = if let Some(last) = holders.last() {
-            self.session.records(last, "CELL").get(&cell.trim().to_lowercase()).cloned().unwrap_or(Value::Null)
+        // The cell's key as the last plugin that has it spells it: from that plugin's file framing
+        // (its cells are not parsed: their references are most of a plugin, seconds for a big one),
+        // else from its parsed cell.
+        let want = cell.trim().to_lowercase();
+        let spelled = if let Some(last) = holders.last() {
+            match self.session.cell_spelled(last, &want) {
+                Some(key) => key,
+                None => record_key(&self.session.records(last, "CELL").get(&want).cloned().unwrap_or(Value::Null)),
+            }
         } else if let Some(own) = self.queue.new_record("Cell", &cell_key(cell)) {
-            own.record.clone()
+            record_key(&own.record)
         } else {
             return err(format!("no plugin of this load order has the cell {cell}"));
         };
@@ -429,7 +436,7 @@ impl Editor {
         fields.insert("translation".into(), coerce_ref("translation", translation)?);
         fields.insert("rotation".into(), coerce_ref("rotation", rotation.unwrap_or(&json!([0, 0, 0])))?);
         fields.insert("temporary".into(), json!(!PERSISTENT_TAGS.contains(&found.tag.as_str())));
-        let new = NewRef { cell: record_key(&rec), uid: token(), fields, base_plugin: base, plugins: holders, tag: found.tag.clone() };
+        let new = NewRef { cell: spelled, uid: token(), fields, base_plugin: base, plugins: holders, tag: found.tag.clone() };
         self.queue.add_new_ref(new.clone());
         self.save_journal();
         Ok(new)
