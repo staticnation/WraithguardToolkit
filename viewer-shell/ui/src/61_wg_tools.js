@@ -349,7 +349,10 @@ const WgToolsPage={
     try{
       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
       const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore}).finally(()=>{ live=false; });
-      const lines=['='.repeat(70),' MERGE LANDS','='.repeat(70), ...r.lines.map(l=>'  '+l)];
+      // What the log showed while it ran (every line, with its time) stays: `r.log`. `r.lines` is the
+      // report alone, without the timings or the progress lines, for a backend that sends no log.
+      const said=Array.isArray(r.log) && r.log.length? r.log : r.lines;
+      const lines=['='.repeat(70),' MERGE LANDS','='.repeat(70), ...said.map(l=>'  '+l)];
       if(r.cancelled) lines.push('', 'Cancelled: nothing was written.');
       else if(r.error) lines.push('', 'Merge failed: '+r.error);
       if(r.notes && r.notes.length) lines.push('', 'Left out or untranslated:', ...r.notes.map(n=>'  '+n));

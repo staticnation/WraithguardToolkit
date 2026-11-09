@@ -4558,7 +4558,8 @@ fn land_merge_home(cfg: String) -> Result<String, String> {
 /// against the load order before it (the OpenMW fork); `ignore` the plugins left out by name
 /// or folder (`None`: the fork's defaults). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
 /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
-/// before it kept.
+/// before it kept. `log` is every line it said, as [`LAND_LOG`] has them (the time it took
+/// before each), for the page to keep showing when the run ends.
 ///
 /// While it runs, each line it says is kept in [`LAND_LOG`] for `land_merge_progress`, so the
 /// page shows the merge as it goes (Static, 2026-10-27: a 621-plugin order sat on "Reading
@@ -4588,7 +4589,7 @@ fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: 
     let mut say = |line: &str| {
         LAND_LOG.lock().unwrap_or_else(|p| p.into_inner()).push(format!("[{:>5.1}s] {line}", started.elapsed().as_secs_f32()));
     };
-    let out = match build_merged_lands(&dirs, &order, &opts, &mut say) {
+    let mut out = match build_merged_lands(&dirs, &order, &opts, &mut say) {
         Ok(r) => serde_json::json!({
             "error": null, "lines": r.lines, "notes": r.notes,
             "output": r.output.map(|p| p.display().to_string()),
@@ -4597,6 +4598,10 @@ fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: 
         }),
         Err((error, lines)) => serde_json::json!({"error": error, "cancelled": error == landcore::service::CANCELLED, "lines": lines, "notes": [], "output": null, "result": null}),
     };
+    // Every line the run said, with the time it took to say it: the page showed them while the
+    // merge ran, then replaced them with `lines` (the report, without the timings and without
+    // the progress-only lines), so what the verbose log had told was gone as it finished.
+    out["log"] = serde_json::json!(LAND_LOG.lock().unwrap_or_else(|p| p.into_inner()).clone());
     *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = None;
     Ok(out.to_string())
 }

@@ -1,0 +1,46 @@
+--- a/viewer-shell/src/cellviewer/commands.rs
++++ b/viewer-shell/src/cellviewer/commands.rs
+@@ -4558,7 +4558,8 @@
+ /// against the load order before it (the OpenMW fork); `ignore` the plugins left out by name
+ /// or folder (`None`: the fork's defaults). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
+ /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
+-/// before it kept.
++/// before it kept. `log` is every line it said, as [`LAND_LOG`] has them (the time it took
++/// before each), for the page to keep showing when the run ends.
+ ///
+ /// While it runs, each line it says is kept in [`LAND_LOG`] for `land_merge_progress`, so the
+ /// page shows the merge as it goes (Static, 2026-10-27: a 621-plugin order sat on "Reading
+@@ -4588,7 +4589,7 @@
+     let mut say = |line: &str| {
+         LAND_LOG.lock().unwrap_or_else(|p| p.into_inner()).push(format!("[{:>5.1}s] {line}", started.elapsed().as_secs_f32()));
+     };
+-    let out = match build_merged_lands(&dirs, &order, &opts, &mut say) {
++    let mut out = match build_merged_lands(&dirs, &order, &opts, &mut say) {
+         Ok(r) => serde_json::json!({
+             "error": null, "lines": r.lines, "notes": r.notes,
+             "output": r.output.map(|p| p.display().to_string()),
+@@ -4597,6 +4598,10 @@
+         }),
+         Err((error, lines)) => serde_json::json!({"error": error, "cancelled": error == landcore::service::CANCELLED, "lines": lines, "notes": [], "output": null, "result": null}),
+     };
++    // Every line the run said, with the time it took to say it: the page showed them while the
++    // merge ran, then replaced them with `lines` (the report, without the timings and without
++    // the progress-only lines), so what the verbose log had told was gone as it finished.
++    out["log"] = serde_json::json!(LAND_LOG.lock().unwrap_or_else(|p| p.into_inner()).clone());
+     *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = None;
+     Ok(out.to_string())
+ }
+--- a/viewer-shell/ui/src/61_wg_tools.js
++++ b/viewer-shell/ui/src/61_wg_tools.js
+@@ -349,7 +349,10 @@
+     try{
+       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
+       const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore}).finally(()=>{ live=false; });
+-      const lines=['='.repeat(70),' MERGE LANDS','='.repeat(70), ...r.lines.map(l=>'  '+l)];
++      // What the log showed while it ran (every line, with its time) stays: `r.log`. `r.lines` is the
++      // report alone, without the timings or the progress lines, for a backend that sends no log.
++      const said=Array.isArray(r.log) && r.log.length? r.log : r.lines;
++      const lines=['='.repeat(70),' MERGE LANDS','='.repeat(70), ...said.map(l=>'  '+l)];
+       if(r.cancelled) lines.push('', 'Cancelled: nothing was written.');
+       else if(r.error) lines.push('', 'Merge failed: '+r.error);
+       if(r.notes && r.notes.length) lines.push('', 'Left out or untranslated:', ...r.notes.map(n=>'  '+n));
