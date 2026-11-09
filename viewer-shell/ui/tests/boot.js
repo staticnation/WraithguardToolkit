@@ -43,9 +43,11 @@ const html=process.argv[2]? fs.readFileSync(process.argv[2],'utf8') : assemble()
    one record, its changes kept, so the Editor mode's dialog and pool can be driven here.
    Reached the way the real one is - the engine's loopback POST (`wg_post`). */
 const http=require('http');
-const fakeWg={posts:[], queued:{}, reviewed:false, ref:null, refQueued:{}, refBase:{id:'', pos:[0,0,0]}, news:{}};
-const fakeNewView=n=>({cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, new:true, plugins:n.plugins||[],
-  fields:['translation','rotation','scale','deleted'].map(path=>({path, value:n.fields[path]==null? null : n.fields[path],
+/* Keyed by what the requests name (a field path, a record id, a new reference's uid): Maps, not
+   plain objects, so no request can write `__proto__` (CodeQL js/remote-property-injection). */
+const fakeWg={posts:[], queued:new Map(), reviewed:false, ref:null, refQueued:new Map(), refBase:{id:'', pos:[0,0,0]}, news:new Map()};
+const fakeNewView=n=>({cell:n.cell, uid:n.uid, id:n.fields.get('id'), tag:n.tag, new:true, plugins:n.plugins||[],
+  fields:['translation','rotation','scale','deleted'].map(path=>({path, value:n.fields.get(path)==null? null : n.fields.get(path),
     kind:path==='scale'?'float':path==='deleted'?'bool':'vec3', editable:true}))});
 const fakeRefView=()=>({cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, id:fakeWg.refBase.id,
   winner:'Lamp.esm', plugins:fakeWg.ref.plugins||['Lamp.esm'],
@@ -56,7 +58,7 @@ const fakeRefView=()=>({cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fak
     {path:'deleted', value:null, kind:'bool', editable:true},
     {path:'lock_level', value:null, kind:'int', editable:true},
     {path:'destination', value:null, kind:'door', editable:true},
-  ].map(f=> f.path in fakeWg.refQueued? Object.assign(f,{queued:fakeWg.refQueued[f.path]}) : f)});
+  ].map(f=> fakeWg.refQueued.has(f.path)? Object.assign(f,{queued:fakeWg.refQueued.get(f.path)}) : f)});
 const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm', plugins:['Lamp.esm'], whole:null,
   fields:[
     {path:'id', value:'lamp_lit', editable:false, kind:'str', options:[]},
@@ -65,8 +67,8 @@ const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm',
     {path:'flags', value:'', editable:true, kind:'flags:ObjectFlags', options:['DELETED','PERSISTENT']},
     {path:'inventory', value:[[5,'gold_001'],[1,'torch']], editable:true, kind:'list', options:[], count:2},
     {path:'filters', value:[{slot:'Slot0', function:'PcLevel', comparison:'Greater', value:{Integer:5}}], editable:true, kind:'list', options:[], count:1},
-  ].map(f=> f.path in fakeWg.queued? Object.assign(f,{queued:fakeWg.queued[f.path], source:'typed'}) : f)});
-fakeWg.made={};
+  ].map(f=> fakeWg.queued.has(f.path)? Object.assign(f,{queued:fakeWg.queued.get(f.path), source:'typed'}) : f)});
+fakeWg.made=new Map();
 const fakeServer=http.createServer((req,res)=>{
   let body=''; req.on('data',c=>body+=c); req.on('end',()=>{
     const name=req.url.split('?')[0].slice(1), b=body? JSON.parse(body) : {};
@@ -105,46 +107,46 @@ const fakeServer=http.createServer((req,res)=>{
       out={changed:3, refs:2, scripts:0};
     }
     else if(name==='editInsert'){
-      if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
-      fakeWg.made[b.newId.toLowerCase()]={tag:b.tag, id:b.newId};
+      if(fakeWg.made.has(b.newId.toLowerCase()) || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      fakeWg.made.set(b.newId.toLowerCase(), {tag:b.tag, id:b.newId});
       out=Object.assign(fakeView(), {tag:b.tag, id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
     }
     else if(name==='editDuplicate'){
-      if(fakeWg.made[b.newId.toLowerCase()] || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
-      fakeWg.made[b.newId.toLowerCase()]={tag:'LIGH', id:b.newId};
+      if(fakeWg.made.has(b.newId.toLowerCase()) || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      fakeWg.made.set(b.newId.toLowerCase(), {tag:'LIGH', id:b.newId});
       out=Object.assign(fakeView(), {id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
     }
-    else if(name==='editRevert' && fakeWg.made[String(b.id).toLowerCase()] && !b.path){ delete fakeWg.made[String(b.id).toLowerCase()]; out=fakeView(); }
+    else if(name==='editRevert' && fakeWg.made.has(String(b.id).toLowerCase()) && !b.path){ fakeWg.made.delete(String(b.id).toLowerCase()); out=fakeView(); }
     else if(name==='editSet'){
       if(b.path==='id'){ res.writeHead(400); res.end('id cannot be changed here'); return; }
-      fakeWg.queued[b.path]=b.value; out=fakeView();
-    } else if(name==='editRevert'){ if(b.path) delete fakeWg.queued[b.path]; else fakeWg.queued={}; out=fakeView(); }
+      fakeWg.queued.set(b.path, b.value); out=fakeView();
+    } else if(name==='editRevert'){ if(b.path) fakeWg.queued.delete(b.path); else fakeWg.queued.clear(); out=fakeView(); }
     else if(name==='editRef'){ fakeWg.ref=b; out=fakeRefView(); }
     else if(name==='editPlace'){
-      const uid='new-'+(Object.keys(fakeWg.news).length+1).toString(16).padStart(8,'0');
-      const n={cell:b.cell, uid, tag:b.tag, plugins:b.plugins, fields:{id:b.id, translation:b.translation, rotation:b.rotation||[0,0,0]}};
-      fakeWg.news[uid]=n; out=fakeNewView(n);
+      const uid='new-'+(fakeWg.news.size+1).toString(16).padStart(8,'0');
+      const n={cell:b.cell, uid, tag:b.tag, plugins:b.plugins, fields:new Map([['id',b.id], ['translation',b.translation], ['rotation',b.rotation||[0,0,0]]])};
+      fakeWg.news.set(uid, n); out=fakeNewView(n);
     }
-    else if(name==='editNew'){ const n=fakeWg.news[b.uid]; if(!n){ res.writeHead(400); res.end('That new reference is no longer in the patch'); return; } out=fakeNewView(n); }
-    else if(name==='editNewSet'){ const n=fakeWg.news[b.uid]; n.fields[b.path]=b.value; out=fakeNewView(n); }
-    else if(name==='editNewRemove'){ delete fakeWg.news[b.uid]; res.writeHead(200); res.end('ok'); return; }
+    else if(name==='editNew'){ const n=fakeWg.news.get(b.uid); if(!n){ res.writeHead(400); res.end('That new reference is no longer in the patch'); return; } out=fakeNewView(n); }
+    else if(name==='editNewSet'){ const n=fakeWg.news.get(b.uid); n.fields.set(b.path, b.value); out=fakeNewView(n); }
+    else if(name==='editNewRemove'){ fakeWg.news.delete(b.uid); res.writeHead(200); res.end('ok'); return; }
     else if(name==='editRefSet'){
       if(b.path==='scale' && b.value>2){ res.writeHead(400); res.end('scale is 0.5 to 2.0'); return; }
-      fakeWg.ref=Object.assign({}, b); fakeWg.refQueued[b.path]=b.value; out=fakeRefView();
-    } else if(name==='editRefRevert'){ if(b.path) delete fakeWg.refQueued[b.path]; else fakeWg.refQueued={}; out=fakeRefView(); }
+      fakeWg.ref=Object.assign({}, b); fakeWg.refQueued.set(b.path, b.value); out=fakeRefView();
+    } else if(name==='editRefRevert'){ if(b.path) fakeWg.refQueued.delete(b.path); else fakeWg.refQueued.clear(); out=fakeRefView(); }
     else if(name==='editPending'){
-      out=Object.keys(fakeWg.queued).length?
-        [{tag:'LIGH', type:'Light', id:'lamp_lit', whole:null, changes:Object.entries(fakeWg.queued).map(([path,value])=>({path,value}))}] : [];
-      for(const m of Object.values(fakeWg.made))
+      out=fakeWg.queued.size?
+        [{tag:'LIGH', type:'Light', id:'lamp_lit', whole:null, changes:[...fakeWg.queued].map(([path,value])=>({path,value}))}] : [];
+      for(const m of fakeWg.made.values())
         out.push({tag:m.tag, type:'Light', id:m.id, whole:null, made:{source:'Lamp.esm', name:'Lamp', mesh:'x\\lamp.nif'}, changes:[]});
-      if(fakeWg.ref && Object.keys(fakeWg.refQueued).length)
+      if(fakeWg.ref && fakeWg.refQueued.size)
         out.push({tag:'', type:'Reference', id:fakeWg.ref.origin+':'+fakeWg.ref.refr+' in '+fakeWg.ref.cell, whole:null,
                   ref:{cell:fakeWg.ref.cell, origin:fakeWg.ref.origin, refr:fakeWg.ref.refr, plugins:fakeWg.ref.plugins||[]},
-                  changes:Object.entries(fakeWg.refQueued).map(([path,value])=>({path,value}))});
-      for(const n of Object.values(fakeWg.news))
-        out.push({tag:'', type:'NewReference', id:n.fields.id+' (new) in '+n.cell, whole:null,
-                  new:{cell:n.cell, uid:n.uid, id:n.fields.id, tag:n.tag, plugins:n.plugins||[]},
-                  changes:Object.entries(n.fields).map(([path,value])=>({path,value}))});
+                  changes:[...fakeWg.refQueued].map(([path,value])=>({path,value}))});
+      for(const n of fakeWg.news.values())
+        out.push({tag:'', type:'NewReference', id:n.fields.get('id')+' (new) in '+n.cell, whole:null,
+                  new:{cell:n.cell, uid:n.uid, id:n.fields.get('id'), tag:n.tag, plugins:n.plugins||[]},
+                  changes:[...n.fields].map(([path,value])=>({path,value}))});
     }
     else { res.writeHead(404); res.end(); return; }
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(out));
@@ -530,7 +532,7 @@ async function quick(w, E, R, lamp, fail, sleep){
   if(!pl || pl[1].id!==lamp.id || Math.abs(pl[1].translation[0]-(sel.hit.wpos[0]+64))>0.05) fail('Duplicate did not place one beside it: '+JSON.stringify(pl&&pl[1]));
   for(let i=0;i<100 && !E.refRec;i++) await sleep(30);
   await sleep(100);
-  for(const uid of Object.keys(fakeWg.news)) await E.ask('editNewRemove', {cell:'(9, 9)', uid});
+  for(const uid of [...fakeWg.news.keys()]) await E.ask('editNewRemove', {cell:'(9, 9)', uid});
   await E.refreshPending();
 }
 
@@ -564,9 +566,9 @@ async function placing(w, E, R, fail, sleep){
     if(!E.selected() || E.selected().ref.uid!==v.uid) fail('picking the new reference does not select it');
     for(let i=0;i<100 && !d.getElementById('edRefRevertAll');i++) await sleep(30);
     d.getElementById('edRefRevertAll').onclick();
-    for(let i=0;i<100 && Object.keys(fakeWg.news).length;i++) await sleep(30);
+    for(let i=0;i<100 && fakeWg.news.size;i++) await sleep(30);
     for(let i=0;i<100 && E.liveNew.size;i++) await sleep(30);
-    if(Object.keys(fakeWg.news).length) fail('Remove from the patch did not reach Wraithguard');
+    if(fakeWg.news.size) fail('Remove from the patch did not reach Wraithguard');
     if(E.liveNew.size) fail('the removed reference is still drawn');
   }
 }
@@ -694,12 +696,12 @@ async function editor(w, R, fail, done, sleep){
     for(let i=0;i<100 && !d.getElementById('edDelete');i++) await sleep(30);
     // Delete record: the DELETED flag, and Undelete takes it off.
     d.getElementById('edDelete').onclick();
-    for(let i=0;i<100 && !/DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);
-    if(!/DELETED/.test(fakeWg.queued.flags||'')) fail('Delete record did not send the DELETED flag');
+    for(let i=0;i<100 && !/DELETED/.test(fakeWg.queued.get('flags')||'');i++) await sleep(30);
+    if(!/DELETED/.test(fakeWg.queued.get('flags')||'')) fail('Delete record did not send the DELETED flag');
     for(let i=0;i<100 && !/Undelete/.test((d.getElementById('edDelete')||{}).textContent||'');i++) await sleep(30);
     d.getElementById('edDelete').onclick();
-    for(let i=0;i<100 && /DELETED/.test(fakeWg.queued.flags||'');i++) await sleep(30);
-    if(/DELETED/.test(fakeWg.queued.flags||'')) fail('Undelete did not take the flag off');
+    for(let i=0;i<100 && /DELETED/.test(fakeWg.queued.get('flags')||'');i++) await sleep(30);
+    if(/DELETED/.test(fakeWg.queued.get('flags')||'')) fail('Undelete did not take the flag off');
     await E.change('editRevert', {});
     // Make a copy as: a record of the patch's own, in the Object Window, then removed.
     d.getElementById('edCopyId').value='lamp_copy';
@@ -713,8 +715,8 @@ async function editor(w, R, fail, done, sleep){
     await d.getElementById('edCopy').onclick();
     if(!d.getElementById('edCopyId').classList.contains('bad')) fail('a taken id is not refused');
     d.getElementById('edRevertAll').onclick();
-    for(let i=0;i<100 && Object.keys(fakeWg.made).length;i++) await sleep(30);
-    if(Object.keys(fakeWg.made).length) fail('Remove from the patch did not reach Wraithguard');
+    for(let i=0;i<100 && fakeWg.made.size;i++) await sleep(30);
+    if(fakeWg.made.size) fail('Remove from the patch did not reach Wraithguard');
     for(let i=0;i<100 && E.made.length;i++) await sleep(30);
     if(E.made.length) fail('the removed copy is still listed');
     E.filter='lamp_lit'; E.drawRows();
@@ -728,7 +730,7 @@ async function editor(w, R, fail, done, sleep){
       if(sent.indexOf('editDuplicate:lamp_renamed')<0 || sent.indexOf('editReplace:lamp_renamed')<sent.indexOf('editDuplicate:lamp_renamed')) fail('Rename did not copy then replace: '+JSON.stringify(sent));
       const rp=fakeWg.posts.slice(n0).find(p=>p[0]==='editReplace');
       if(!rp || rp[1].id!=='lamp_lit') fail('Rename replaced from the wrong record: '+JSON.stringify(rp));
-      delete fakeWg.made.lamp_renamed;
+      fakeWg.made.delete('lamp_renamed');
       await E.refreshPending();
       await E.openRecord('LIGH', 'lamp_lit', ['Lamp.esm']);
     }
@@ -743,8 +745,8 @@ async function editor(w, R, fail, done, sleep){
       await E.insertRecord();
       if(!d.getElementById('edNewId').classList.contains('bad')) fail('a taken id for New is not marked');
       d.getElementById('edRevertAll').onclick();
-      for(let i=0;i<100 && fakeWg.made.lamp_new;i++) await sleep(30);
-      if(fakeWg.made.lamp_new) fail('the new record was not removed');
+      for(let i=0;i<100 && fakeWg.made.has('lamp_new');i++) await sleep(30);
+      if(fakeWg.made.has('lamp_new')) fail('the new record was not removed');
       await E.refreshPending();
     }
   }
@@ -885,7 +887,7 @@ async function editor(w, R, fail, done, sleep){
       await E.saveScript();
       const sv=fakeWg.posts.slice(n0).find(p=>p[0]==='editSet');
       if(!sv || sv[1].path!=='text' || sv[1].value!=='begin payme\nset x to 1\nend' || sv[1].tag!=='SCPT') fail('saving did not send the text: '+JSON.stringify(sv));
-      delete fakeWg.queued.text;
+      fakeWg.queued.delete('text');
     }
     d.getElementById('edScript').hidden=true;
   }
