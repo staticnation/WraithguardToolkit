@@ -46,7 +46,7 @@ gardenfell-world = { path = "../gardenfell/crates/gardenfell-world" }
 # Wraithguard: OpenMW's navmesh.db (an SQLite file) read for the navmesh overlay. rusqlite
 # is MIT; "bundled" builds SQLite (public domain) from source, so no system library is
 # needed on any of the three OSes. Only the read-only API is used.
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 # Wraithguard: sounds decoded for the page to play (src/audio.rs, SOUND.md): WAV (PCM and
 # ADPCM), MP3, Ogg Vorbis and FLAC, in Rust, so what plays does not depend on the machine's

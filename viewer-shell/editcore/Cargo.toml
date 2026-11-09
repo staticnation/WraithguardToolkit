@@ -31,7 +31,7 @@ ordercore = { path = "../ordercore" }
 luacore = { path = "../luacore" }
 # The record cache (src/cache.rs): SQLite, built from source ("bundled", public domain) as
 # viewcore builds it, and zstd for the stored bodies (the version tes3's serde-zstd uses).
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 zstd = "0.14"
 # A script copied under a new id: its `begin` line renamed (src/edit.rs).
 regex = "1"

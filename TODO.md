@@ -28,6 +28,18 @@ Static's setup. Left:
 - The controller's sticks (untested); the encumbrance from what the body wears rather than
   a slider.
 
+## Command line (`viewer-shell/cli`)
+
+- Merge Lands from the command line (Sophie, 2026-11-09: "How do I use your merged lands
+  cli?"). There is none: the 4.x Python had none either, and the 5.x `wraithguard` sorts,
+  exports, scans conflicts, lints and draws the cell map only. `landcore::service` already
+  runs the whole merge as one call with the Tools page's progress log: a flag (or
+  subcommand) over it, its output path and the `.mergedlands.toml` settings as on the Tools
+  page, a case in `tests/fixtures/cli_cases.json`, and README's command-line section.
+- README's "Coming from 4.x?": say to remove the old pip-installed launcher
+  (`pip uninstall wraithguard-toolkit`). Left on PATH, `wraithguard` in a terminal runs it,
+  and it fails with "No module named 'wraithguard_toolkit'" (Static, 2026-11-09).
+
 ## Tools page
 
 - Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
@@ -113,7 +125,7 @@ coast, a path grid joined by a box, a key moved and the controller's A moved to 
 
 ### Editor stalls (Messages "Editor link ... took N s"): done, 2026-11-07
 
-Done and measured (`CHANGELOG.md`, 5.0.1): the Editor's lock is not held across a plugin read, a
+Done and measured (`CHANGELOG.md`, 5.0.4): the Editor's lock is not held across a plugin read, a
 scan or a Verify; reads run on threads before it; cell names, ids, the use index, dialogue
 and records are kept between launches. Verify went from over 6 minutes (357.8 s, the PC
 pinned) to 2.7 s warm; the first open of a type is about 4 s cold and the next almost instant;
@@ -134,7 +146,7 @@ records, against every plugin's dialogue). What is left is small:
 ### Merged Lands and the caches the port may have lost (audit, 2026-11-07)
 
 Found auditing the Python's caches against the port. The Editor's record cache and the key
-index were the ones lost, and are back (`CHANGELOG.md`, 5.0.1).
+index were the ones lost, and are back (`CHANGELOG.md`, 5.0.4).
 
 - Merged Lands: `landcore::service::records_of` read each plugin twice, after a scan of every
   byte for `LAND`/`LTEX`; it now reads each once (`read::read_terrain_records`, tested to give
@@ -175,7 +187,21 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
 ## Release and CI
 
-- The dependency audit (`audit.yml`, first run 2026-11-07: no vulnerability in any of the 15
+- Versions (sorted 2026-11-09 against GitHub): tags v5.0.0-v5.0.3 are pushed, and v5.0.3 is
+  the only 5.x release published; `CHANGELOG.md` now has 5.0.1, 5.0.2, 5.0.3 and 5.0.4 (the
+  work since v5.0.3). Before tagging 5.0.4: delete the local, never-pushed `v5.0.4` tag
+  (`2bafaef`, "CodeQL fixes": `git tag -d v5.0.4`); set the version in
+  `viewer-shell/Cargo.toml`, `viewer-shell/cli/Cargo.toml` and `viewer-shell/tauri.conf.json`
+  (still 5.0.1: the v5.0.2 and v5.0.3 programs both call themselves 5.0.1), and build once so
+  both `Cargo.lock`s carry it (`PREFLIGHT.md`, "A release").
+- The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`; `get_wraithguard`
+  in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in the Linux pack and the
+  macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet sent upstream). Move it to
+  the release that is current when the merge request goes in (5.0.3 now: its four archives'
+  and the AppImage's sha256s from its release page), then open the merge request.
+
+- The dependency audit (`audit.yml`; 2026-11-09's weekly run failed on `RUSTSEC-2026-0459`,
+  the bundled SQLite: `rusqlite` 0.41, in 5.0.4. First run 2026-11-07: no vulnerability in any of the 15
   `Cargo.lock`, none in the page tests' npm lockfile) warns of four things in
   `viewer-shell/Cargo.lock`: `paste` 1.0.15 and `proc-macro-error` 1.0.4 (unmaintained),
   `glib` 0.18.5 (`RUSTSEC-2024-0429`, unsound; it comes in with Tauri's Linux stack, so a
@@ -200,8 +226,6 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_to_master`
 (the `[patch]` sections in the crates' Cargo.toml).
 
-- Push merge_to_master's `lending-iterator` removal (Aikido's `paste`), then
-  `cargo update -p merge_to_master` in `viewer-shell`.
 - Offer merge_to_master's LUAL work upstream (once tes3#7 is merged), and ask greatness7 for
   the `ignore/` pairs behind the `MW`, `MW_TB`, `MW_BM` and `MW_TB_BM` dialogue tests.
 - When both are upstream: delete the `[patch]` sections.
@@ -278,6 +302,7 @@ navigation for the menus; the real pointer moved where the system allows (Tauri
 - Each new OpenMW release: its engine handlers and built-in events (`luacore::api`, from the
   release's `engine_handlers.html` and `events.html`). 0.49-0.52 are there; 0.52's came from
   Static's 0.52.0 RC1 `resources` (commit 4ff261bf), so when 0.52 is released (or a later RC): its
-  `API_REVISION` (0 until then) and its pages, for handlers and events its scripts do not
+  `API_REVISION` (166 for now, RC1's own, from its CMakeLists.txt; the Preview gives scripts
+  the install's, by its `resources/version`) and its pages, for handlers and events its scripts do not
   show. Check `WG_OPENMW_RESOURCES=<resources> cargo test -p luacore an_install -- --nocapture`.
 

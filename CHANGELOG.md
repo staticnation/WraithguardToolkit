@@ -5,6 +5,27 @@
 
 ### Fixed
 
+- **`paste` is gone** (unmaintained, `RUSTSEC-2024-0436`). It came in through
+  `lending-iterator`, which merge_to_master used for one pass over neighbouring dialogue
+  responses; our fork does that with `split_at_mut` now (staticnation/merge_to_master
+  `aa147b3`), and the six lock files that hold the crate moved to it: twelve crates left
+  with it (`lending-iterator`, `nougat`, `macro_rules_attribute`, `paste`, `polonius-the-crab`
+  and their macros), and an old `syn` 1.
+- **SQLite 3.54** (`rusqlite` 0.32 to 0.41, `libsqlite3-sys` 0.30.1 to 0.39.1): the weekly
+  dependency audit failed on `RUSTSEC-2026-0459` (CVE-2026-119375; SQLite before 3.54 can
+  return uninitialized memory when a database is opened beside a `-wal` file of a different
+  page size). The program bundles SQLite for the Editor's record cache and OpenMW's
+  `navmesh.db`. `editcore` and `viewcore` take the new `rusqlite`, and every `Cargo.lock`
+  holding it moved with them; no code changed. `rusqlite` 0.41 needs Rust 1.89, which the
+  crates already require.
+- **CodeQL's findings, gone through** (17 open, 2026-11-09). The page's tests are no longer
+  scanned (`.github/codeql/codeql-config.yml`): their stand-in engine answers only the test
+  run on 127.0.0.1, and its 9 property writes and the harness's `<script>` strip were flagged
+  as if they faced the network. A save test no longer prints the player's sex
+  (`rust/cleartext-logging`). The 6 `js/xss-through-dom` are the page's wording read back from
+  its own markup (`Text.builtin`, the `data-tx` snapshot) and put into the page again, every
+  value from a plugin or the engine passing through `escHtml` on the way: dismissed as false
+  positives, not changed.
 - **One cell index, not two** (`Session::cell_holders`). Which plugins have a cell was kept twice:
   in memory per run (`cell_keys`, read from every plugin's framing at each launch) and in the key
   index on disk (`ids_of`, `id_holders`, which already keys a cell from its framing and keeps it
