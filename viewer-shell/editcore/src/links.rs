@@ -388,6 +388,54 @@ impl Links {
         }
     }
 
+    /// `editSearchAll` from the use index: the records whose text holds the words, found in
+    /// its full-text part, and only those read (the scan reads every record of every type: the
+    /// whole load order the first time). `None` when the index cannot answer - a plugin not in
+    /// it as it now is (it is indexed behind this answer, for the next), text under three
+    /// characters, or text other than ASCII (the index folds case its own way) - and the scan
+    /// answers.
+    fn search_all_link(&self, body: &str) -> Option<Res<String>> {
+        let cache = self.use_index.clone()?;
+        let req = body_of(body).ok()?;
+        let text = req.get("text").and_then(Value::as_str)?.trim().to_string();
+        if !text.is_ascii() || !self.session.scans_files() {
+            return None;
+        }
+        let paths = self.session.plugin_paths();
+        let started = std::time::Instant::now();
+        let Some(found) = cache.text_records(&paths, &text) else {
+            if text.chars().count() >= 3 {
+                self.index_in_background(paths);
+            }
+            return None;
+        };
+        let whole = req.get("whole").is_some_and(crate::session::truthy);
+        let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
+        self.sync(&mut ed);
+        let mut keys: Vec<(String, String)> = found.into_iter().map(|(_, t, k)| (t, k.to_lowercase())).collect();
+        keys.extend(ed.search_all_touched());
+        keys.sort();
+        keys.dedup();
+        // Each one's winner: the last plugin that defines it (a deleting one too, as the scan's).
+        let definers = cache.definers(&paths, &keys)?;
+        let winners: Vec<((String, String), Option<usize>)> = keys
+            .into_iter()
+            .map(|k| {
+                let at = definers.get(&k).and_then(|v| v.last().copied());
+                (k, at)
+            })
+            .collect();
+        let looked = winners.len();
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ed.search_all_in(&text, whole, SEARCH_ALL_LIMIT, &winners)))
+            .map_err(|_| "the viewer's Editor failed on editSearchAll".to_string());
+        // What it cost, to be measured on a big load order: the records looked at, the time, and
+        // the index's size on disk.
+        Some(out.map(|mut v| {
+            v["took"] = json!({"ms": started.elapsed().as_millis() as u64, "records": looked, "index_mb": cache.size_bytes() / (1 << 20)});
+            v.to_string()
+        }))
+    }
+
     /// `editUses`: the Use Report scans every plugin file (seconds on a big load order), so
     /// the Editor is locked to find the record and again to answer, not across the scan -
     /// a record opened meanwhile is not held behind it. `None` when the session reads
@@ -541,6 +589,11 @@ impl Links {
         let read_ms = t_read.elapsed().as_millis();
         if name == "editUses"
             && let Some(out) = self.uses_link(body)
+        {
+            return out;
+        }
+        if name == "editSearchAll"
+            && let Some(out) = self.search_all_link(body)
         {
             return out;
         }

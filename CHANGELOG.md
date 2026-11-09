@@ -15,6 +15,19 @@
   the merge follows the sort. The 4.x command line never had one (asked on Discord,
   2026-11-09). `cli/tests/merge_lands.rs` holds the command line's file to the one
   `build_merged_lands` writes, byte for byte.
+- **Search all from an index.** The Editor's Search all (Ctrl+Shift+F) read every record of
+  every type, the whole load order the first time, to look for the text. The use index now
+  keeps each record's text fields too (`use_text`, SQLite FTS5 with the trigram tokenizer,
+  so any part of a word is found, in any case), and a search reads only the records it names
+  and the ones the patch changes: each one's winning version, the patch's edits applied,
+  then checked as before. The same hits, in the same order (`editcore/tests/search_index.rs`
+  holds it to the scan, edits, new records, an override and a deletion included). Until the
+  index has every plugin as it now is, or for text under three letters or not ASCII, the
+  scan answers as before and the plugins are indexed behind it. The use index's schema is
+  6, so it is built again once. The count's hover says the time, the records looked at and
+  the index's size.
+- The Conflicts page times judging every record and Judge all in Messages, to see whether
+  they need a cache on a big load order.
 - README's "Coming from 4.x?" says to `pip uninstall wraithguard-toolkit`: the old launcher
   left on PATH answers `wraithguard` in a terminal, and fails with "No module named
   'wraithguard_toolkit'".

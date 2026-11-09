@@ -318,7 +318,10 @@ const WgConflicts={
     const was=$('#cfStats').textContent;
     $('#cfStats').textContent=was+' - judging each record...';
     try{
+      const t0=performance.now();
       const v=await Engine.call('conflicts_verdicts',{cfg:this.cfg()});
+      // Timed for Messages: it reads every plugin of the scan again (TODO, Merged Lands and caches).
+      if(typeof WgLog==='object') WgLog.add(`Conflicts: judged ${list.length} record(s) in ${((performance.now()-t0)/1000).toFixed(1)} s`);
       if(this.list!==list) return;
       list.forEach((c,i)=>{ c.verdict=v[i]; });
       const n=k=>v.filter(x=>x===k).length;
@@ -551,6 +554,7 @@ const WgConflicts={
 
   async judgeAll(){
     const btn=$('#cfJudgeAll'); btn.disabled=true;
+    const t0=performance.now();
     try{
       let n=0;
       for(const b of this.branches){
@@ -559,6 +563,8 @@ const WgConflicts={
         try{ await this.judge(b.plugin); }catch(_){}
         if(n%5===0) this.drawTree();
       }
+      // Timed for Messages: each plugin's records are read again for every plugin judged.
+      if(typeof WgLog==='object') WgLog.add(`Conflicts: judged ${n} plugin(s) in ${((performance.now()-t0)/1000).toFixed(1)} s`);
     }finally{ btn.disabled=false; this.drawTree(); }
   },
 

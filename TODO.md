@@ -128,14 +128,20 @@ index were the ones lost, and are back (`CHANGELOG.md`, 5.0.4).
   mode's rescan takes the cached keys, and the page counts a plugin's peers from the scan's
   list it already holds).
 - `conflicts_verdicts` and `conflicts_plugin_group` read the scan's plugins again on each
-  call (`cf_read_many`): measure on the big order before keeping them between calls.
+  call (`cf_read_many`); Judge all calls the second once per plugin, so a plugin's records
+  are read again for every plugin it shares one with. Both are timed in Messages
+  ("Conflicts: judged ..."), 2026-11-09: read the times on the big order, and if Judge all
+  is slow, keep each plugin's records of the scan's keys between calls, dropped with the scan.
 
 ### The record cache (`editcore::cache`)
 
 - If the cache grows too big (the `uses` table is most of it): keep only the strings of
   fields that can name a record.
-- "Search all fields": an FTS5 index of the plugins' own fields, with the pending edits
-  layered over the hits.
+- Search all from the use index (`use_text`, 2026-11-09): on the big order, read the hover
+  on its count (the time, the records looked at, the index's size). The use index's
+  database is capped at 1 GiB (`cache::MAX_BYTES`), and over it the whole index is dropped and
+  built again: if the text puts it over, raise its cap or keep only text the `uses` table
+  lacks (strings over 64 characters).
 
 ## Opening a big install (the viewer engine)
 

@@ -203,6 +203,22 @@ fn strings(v: &Value, path: &str, out: &mut Vec<(String, String)>) {
     }
 }
 
+/// The text Search all looks through in a record, its text fields one line each, for the
+/// use index's full-text part (`Cache::put_uses_with_text`); empty for a type it does not
+/// search.
+pub fn record_text(rec: &Value) -> String {
+    let tag = crate::key::tag_of(type_name(rec)).unwrap_or("");
+    if tag.is_empty() || SKIPPED.contains(&tag) {
+        return String::new();
+    }
+    let mut found = Vec::new();
+    strings(rec, "", &mut found);
+    found.into_iter().map(|(_, v)| v).filter(|v| !v.is_empty()).collect::<Vec<_>>().join("\n")
+}
+
+/// The types Search all leaves out.
+const SKIPPED: [&str; 3] = ["TES3", "LAND", "PGRD"];
+
 impl Editor {
     /// A type's records as the patch leaves them: every plugin's winning version (a
     /// deleting one too, as the Python's), the queue's typed values applied, and the
@@ -361,7 +377,7 @@ impl Editor {
         let mut types: Vec<(&str, &str)> = TYPES.iter().map(|(n, g)| (*g, *n)).collect();
         types.sort();
         for (tag, rtype) in types {
-            if ["TES3", "LAND", "PGRD"].contains(&tag) {
+            if SKIPPED.contains(&tag) {
                 continue;
             }
             let mut recs: Vec<(String, Value)> = self.winners(tag, rtype).into_iter().collect();
@@ -381,6 +397,75 @@ impl Editor {
             }
         }
         json!({"hits": hits, "count": count, "capped": count > limit})
+    }
+
+    /// The records the queue changes for Search all (a typed value, a record it makes), as
+    /// `(record type, lower-case key)`: looked at whatever the index says, as their text is
+    /// the patch's.
+    pub fn search_all_touched(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for ((t, key), choices) in self.queue.fields().iter() {
+            if choices.iter().any(|c| matches!(c, Choice::Value { .. })) {
+                out.push((t.clone(), key.to_lowercase()));
+            }
+        }
+        out.extend(self.queue.new_records().map(|m| (m.record_type.clone(), m.key.to_lowercase())));
+        out
+    }
+
+    /// [`Editor::search_all`] over the records the use index found the text in, and those the
+    /// queue changes: `winners` names each one's winning plugin (an index into the load
+    /// order, `None` for one the patch makes). The same answer as the scan of every record,
+    /// from those records alone.
+    pub fn search_all_in(&self, text: &str, whole: bool, limit: usize, winners: &[((String, String), Option<usize>)]) -> Value {
+        let t = text.trim();
+        if t.is_empty() {
+            return json!({"hits": [], "count": 0, "capped": false});
+        }
+        let finder = Finder::new(t, whole);
+        // In the scan's order: by tag, then type, then key.
+        let mut wanted: std::collections::BTreeMap<(&str, &str, &str), Option<usize>> = std::collections::BTreeMap::new();
+        for ((rtype, key), at) in winners {
+            let Some(tag) = crate::key::tag_of(rtype).filter(|g| !SKIPPED.contains(g)) else { continue };
+            wanted.insert((tag, rtype.as_str(), key.as_str()), *at);
+        }
+        let order = self.session.order();
+        let mut hits = Vec::new();
+        let mut count = 0usize;
+        for ((tag, rtype, key), at) in wanted {
+            let made = self.queue.new_records().find(|m| m.record_type == rtype && m.key.to_lowercase() == key);
+            let mut rec = match (made, at.and_then(|i| order.get(i))) {
+                (Some(m), _) => m.record.clone(),
+                (None, Some(name)) => match self.session.records(name, tag).get(key).filter(|r| type_name(r) == rtype) {
+                    Some(r) => r.clone(),
+                    None => continue,
+                },
+                (None, None) => continue,
+            };
+            if made.is_none() {
+                for ((qt, qk), choices) in self.queue.fields().iter() {
+                    if qt == rtype && qk.to_lowercase() == key {
+                        for c in choices {
+                            if let Choice::Value { path, value } = c {
+                                let _ = set_at(&mut rec, path, value.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            let mut found = Vec::new();
+            strings(&rec, "", &mut found);
+            for (path, value) in found {
+                if finder.found(&value) {
+                    count += 1;
+                    if hits.len() < limit {
+                        let id = ["id", "name"].iter().filter_map(|f| rec.get(*f)).find(|v| crate::columns::truthy(v)).map(pyval::str_of).unwrap_or_else(|| key.to_string());
+                        hits.push(json!({"tag": tag, "id": id, "path": path, "value": value}));
+                    }
+                }
+            }
+        }
+        json!({"hits": hits, "count": count, "capped": count > limit, "indexed": true})
     }
 
     /// A record as the patch would write it: its base (the whole record queued, else the

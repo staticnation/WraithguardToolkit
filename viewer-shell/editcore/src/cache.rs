@@ -12,7 +12,9 @@
 //! Beside the records is a key index: which record keys (a cell's name or `(x, y)`, an
 //! id) each plugin has of a tag, with the same size-and-time stamp, so "is this cell name
 //! free?" and "which plugins have this cell?" are one indexed query over the whole load
-//! order. And the use-report index: every string each plugin's records hold, by record.
+//! order. And the use-report index: every string each plugin's records hold, by record,
+//! with each record's text fields in a full-text index beside it (`use_text`, SQLite's FTS5
+//! with the trigram tokenizer), so Search all finds a word without reading every record.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -24,7 +26,8 @@ use rusqlite::{params, params_from_iter, Connection, ErrorCode, OptionalExtensio
 /// Bumped when what is stored changes shape; an older database is emptied, not read.
 /// 4: bodies are zstd'd bytes of the caller's (tagged JSON from Python), not pickles.
 /// 5: the use index has the words of dialogue responses' results too.
-pub const SCHEMA: i64 = 5;
+/// 6: the use index has each record's text fields in `use_text`, for Search all.
+pub const SCHEMA: i64 = 6;
 
 /// How much of the file the record bodies may take before the largest tag's go.
 pub const MAX_BYTES: u64 = 1 << 30;
@@ -42,7 +45,7 @@ pub const REPORTS_KEPT: i64 = 2000;
 pub const USES_TAG: &str = "~USE";
 
 /// The tables that hold what was read from the plugins (emptied together).
-const DERIVED: [&str; 9] = ["records", "keys", "key_stamps", "reports", "uses", "use_records", "use_plugins", "spans2", "span_stamps2"];
+const DERIVED: [&str; 10] = ["records", "keys", "key_stamps", "reports", "uses", "use_records", "use_plugins", "use_text", "spans2", "span_stamps2"];
 
 /// Times to open the file again when another connection is setting it up.
 const OPEN_TRIES: u32 = 12;
@@ -201,6 +204,7 @@ impl Cache {
              CREATE INDEX IF NOT EXISTS use_records_key ON use_records (lower(key));
              CREATE TABLE IF NOT EXISTS uses (value TEXT NOT NULL, rid INTEGER NOT NULL,
                paths TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (value, rid)) WITHOUT ROWID;
+             CREATE VIRTUAL TABLE IF NOT EXISTS use_text USING fts5(text, tokenize='trigram', content='', contentless_delete=1);
              CREATE TABLE IF NOT EXISTS reports (sig TEXT NOT NULL, kind TEXT NOT NULL,
                key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key));
              DROP TABLE IF EXISTS spans;
@@ -239,6 +243,10 @@ impl Cache {
 
     /// Removes what the use index holds of one plugin (the caller commits).
     fn drop_uses(conn: &Connection, plugin: &str) -> rusqlite::Result<()> {
+        conn.execute(
+            "DELETE FROM use_text WHERE rowid IN (SELECT r.rid FROM use_records r JOIN use_plugins p ON p.pid = r.pid WHERE p.plugin=?)",
+            [plugin],
+        )?;
         conn.execute(
             "DELETE FROM uses WHERE rid IN (SELECT r.rid FROM use_records r JOIN use_plugins p ON p.pid = r.pid WHERE p.plugin=?)",
             [plugin],
@@ -323,7 +331,7 @@ impl Cache {
             (self.warn)(&format!("editor: record cache over {} bytes: dropped the {next} records", self.max_bytes));
         }
         if over(c) {
-            let _ = c.execute_batch("DELETE FROM uses; DELETE FROM use_records; DELETE FROM use_plugins;");
+            let _ = c.execute_batch("INSERT INTO use_text(use_text) VALUES ('delete-all'); DELETE FROM uses; DELETE FROM use_records; DELETE FROM use_plugins;");
             let _ = c.execute("DELETE FROM key_stamps WHERE tag=?", [USES_TAG]);
             (self.warn)(&format!("editor: record cache over {} bytes: dropped the use index", self.max_bytes));
             dropped += 1;
@@ -539,6 +547,13 @@ impl Cache {
 
     /// Indexes every string a plugin's records hold (the use-report index).
     pub fn put_uses(&self, plugin: &Path, rows: &[UseRow]) {
+        self.put_uses_with_text(plugin, rows, &[]);
+    }
+
+    /// [`Cache::put_uses`], with each record's text fields for Search all: `(record type,
+    /// key, text)`, a record's fields one line each (`search::record_text`). A record whose key
+    /// the rows do not define is left out.
+    pub fn put_uses_with_text(&self, plugin: &Path, rows: &[UseRow], texts: &[(String, String, String)]) {
         let Some(s) = stamp(plugin) else { return };
         self.with(|c| {
             let r = (|| -> rusqlite::Result<()> {
@@ -556,6 +571,25 @@ impl Cache {
                     let mut ins = tx.prepare("INSERT INTO uses VALUES (?, ?, ?, ?)")?;
                     for (v, rid, p, n) in &strings {
                         ins.execute(params![v, rid, p, n])?;
+                    }
+                    if !texts.is_empty() {
+                        // A record's text under its row id; a key two records of the plugin share
+                        // (one record's run of rows each) goes under the last, both texts together.
+                        let rid_of: HashMap<(&str, &str), i64> = records.iter().map(|(rid, t, k)| ((t.as_str(), k.as_str()), *rid)).collect();
+                        let mut joined: BTreeMap<i64, String> = BTreeMap::new();
+                        for (t, k, text) in texts {
+                            if let Some(&rid) = rid_of.get(&(t.as_str(), k.as_str())).filter(|_| !text.is_empty()) {
+                                let e = joined.entry(rid).or_default();
+                                if !e.is_empty() {
+                                    e.push('\n');
+                                }
+                                e.push_str(text);
+                            }
+                        }
+                        let mut ins = tx.prepare("INSERT INTO use_text (rowid, text) VALUES (?, ?)")?;
+                        for (rid, text) in &joined {
+                            ins.execute(params![rid, text])?;
+                        }
                     }
                 }
                 tx.execute("INSERT OR REPLACE INTO key_stamps VALUES (?, ?, ?, ?)", params![s.key, USES_TAG, s.size, s.mtime_ns])?;
@@ -610,6 +644,39 @@ impl Cache {
         })?;
         out.sort_by_key(|(i, rid, _)| (*i, *rid));
         Some(out.into_iter().map(|(_, _, h)| h).collect())
+    }
+
+    /// Every record whose text fields hold `text` (any case), from the use index's full-text
+    /// part: `(plugin index, record type, key)`, in load order. Candidates, not hits: the
+    /// caller looks at the record (a word split across two fields matches here). `None` when
+    /// the index cannot answer: a plugin not in it as it now is, or `text` under three
+    /// characters (the trigram tokenizer's least).
+    pub fn text_records(&self, plugins: &[PathBuf], text: &str) -> Option<Vec<(usize, String, String)>> {
+        if text.chars().count() < 3 || !self.stale_of(plugins, USES_TAG)?.is_empty() {
+            return None;
+        }
+        let order: HashMap<String, usize> = Cache::stamped(plugins).into_iter().map(|(i, s)| (s.key, i)).collect();
+        // One phrase: the text as it is, its quotes doubled.
+        let phrase = format!("\"{}\"", text.replace('"', "\"\""));
+        let mut out = self.with(|c| {
+            let mut st = c
+                .prepare(
+                    "SELECT p.plugin, r.rtype, r.key, r.rid FROM use_text t
+                     JOIN use_records r ON r.rid = t.rowid JOIN use_plugins p ON p.pid = r.pid WHERE use_text MATCH ?",
+                )
+                .ok()?;
+            let rows = st.query_map([&phrase], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?))).ok()?;
+            let mut out = Vec::new();
+            for row in rows {
+                let (plug, rtype, key, rid) = row.ok()?;
+                if let Some(&i) = order.get(&plug) {
+                    out.push((i, rid, rtype, key));
+                }
+            }
+            Some(out)
+        })?;
+        out.sort_by_key(|(i, rid, _, _)| (*i, *rid));
+        Some(out.into_iter().map(|(i, _, t, k)| (i, t, k)).collect())
     }
 
     /// Which plugins (indices, load order) define each `(record type, lower-case key)`,
