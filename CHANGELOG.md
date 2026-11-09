@@ -26,15 +26,29 @@
   `navmesh.db`. `editcore` and `viewcore` take the new `rusqlite`, and every `Cargo.lock`
   holding it moved with them; no code changed. `rusqlite` 0.41 needs Rust 1.89, which the
   crates already require.
-- **CodeQL's findings, gone through** (17 open, 2026-11-09). The page's tests are no longer
-  scanned (`.github/codeql/codeql-config.yml`): their stand-in engine answers only the test
-  run on 127.0.0.1, and its 9 property writes and the harness's `<script>` strip were flagged
-  as if they faced the network. `rust/cleartext-logging` on a save test printing the player
-  character's sex is a false positive (the rule goes by field names: a Morrowind character,
-  not a person) and is dismissed, the print kept. The 6 `js/xss-through-dom` are the page's wording read back from
-  its own markup (`Text.builtin`, the `data-tx` snapshot) and put into the page again, every
-  value from a plugin or the engine passing through `escHtml` on the way: dismissed as false
-  positives, not changed.
+- **CodeQL's findings, gone through** (17 open, 2026-11-09). The page tests' 10 are fixed in
+  the code: their stand-in engine (`ui/tests/boot.js`) keeps what requests name (field paths,
+  ids, new references' uids) in `Map`s, not plain objects a `__proto__` key could reach (9 ×
+  `js/remote-property-injection`), and the harness strips its `<script>` wrapper in any case
+  (`js/bad-tag-filter`). The tests are left out of the scan too (`.github/codeql/codeql-config.yml`):
+  not shipped, and only the test run on 127.0.0.1 talks to that engine.
+  `rust/cleartext-logging` on a save test printing the player character's sex is a false
+  positive (the rule goes by field names: a Morrowind character, not a person), dismissed with
+  the print kept. The 6 `js/xss-through-dom` are fixed at their one source: the page took the
+  default wording of its markup (`data-tx`, `data-txt`, `data-txp`) by reading itself back
+  (`Text.start`, `Text.builtin`) and put it into the page again as HTML. It comes from a table
+  now, `ui/src/04_tx_markup.js` (157 keys), generated from the markup by
+  `ui/tests/gen_tx_markup.js` and checked by the page tests (`editor/tx_markup.test.js`) to be
+  current, and checked in Chromium to match the markup key for key.
+- **A Content Security Policy** (`tauri.conf.json`; it was `null`). Scripts only from the
+  program itself (Tauri hashes the page's inline scripts at build time), images, fonts and
+  sound also from `data:` and `blob:`, the engine's IPC, and no objects, frames, forms or
+  `<base>`. Inline styles stay allowed (`style-src 'unsafe-inline'`, kept out of Tauri's
+  hashing): the page and Mermaid's charts set style attributes. The assembled page booted in
+  Chromium under the policy with no violation: every top-level page, a Mermaid chart, a
+  `data:` and a `blob:` image and the bundled `water_NRM.dds`.
+- **physcore in the checks**: its tests and clippy run in CI (`ci.yml`) and in
+  `tools/build_and_check_rust.ps1` (`-Only physics`).
 - **One cell index, not two** (`Session::cell_holders`). Which plugins have a cell was kept twice:
   in memory per run (`cell_keys`, read from every plugin's framing at each launch) and in the key
   index on disk (`ids_of`, `id_holders`, which already keys a cell from its framing and keeps it

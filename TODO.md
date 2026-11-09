@@ -71,9 +71,10 @@ files as their source; the platforms are Windows, Linux, macOS, Android and iOS.
   build on a desktop distro and on the Deck (Desktop Mode, and Game Mode as a non-Steam game),
   that its sound plays (the bundled GStreamer), and that settings land beside the .AppImage.
   Then remove `build-flatpak.yml` and `packaging/flatpak/`.
-- A CSP: `tauri.conf.json` has `"csp": null`. The page's inline `on...=` handlers move to
-  `addEventListener` first (recount them before scoping), then the policy is set, the
-  `WG_TAINT` runs go once more, and Aikido's finding is marked.
+- The CSP (`tauri.conf.json`, 2026-11-09): check the program itself on Windows, Linux and
+  macOS (DevTools' console for "Content Security Policy" while using each page, a Lua window,
+  a sound, the Mermaid charts), run the `WG_TAINT` page tests once more, then mark Aikido's
+  finding.
 - Android and iOS (Tauri 2's mobile targets). First an audit of what the page and the
   commands assume of a desktop: spawned processes (`editor_preview_patch`, tes3cmd, the
   OpenMW test run), free file paths and `openmw.cfg` locations (OpenMW's Android app keeps
@@ -200,26 +201,19 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   the release that is current when the merge request goes in (5.0.3 now: its four archives'
   and the AppImage's sha256s from its release page), then open the merge request.
 
-- The dependency audit (`audit.yml`; 2026-11-09's weekly run failed on `RUSTSEC-2026-0459`,
-  the bundled SQLite: `rusqlite` 0.41, in 5.0.4. First run 2026-11-07: no vulnerability in any of the 15
-  `Cargo.lock`, none in the page tests' npm lockfile) warns of four things in
-  `viewer-shell/Cargo.lock`: `paste` 1.0.15 and `proc-macro-error` 1.0.4 (unmaintained),
-  `glib` 0.18.5 (`RUSTSEC-2024-0429`, unsound; it comes in with Tauri's Linux stack, so a
-  Tauri bump is the way off it), `tokio` 1.53.1 (`RUSTSEC-2026-0386`, `AsyncFd` I/O safety,
-  published 2026-10-13; patched from 1.53.3: `cargo update -p tokio` took it to 1.54.1) and a
-  yanked `yoke-derive` 0.8.3 (`cargo update -p yoke-derive` took it to 0.8.4; commit
-  `viewer-shell/Cargo.lock`). None fails the job.
+- The dependency audit (`audit.yml`) is clean as of 2026-11-09: SQLite through `rusqlite` 0.41,
+  `paste` gone with merge_to_master's `lending-iterator`, `glib` and `proc-macro-error` patched
+  (below), `tokio` 1.54.1 and `yoke-derive` 0.8.4 taken earlier. It runs weekly: a new advisory
+  fails it on a Monday with nothing changed here.
 - gtk-0.18-patches (`viewer-shell/Cargo.toml` `[patch.crates-io]`, 2026-11-09): check the
   first Linux build with it (the AppImage job) and that the Cell Preview opens there. Each
   Tauri release: is `webkit2gtk` still in `viewer-shell/Cargo.lock`? When it is gone (a wry on
   WebKitGTK 6), drop the two patch lines and archive the repository.
-- `viewer-shell/physcore`'s tests and clippy are in neither `ci.yml` nor
-  `build_and_check_rust.ps1` yet: add them to both.
 - Actions are pinned to a commit of their current major; moving to the Node 24 majors
   (checkout 7, upload-artifact 7, cache 6) is a separate step: read each one's breaking
   changes, then re-pin.
-- Tauri pins glib/gtk 0.18, string_cache 0.9 and jsonptr 0.7 (Aikido: waiting on upstream);
-  recheck each Tauri release.
+- Tauri pins gtk 0.18 (glib patched, above), string_cache 0.9 and jsonptr 0.7 (Aikido: waiting
+  on upstream); recheck each Tauri release.
 - Aikido, to ignore with these reasons: path traversal and file inclusion (a desktop app
   opening files its user picks); the two `engine_behaviour.json` "secrets" (SHA-256 hashes of
   test outputs); CSP and clickjacking on `none.com` (not our site: remove it under Domains).

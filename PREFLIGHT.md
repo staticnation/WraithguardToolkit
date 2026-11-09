@@ -70,6 +70,8 @@ Each `boot.js` run must end with `page errors: 0`.
 
 After adding a page file to `viewer-shell\ui\ORDER`, list it in `viewer-shell\MANIFEST.md`
 too.
+After changing a `data-tx`, `data-txt` or `data-txp` element in the markup, run
+`node viewer-shell\ui\tests\gen_tx_markup.js` (the page tests fail until you do).
 
 ### Look at what you are about to commit
 

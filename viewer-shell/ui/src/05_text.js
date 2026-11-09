@@ -1161,15 +1161,10 @@ const Text={
   builtin(key){
     if(Text.said[key]!=null) return Text.said[key];
     if(TX_STRINGS[key]) return TX_STRINGS[key][0];
-    /* A key whose element was not there when the snapshot was taken — a row the panel
-       builds as it draws it. Read the page for it, but do not keep the answer: an element
-       that arrives late is as liable to be rewritten as one that was here all along. */
-    const el=document.querySelector('[data-tx="'+key+'"]');
-    if(el) return el.innerHTML.replace(/\s+/g,' ').trim();
-    const t=document.querySelector('[data-txt="'+key+'"]');
-    if(t) return titleOf(t);
-    const ph=document.querySelector('[data-txp="'+key+'"]');
-    if(ph) return ph.getAttribute('placeholder')||'';
+    /* The markup's own wording comes from its table (04_tx_markup.js, generated from the
+       markup), never read back out of the page: text taken from the page and put into it
+       again as HTML is what CodeQL's js/xss-through-dom is about. */
+    if(typeof TX_MARKUP==='object' && Object.prototype.hasOwnProperty.call(TX_MARKUP,key)) return TX_MARKUP[key];
     return '';
   },
 
@@ -1178,7 +1173,7 @@ const Text={
    *  why the pack is asked first. */
   has(key){
     return Text.pack[key]!=null || Text.said[key]!=null || !!TX_STRINGS[key] ||
-           !!document.querySelector('[data-tx="'+key+'"],[data-txt="'+key+'"],[data-txp="'+key+'"]');
+           (typeof TX_MARKUP==='object' && Object.prototype.hasOwnProperty.call(TX_MARKUP,key));
   },
 
   /* ---- language packs (round 18aq, wording-plan.md phase 2) --------------------------
@@ -1301,29 +1296,20 @@ const Text={
     }
   },
 
-  /** Takes the markup's wording once, before anything has had a chance to rewrite it. */
+  /** The shipped wording, once: the markup's (its table, 04_tx_markup.js, as the markup has
+   *  it before anything has had a chance to rewrite it) and the scripts' (TX_STRINGS). */
   start(){
-    document.querySelectorAll('[data-tx]').forEach(el=>{
-      if(Text.said[el.dataset.tx]==null)
-        Text.said[el.dataset.tx]=el.innerHTML.replace(/\s+/g,' ').trim();
-    });
-    document.querySelectorAll('[data-txt]').forEach(el=>{
-      if(Text.said[el.dataset.txt]==null) Text.said[el.dataset.txt]=titleOf(el);
-    });
-    document.querySelectorAll('[data-txp]').forEach(el=>{
-      if(Text.said[el.dataset.txp]==null)
-        Text.said[el.dataset.txp]=el.getAttribute('placeholder')||'';
-    });
+    if(typeof TX_MARKUP==='object')
+      for(const k of Object.keys(TX_MARKUP)) if(Text.said[k]==null) Text.said[k]=TX_MARKUP[k];
     for(const k in TX_STRINGS)
       if(Text.said[k]==null) Text.said[k]=TX_STRINGS[k][0];
   },
 };
 
-/* Taken here, at load, rather than from the start-up sequence: the scripts run after the
-   markup, so the page is complete, and `syncNav` writes `T('vp.nav_orbit')` into the very
-   button that *holds* that wording. Called later, the snapshot would have read back an
-   answer the page had already given — which for one round of round 18aa was an empty
-   string, and the navigation button lost its name. */
+/* Taken here, at load. It used to read the markup back out of the page, and so had to run
+   before `syncNav` wrote `T('vp.nav_orbit')` into the very button that holds that wording
+   (for one round of 18aa it read an empty string, and the button lost its name); it takes
+   the markup's table now (04_tx_markup.js), which nothing on the page can rewrite. */
 Text.start();
 
 /** One piece of text, by key. `vars` fills in any `{name}` the wording contains.

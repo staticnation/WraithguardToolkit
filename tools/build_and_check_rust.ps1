@@ -17,9 +17,10 @@
         gardenfell  cargo test  viewer-shell/gardenfell-g7/ + our tests in viewer-shell/gardenfell/
                     (G7's tes3 crate against Gardenfell's readers; patches 0004, 0007, 0008)
         meshopt     cargo test  viewer-shell/meshopt-port/        (meshoptimizer's ports, against the C++'s values)
+        physics     cargo test  viewer-shell/physcore/            (the Editor's Physics drop, Rapier)
         commands    cargo build viewer-shell/check-commands/      (the viewer's commands, without Tauri)
         check       cargo build viewer-shell/check/
-        clippy      cargo clippy on luacore, ordercore, conflictcore, toolscore, landcore, cli, editcore, gardenfell-g7, meshopt-port, viewcore, check-commands and the viewer
+        clippy      cargo clippy on luacore, ordercore, conflictcore, toolscore, landcore, cli, editcore, gardenfell-g7, meshopt-port, physcore, viewcore, check-commands and the viewer
                     (a warning fails it, as in CI; -ClippyReport only lists them)
         pages       wg-view-serve + node boot.js, cell and mesh   (only with -Pages; needs Node 22)
 
@@ -53,7 +54,7 @@ param(
     [switch]$Pages,
     [switch]$SkipViewer,
     [switch]$ClippyReport,
-    [ValidateSet('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy', 'pages')]
+    [ValidateSet('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'physics', 'commands', 'check', 'clippy', 'pages')]
     [string[]]$Only
 )
 
@@ -109,7 +110,7 @@ function Invoke-Clippy {
     # passes. The lints this code base allows are in each crate's [lints.clippy].
     $lint = $(if ($ClippyReport) { @('--cap-lints', 'warn') } else { @('-D', 'warnings') })
     $ok = $true
-    foreach ($m in @('viewer-shell/luacore/Cargo.toml', 'viewer-shell/ordercore/Cargo.toml', 'viewer-shell/conflictcore/Cargo.toml', 'viewer-shell/toolscore/Cargo.toml', 'viewer-shell/landcore/Cargo.toml', 'viewer-shell/cli/Cargo.toml', 'viewer-shell/editcore/Cargo.toml', 'viewer-shell/gardenfell-g7/Cargo.toml', 'viewer-shell/meshopt-port/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
+    foreach ($m in @('viewer-shell/luacore/Cargo.toml', 'viewer-shell/ordercore/Cargo.toml', 'viewer-shell/conflictcore/Cargo.toml', 'viewer-shell/toolscore/Cargo.toml', 'viewer-shell/landcore/Cargo.toml', 'viewer-shell/cli/Cargo.toml', 'viewer-shell/editcore/Cargo.toml', 'viewer-shell/gardenfell-g7/Cargo.toml', 'viewer-shell/meshopt-port/Cargo.toml', 'viewer-shell/physcore/Cargo.toml', 'viewer-shell/viewcore/Cargo.toml',
                      'viewer-shell/check-commands/Cargo.toml', 'viewer-shell/Cargo.toml')) {
         Write-Host "  - clippy $m" -ForegroundColor Cyan
         if (-not (Invoke-Native cargo (@('clippy', '--all-targets', '--manifest-path', $m, '--') + $lint))) { $ok = $false }
@@ -135,6 +136,7 @@ $steps = [ordered]@{
         (Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/gardenfell/Cargo.toml', '-p', 'gardenfell-install', '--test', 'wraithguard_providers')) -and
         (Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/gardenfell/Cargo.toml', '-p', 'gardenfell-nif', '--lib')) } }
     meshopt  = @{ Label = 'meshopt-port tests';          Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/meshopt-port/Cargo.toml') } }
+    physics  = @{ Label = 'physcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/physcore/Cargo.toml') } }
     commands = @{ Label = 'check-commands build';        Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml') } }
     check    = @{ Label = 'check build';                 Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check/Cargo.toml') } }
     clippy   = @{ Label = $(if ($ClippyReport) { 'clippy (report)' } else { 'clippy' }); Run = { Invoke-Clippy } }
@@ -144,7 +146,7 @@ $steps = [ordered]@{
 if ($Only) {
     $wanted = $Only
 } else {
-    $wanted = @('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'commands', 'check', 'clippy')
+    $wanted = @('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'physics', 'commands', 'check', 'clippy')
     if ($SkipViewer) { $wanted = $wanted | Where-Object { $_ -ne 'viewer' } }
     if ($Pages) { $wanted += 'pages' }
 }
