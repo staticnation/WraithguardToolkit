@@ -1,332 +1,7 @@
 # Changelog
 
 
-## 5.0.1
-
-### Added
-
-- **A land texture's picture on hover** (the Land view's texture list). Hovering a name shows
-  a card beside the list: the texture tiled two by two, so its seams show as they will on the
-  ground, with its file and size. It is the swatch the engine already makes for each texture,
-  so a hover reads the file at most once.
-- **Flatten to the sea floor** (the Land view's *Level to*: Sea floor (-2048)). The height
-  of a square with no land, so the edge of raised ground can be brought down to meet an empty
-  neighbour without a wall. (*The sea (0)* is the water's surface.)
-- **A Linux AppImage, in place of the Flatpak** (`build-app.yml`, Tauri's bundler): one file
-  for any distribution and the Steam Deck, WebKitGTK and GStreamer inside. Run as an
-  AppImage, the program keeps its settings beside the `.AppImage` file, starts itself again
-  through it (Restart, a new Cell Preview), and its Help reads the documents it carries.
-- **The Physics drop keeps hollows, falls onto unsaved land and drops meshes with no
-  collision** (`physcore`, `76_wg_physics.js`). A bowl, a cart or a tray is split into convex
-  parts (V-HACD) so things land inside it (Hollow shapes, on by default); the ground is the
-  render window's, Land view strokes not yet kept included; a mesh with no collision falls
-  as what is drawn.
-- **OpenMW Lua: more of the game** (`luarun.lua`, `74_wg_lua.js`, `75_wg_luaui.js`).
-  `nearby.castRay` hits only the collision types asked for (World, Door, Actor, HeightMap,
-  Water - the sea's surface outside; OpenMW's Default when none); `onNewExterior` for each
-  exterior square entered the first time; keys over the Preview reach player scripts'
-  `onKeyPress` and `onKeyRelease` and `input.isKeyPressed` (OpenMW's `input.KEY` numbers);
-  `ui.create`'s mouseMove, focusGain, focusLoss and keyPress events, an Image's color tinting
-  its texture, and OpenMW's own font (its resources' MysticCards). More of OpenMW's built-ins
-  run: `I.Combat`, `I.UI`, `I.SkillProgression`, `I.AnimationController`, crimes and use
-  handlers, the player's settings. A mod's other modules are read with it, for a `require`
-  built at run time. An enum the preview does not list answers its names, and a package it
-  does not run answers every call.
-- **The OpenMW folder for the Scripts panel's Lua** (the OpenMW folder... button), for an
-  install the cfg does not name: its LuaJIT runs the scripts and its built-ins run with them.
-- **A save's game in the Scripts panel** (From a save...): its globals, its journal (OpenMW
-  Lua's `types.Player.quests` reads it) and what the player carries.
-- **The Dialogue window's In game tab, from a save: every faction and the inventory.** Each
-  faction condition asks the player's rank in its own faction; the Item conditions see what
-  the save's player carries. **Local and NotLocal** are checked against the speaker's script
-  (its declared locals, at the values the scene's running script has).
-- **MWScript in the Preview: ForceGreeting, spells, animations, a fairer fight.**
-  ForceGreeting opens the Dialogue window's In game tab on the speaker's greeting;
-  AddSpell, RemoveSpell, GetSpell, Cast, ExplodeSpell and GetSpellEffects are kept per
-  actor; PlayGroup and LoopGroup are listed with the actors; a blow's chance and damage come
-  from the record's attack skill, agility and strength (a creature's own attacks).
-- **Physics drop in the Editor** (`76_wg_physics.js`, the engine's `phys_drop`,
-  `viewer-shell/physcore` on Rapier). A Physics button beside Drop on the toolbar (also in
-  the right-click menus) opens a small panel: gravity, friction, bounce, a time limit and
-  Drop only (fall without tipping over). Run lets the selected object, or every object
-  Ctrl+clicked, fall, tumble and come to rest on the other objects' collision near them and,
-  outside, the land (OpenMW's -2048 where a square has none). The fall plays in the render
-  window as gold ghosts; Keep writes where they came to rest as one move (one Ctrl+Z), Drop
-  throws it away. Each body is the convex hull of its collision shape at its scale; a flat
-  one (a page, a rug, a veil) is thickened a little so it has a weight. An object with no
-  collision shape stays where it is and is named in the panel.
-
-- **The Dialogue window's In game tab checks the game you give it** (`52_wg_dialogue_views.js`,
-  `editcore::dialogue_graph::PlayState`).
-  - **The cell:** pick one from the load order's cells, take the Preview's, or use where the
-    speaker is placed (the first cell the load order puts them in). NotCell is checked
-    against it.
-  - **The player:** sex, race, faction and rank, and level.
-  - **The speaker's rank:** their record's, or one you set.
-  - **Globals, quest indexes and the player's items:** from the Scripts panel's game state,
-    shared. With New game, a quest, item or death that isn't set is at 0, as when a game
-    starts.
-  - **From a save:** loads the player, every global and each quest's index from an OpenMW
-    save (`toolscore::save::game_state`).
-  - What is still unknown is said beside the line and assumed, as before.
-- **The Dialogue window's Map zooms and pans:** the wheel zooms about the pointer, a drag
-  moves it, and there are − / + / Fit buttons. The area is larger and can be made taller
-  from its corner, and labels are written in full once zoomed in. Each ring is as wide as
-  its topics need, so a busy topic's map no longer piles labels on each other.
-
-- **OpenMW Lua runs in the scene too** (the same ▶ Scripts panel; `viewcore::luarun`,
-  `74_wg_lua.js`), on the install's own LuaJIT, loaded at run time from where each
-  platform's OpenMW keeps it (`lua51.dll`, `lib/libluajit-5.1.so.2`,
-  `Frameworks/libluajit-5.1.*.dylib`). Where there is none it runs on the Lua 5.4 the
-  viewer already has. OpenMW's own built-ins run first, from the install's `resources`
-  folder: `I.AI` (`ai.lua`), activation, the music playlists, weather and the world's
-  events. Then the load order's registered scripts run, each on what it is registered for:
-  GLOBAL once, PLAYER on the camera, NPC, LIGHT, DOOR and the rest on every loaded object of
-  that type.
-  - Scripts get `onInit`, `onActive`, `onInactive`, `onUpdate`, `onFrame` and `onActivated`
-    (Ctrl+click), events, interfaces, timers and storage.
-  - `openmw.world`, `self`, `nearby`, `types`, `core` (sound, weather), `ambient`, `ui`,
-    `util`, `async`, `vfs` and `openmw_aux` are there, with OpenMW's rules of where:
-    `openmw.world` only in global scripts, another object changed only from a global one.
-  - What the scripts do shows through the same scene layer as MWScript's: objects enabled,
-    disabled, teleported, scaled, created and removed; sounds and music; the weather and
-    the hour; MWScript globals and locals (`world.mwscript`); actors' health, inventories
-    and AI packages; messages.
-  - The panel says which Lua is running, and the log shows each script's prints and errors.
-  - `nearby.castRay` casts against the scene's collision: each drawn object's collision
-    shape (its hull, or its visible mesh where it has none) placed as the renderer places
-    it, and outside the land (flat at -2048 where a square has none). It answers the point,
-    the normal and the object hit, and takes `ignore`.
-  - Windows made with `ui.create` are drawn over the Preview (`75_wg_luaui.js`), OpenMW's
-    own `I.MWUI` templates among them (the built-in `mwui` runs). Templates are resolved as
-    OpenMW resolves them. Placing, sizing and anchoring follow OpenMW's props, and so do
-    Flex rows and columns, text, flat-color and texture images, and a Container sized to
-    what it holds. Clicks and typed text go back to the element's own callbacks.
-- **The scene's scripts, run** (the Preview's ▶ Scripts, `73_wg_scripts.js`). The loaded
-  objects' MWScript (and the start scripts, and the scripts they start) runs every frame as the
-  game runs it, each object with its own locals, and what it does shows in the scene: lamps
-  and statics enabled and disabled (by the hour, by a global), objects moved, turned, scaled
-  and placed (`SetPos`, `SetAngle`, `Move`, `Rotate`, `MoveWorld`, `RotateWorld`, `Position`,
-  `PlaceAtMe`, `SetScale`), music streamed and sounds played (`StreamMusic`, `PlaySound`,
-  `PlaySound3D`, `PlayLoopSound3D`, `Say`, `StopSound`), the weather changed, the view faded,
-  the clock set. Actors carry what the load order gives them (AddItem, RemoveItem, Drop,
-  GetItemCount), have health, magicka and fatigue (Set/Mod/ModCurrent*, OnDeath,
-  Resurrect), walk their AI packages through the scene (AiWander, AiTravel, AiFollow,
-  AiEscort, AiActivate) and fight (StartCombat: they close in and strike until one falls and
-  lies down). GetSoundPlaying, SayDone, GetLOS and GetDetected answer from the scene; a
-  MessageBox's buttons are put to you and the choice is GetButtonPressed; PlaceAtMe in a room
-  stays in that room. A state panel sets what the scripts read: the hour (the Preview's clock), the
-  day, month and year, every global, journal indexes; Pause, Step and Reset; Ctrl+click
-  activates an object. A log says what each script did, and names once each function the
-  preview does not run. Nothing is written: Reset or closing the panel puts the scene back.
-  The engine reads every scriptable record's script, the scripts' text, the start scripts and
-  the globals (`scene_scripts`, `script_texts`).
-
-- **Landscape brushes with a modern brush engine** (the Land view, `72_wg_landbrush.js`),
-  with GIMP's brush options and paint dynamics as the model. Nine height tools: Raise,
-  Lower, Smooth (average, gaussian or a wide blur), Sharpen, Flatten (to where the stroke
-  began, the brush's average, a fixed or picked height, or the sea; up and down, only up or
-  only down), Ramp, Noise (fractal: scale, octaves, roughness, seed), Terrace (step and
-  riser) and Erode (thermal, by talus angle). The brush has a falloff curve (smooth,
-  linear, sphere, sharp, gaussian, flat; drawn under the slider), a shape (circle, square,
-  diamond) with aspect ratio and angle, drawn as that outline on the ground, and spacing. The stroke has its own intensity for a
-  click and for a drag, a hold rate that builds while the button is held still (with a
-  delay), attack, decay (half-life), a fade over distance (none, loop, sawtooth, triangle),
-  velocity and random dynamics, jitter, smooth stroke (a stabilizer), and a per-stroke cap
-  (incremental at 0). Seven ready-made brushes (Gentle sculpt, Airbrush, Stamp, Clean line,
-  Tapering stroke, Rough...). Shift smooths, Alt inverts, [ ] the size, { } the strength.
-- **Map overlays in the Land view**, as the old 3D terrain view drew them: a hillshade from
-  the ground's own slope (over the textures, or a grey relief), lit from an azimuth and
-  altitude by one, three or six weighted lights; a height tint in the green-tan-white
-  (hypsometric), rainbow or grey palette at an opacity; and contours at an interval or a
-  round one picked for about a dozen lines, every fifth heavier and dropped where they
-  would crowd. **Relief map** turns the old view's look on in one click. Drawn in the
-  ground shader (06_gl.js), never in the water's reflection, and off outside the Land view.
-- **The first-person body** (the viewport's **🧍 Body** while walking). It moves at OpenMW's
-  pace from its stats: Speed, Athletics, Acrobatics, encumbrance and fatigue, and the
-  Levitate, Jump and Swift Swim magnitudes, each a slider (the stats whole numbers, 0 to 255) or typed,
-  set from a preset or from an OpenMW save's player (**From a save...**). The walk, run,
-  sneak (Ctrl), sideways step, swim, levitation and jump are OpenMW's formulas over the load
-  order's game settings (`game_settings` now carries them). In water deeper than
-  fSwimHeightScale of the body it swims where it looks, the head held at the surface; **L**
-  levitates (E up, Q down). It collides with the objects' collision shapes (a
-  RootCollisionNode, else the drawn mesh, nothing for a mesh without collision) instead of
-  every drawn triangle, and actors stand in its way. With Preview's Sounds on it hears its
-  steps by the boots' weight, wading, swim strokes and its landings, at a footsteps volume.
-  New command `walk_player_from_save` (`toolscore::save::player_stats`: the run of stats in the
-  save's `PLAY` record, checked on a format 39 save; `WG_PLAYER_SAVE=<save> cargo test -p
-  toolscore a_real_save -- --ignored --nocapture` prints what it reads).
-- **Degenerate and duplicate triangles in the mesh viewer**, under Draw order, per shape: a
-  triangle with a corner used twice or its corners in a line (it draws nothing), and one
-  with the same corners in the same winding as another (drawn twice). A back face, the
-  same corners wound the other way, is a two-sided part and is not counted
-  (`conflictcore::nif_order::triangle_faults`; the report's `degenerate`, `duplicate`).
-- **Matching IDs in Verify and the Use Report.** An object the patch changes or makes whose
-  id is also another object type (a Static and an NPC both called `fargoth`, say) is a
-  warning in Verify, naming the other type and the last plugin that defines it; the Use
-  Report says it above the uses. Morrowind.exe will not load the two; OpenMW keeps both and
-  places only one. `editUses` answers `twins` when there are any.
-- **Cancel for Merge Lands** (Tools page): beside Build while it runs. The merge stops at
-  its next step (each master, each batch of mods read, before and after the merge and the
-  seam repair, before the write) and writes nothing; the log says so. `landcore::service`
-  takes the switch as `MergeOptions::cancel`; new command `land_merge_cancel`.
-- **Script loops** (Preview, under Sounds): the switch for the loops objects' scripts
-  start. The viewer plays them whatever the script waits for (a quest stage, the hour, a
-  lever), so a loop that starts late in the game is heard from the first; off, only the
-  lights' loops play. On by default, kept with the other settings.
-- **A preview in the Land view.** **Preview first** (under In the patch, kept between
-  runs) holds strokes back from the patch: they are drawn, and **Keep** (Enter) writes them
-  while **Drop** (Esc, or Ctrl+Z) puts the ground back as it was, land made on an empty
-  square included. Leaving the Land view keeps what waits; strokes waiting on a cell follow
-  it when the scene is built again (a cell arrow, **Go**), so Keep writes them and not the
-  load order's ground.
-- **Sound checks in Verify.** A sound record's file, and now a dialogue response's, is
-  looked for as the game looks (a `.wav` nothing supplies is found as its `.mp3`, as the
-  voice files ship), then opened: a file that will not decode is an error; a silent one, a
-  clipped one (full scale held three samples or more, counted per place) and an OGG or FLAC
-  (OpenMW plays it, Morrowind.exe does not) are warnings. A voice response with no file is
-  a warning too.
-- **OpenMW 0.52 in the Lua check** (`luacore::api`): its built-in interfaces
-  (`Projectiles` and `SpellCasting` besides 0.51's) and built-in events (`AddGlow`,
-  `ApplyMagicEffects`, `CommitCrime`, `ExplodeSpell`, `PlayOnHitEffects`, `RemoveVfx`,
-  `SetSaveState`, `UnlockAttempted` besides 0.51's), read from 0.52.0 RC1's `resources`;
-  0.52 is the table for an install with no documentation, and an install that has its
-  `resources/lua_api` is read from them as before.
-- **A region map on the cell map.** The picker's **Regions** button colors every exterior
-  by its region (the region's own map color; one of its own where that is black) and opens
-  a bar: **Look**, **Paint region** (drag over cells: each gets the chosen region, or none, as
-  its cell's region in the Editor's patch; with **Make cells** a square without a cell gets
-  the patch's own first) and **Make exteriors** (drag a box over the sea: every empty square
-  in it gets flat land at the sea's level and its cell, and the chosen region). What the
-  patch changed is dashed; a cell's tip says its region. New Editor link `editCellRegions`;
-  the engine lists the regions (`regions_list`).
-- **Cell borders in the render window** (the viewport's **▢ Cell borders**, beside Cell
-  arrows): each exterior's edges on the ground, faintly through hills, and its name (or
-  grid) and region at its middle, following the camera and fading with distance.
-- **Path grid tools as OpenMW-CS has them.** Ctrl+drag from a point draws a link out: let
-  go on a point to link the two (again: unlink), on the ground for a new point there,
-  linked. A drag on the ground draws a box and selects the points in it (Shift adds), in a
-  path from the westmost so **J** joins them in a sensible chain.
-- **A key binding page** (the Editor's Keys menu, **Change the keys…**): every Editor
-  shortcut by group, a key changed by clicking it and pressing another, a second key added,
-  one taken away, a key two actions share marked, Reset per action or for everything; the
-  Keys help shows the keys as they are now. Below it, the controller: each of the pad's
-  functions (switch mode, Escape, the clicks, orbit/WASD, zoom or speed, the D-pad) on the
-  button you choose. Kept in the browser's storage.
-- **The Land view: landscape editing in the render window.** A new view mode (the **Land**
-  button beside **Editor**) brings Gardenfell's brush back for the ground itself, with
-  OpenMW-CS's three terrain modes: **Height** (raise, lower, smooth, and flatten to the
-  height where the stroke began), **Texture** (a land texture painted onto the 16 x 16
-  texture cells under the brush; pick one from the list or from the ground) and **Color**
-  (the vertex colors the game tints the ground with). Size, strength and feather are the
-  brush's own controls and are remembered. The ground changes under the brush as you paint;
-  a vertex on a cell's border belongs to both cells and moves in both, so no seam opens.
-  A moment after each stroke the touched cells go to the Editor's patch: heights with the
-  normals and world map derived as Merge Lands writes them (`landcore`), textures through
-  land texture records of the patch's own (a texture number means nothing outside its
-  plugin), colors as vertex colors. Undo, the journal and Test in OpenMW work as for any
-  record, and the view redraws what the patch has after an undo or a reconnect. Over the sea
-  the first stroke makes flat land of the patch's own (and its cell when there is none).
-  It is a view mode like the Editor: its dock takes the settings column's place, with the
-  modes, the tools, a filterable list of the land textures, the brush and **In the patch**
-  (the land cells the patch changes, each with Go and a ✕ to take it out, and Undo and Redo,
-  also Ctrl+Z and Ctrl+Y). Taking a cell out, here or in the Editor's Pending or Build patch,
-  puts the drawn ground back to the load order's at once, its neighbours' texture edges with
-  it. Leaving the mode, or opening the Editor, sends the last stroke to the patch first and
-  reads the Editor's Pending again. Its dock wears the chosen theme as the rest of the page
-  does: the chosen mode and tool lit as the page lights a chosen button, the sliders the
-  Preview's own, the chosen land texture in the theme's accent.
-- **Merge to master on the Tools page** (greatness7's merge_to_master, as 4.x's Tk had it):
-  a plugin into its master, or a whole list of plugins into one master, in the order given
-  (add files, your mods or the list's mods; move them up and down). The result goes to the
-  file you name, never over one of the plugins being merged; a file already there is kept
-  once as `.premerge.bak`. Options: remove
-  deleted records, apply moved references, keep duplicates.
-- **Play a sound from any field that names one.** In the Editor's record dialog every field
-  that names a Sound record - a door's open and close sounds, a light's, a magic effect's
-  cast, bolt, hit and area sounds, a sound generator's, a region's ambient sounds - has a
-  play button beside it (press again to stop), at that Sound's volume; so has a Sound's or a
-  response's file field, and every row of the Object Window's Sound tab. What was read is
-  kept for the session (the last 48 files), and dropped when the install changes.
-- **Sounds in place (Preview's "Sounds", off by default, with its own volume).** The lights
-  in the scene that loop a sound - a fire's crackle, a lantern's hum - play from where they
-  stand, heard from the camera: as loud and as far as OpenMW plays them (its
-  `10^((volume/255*3348-3348)/2000)` and the `fAudio*` range settings, from the load order),
-  stopped past their range, the 16 nearest at a time, each loop starting at a point of its
-  own so twenty braziers do not crackle in step. A file that cannot be played is said once in
-  Messages and skipped. The engine now keeps the load order's Sound records, the lights'
-  sounds and the regions' ambient sounds (`viewcore::world`; `sound_emitters`,
-  `region_sounds`).
-- **The world's sound and music (Preview, with Sounds on).** Outdoors, the region's ambient
-  sounds play as OpenMW picks them (every 1 to 5 seconds, the first of the region's list whose
-  chance comes up), and the weather chosen in Preview plays its loop (rain, a thunderstorm's
-  heavy rain, ash storm, blight, blizzard), fading in and out as it changes. **Music** plays
-  the data folders' Music/Explore in a shuffled order. Preview's sound controls are now
-  **Sound volume** (everything), **Effects** (objects, region, weather) and **Music volume**.
-  All of it follows the setup's own settings: openmw.cfg's `fallback=` lines, or
-  Morrowind.ini's `[Weather ...]` sections (the time between the region's sounds, each
-  weather's ambient and rain loops, the thunder), Morrowind.ini's values only where the setup
-  has none.
-- **Thunder in a thunderstorm**, as OpenMW strikes it: by the weather's thunder frequency, one
-  of its four thunder sounds (the nearest the loudest), with a lightning flash in the sky that
-  fades at the weather's flash decrement.
-- **Activators, doors and containers that loop a sound from their script**
-  (`PlayLoopSound3D`, `PlayLoopSound3DVP` with its volume) play it where they stand, beside
-  the lights. A script's first such call on its own object is taken, whatever the script's
-  conditions are.
-- **A third camera: first person, the game's.** Beside Orbit and WASD (Settings, Tab, or the
-  toolbar's button, which now go round the three): W A S D walk on the land and on objects'
-  tops at a person's eye height whenever the render window has the keyboard, Shift walks
-  slowly, Space jumps, the right button looks; gravity holds you down, a step of up to 34
-  units is climbed and anything taller stops you (you slide along it), and the view is
-  OpenMW's 60 degrees. The pace is an average character's (no stats are read). Collision is
-  against the drawn triangles, not the collision shapes.
-
-- **Drag files and folders onto the Load order page's lists.** Drop a plugin, or a folder of
-  plugins, on **content=**: its plugins go in where you let go (the line shows where; masters
-  first within a folder; any a level or two down are found too), and their folder goes into
-  **data=** unless it is there. Drop a folder (or a file: its folder) on **data=** and it is
-  added as a `data=` line in the cfg's own quoting. Names and folders already in the list are
-  skipped and counted. The new rows are marked and selected (Alt+arrows move them). It changes
-  the lists you see; Export writes them (the data= list is written when "Sort data paths" is
-  ticked, and the page says so when it is not); a new Sort starts again from the inputs. It
-  uses the drops the shell reports (`tauri://drag-drop`), since the webview never gets a
-  file drag itself; a browser has no paths to give.
-- **The bar between content= and data= can be dragged** (the page's other columns already
-  could): up or down for more of the height to one or the other, remembered; a double-click
-  puts it back.
-- **Mesh optimiser (Tools page).** Puts the load order's meshes in draw order (vertex
-  cache, overdraw, vertex fetch: the mesh viewer's Optimise) in one go, and only where it
-  pays. Analyse measures the winning copy of every loose `.nif` across the data folders
-  (last folder wins, case folded; archives are not read) and lists each mesh's gain; a shape
-  is moved only if it really draws better, and a mesh is rewritten only if its gain reaches
-  *Least gain* (default 3 %, triangle-weighted) and it has *Least triangles* (default 64).
-  Write copies puts the ticked meshes, optimised, into a separate output folder at their own
-  paths (add it last in the data= lines, or delete it to undo), with a record
-  (`wraithguard-mesh-optimiser.json`); no mod is modified. Every copy is read back and must
-  mean the same mesh as the original (triangles with the same corners, skin weights, morph
-  targets) or it is not written. What was measured is kept in the scan cache, so the next run
-  measures only the meshes that changed.
-- **Find in the Load order page's content= and data= lists.** A box on each header lights the
-  plugins (or data folders) whose text has what you type, with a count (`3/12`); Enter goes
-  to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
-  ticking, dragging and re-sorting, and the rows are only lit, not hidden, so the order
-  around a match stays in view.
-- **Static analysis in CI** (`.github/workflows/sast.yml`, `.github/codeql/codeql-config.yml`).
-  CodeQL reads the page's JavaScript and the Rust crates on every push and pull request and
-  weekly, with the security-extended queries, and reports to the Security tab. The vendored
-  Mermaid bundle, the test fixtures and the locale files are left out.
-- **Messages names a slow Editor link** (`50_wg_editor_record.js`, `ask`). The Editor answers
-  one link at a time, so one slow answer holds the rest; any link that takes 1.5 s or more is
-  now said with its name and the links still out when it began ("Editor link editColumns took
-  14.2 s (out when it began: ...)"), which tells which one is holding which.
-- **A timing probe for the record window's first read** (`editcore/tests/probe_find.rs`, an
-  ignored test). Over the data folders of an `openmw.cfg` (`WG_CFG`; or a short list in `WG_DATA`), it times the first `Session::find` of a
-  record (`WG_TAG`, `WG_ID`), the same lookup again, a missing id of the same type, and a cell (`WG_CELL`), so the
-  cost of reading every plugin can be told from the cost of each lookup:
-  `cargo test --release --test probe_find -- --ignored --nocapture`, from `viewer-shell\editcore`.
-  `probe_lock` (same folder and variables, plus `WG_PLUGIN`) reproduces the stall: a type's
-  `editColumns` and a record's `editRecord` asked together, and how long the record waits.
+## 5.0.4
 
 ### Fixed
 
@@ -517,6 +192,29 @@
   type (`winners`) and the plugins holding a cell (`cell_plugins`) now read what they need on
   threads first (`Session::warm`), as the columns do; they still hold the Editor while they
   read, for a shorter time.
+
+## 5.0.3
+
+### Added
+
+- **Static analysis in CI** (`.github/workflows/sast.yml`, `.github/codeql/codeql-config.yml`).
+  CodeQL reads the page's JavaScript and the Rust crates on every push and pull request and
+  weekly, with the security-extended queries, and reports to the Security tab. The vendored
+  Mermaid bundle, the test fixtures and the locale files are left out.
+- **Messages names a slow Editor link** (`50_wg_editor_record.js`, `ask`). The Editor answers
+  one link at a time, so one slow answer holds the rest; any link that takes 1.5 s or more is
+  now said with its name and the links still out when it began ("Editor link editColumns took
+  14.2 s (out when it began: ...)"), which tells which one is holding which.
+- **A timing probe for the record window's first read** (`editcore/tests/probe_find.rs`, an
+  ignored test). Over the data folders of an `openmw.cfg` (`WG_CFG`; or a short list in `WG_DATA`), it times the first `Session::find` of a
+  record (`WG_TAG`, `WG_ID`), the same lookup again, a missing id of the same type, and a cell (`WG_CELL`), so the
+  cost of reading every plugin can be told from the cost of each lookup:
+  `cargo test --release --test probe_find -- --ignored --nocapture`, from `viewer-shell\editcore`.
+  `probe_lock` (same folder and variables, plus `WG_PLUGIN`) reproduces the stall: a type's
+  `editColumns` and a record's `editRecord` asked together, and how long the record waits.
+
+### Fixed
+
 - **Opening a record no longer waits for the tab's columns** (`editcore`: `session.rs`,
   `search.rs`, `links.rs`; `50_wg_editor_record.js`). `editColumns` read every plugin's
   records of a type one after another, copied every plugin's whole record map, and held the
@@ -526,7 +224,6 @@
   locked, each plugin and type once however many ask; the table is built from the cached
   maps without copying them; a plugin rewritten while being read is not kept as it was. The
   popup says what it waits for.
-
 - **"ResizeObserver loop completed with undelivered notifications" in Messages**
   (2026-11-04: two of them, a couple of seconds apart, on loading a cell). `placePills`
   (`11_events.js`), which places the row of pills over the viewport, resizes the row it is
@@ -543,12 +240,328 @@
   second one and, after six, says why it is slow, and an open that takes 3 s or more is
   written to Messages with how long it took (`50_wg_editor_record.js`). The read itself is
   not faster yet.
+
+## 5.0.2
+
+### Fixed
+
 - **The Editor stalled with a cell change in the pool** (Static, 2026-11-04: a record's
   window stuck at "Reading ... from every plugin that defines it", and dragging or Place
   putting nothing down). Marking Build patch's rows "no plugin has it now" looked each record
   up in every plugin, and the pool's list is asked for again and again; for a cell that read
   every plugin's cells, all 619 of them, and the Editor answered nothing else meanwhile. The
   list now marks a row only from what has been read already, and reads nothing itself.
+
+## 5.0.1
+
+### Added
+
+- **A land texture's picture on hover** (the Land view's texture list). Hovering a name shows
+  a card beside the list: the texture tiled two by two, so its seams show as they will on the
+  ground, with its file and size. It is the swatch the engine already makes for each texture,
+  so a hover reads the file at most once.
+- **Flatten to the sea floor** (the Land view's *Level to*: Sea floor (-2048)). The height
+  of a square with no land, so the edge of raised ground can be brought down to meet an empty
+  neighbour without a wall. (*The sea (0)* is the water's surface.)
+- **A Linux AppImage, in place of the Flatpak** (`build-app.yml`, Tauri's bundler): one file
+  for any distribution and the Steam Deck, WebKitGTK and GStreamer inside. Run as an
+  AppImage, the program keeps its settings beside the `.AppImage` file, starts itself again
+  through it (Restart, a new Cell Preview), and its Help reads the documents it carries.
+- **The Physics drop keeps hollows, falls onto unsaved land and drops meshes with no
+  collision** (`physcore`, `76_wg_physics.js`). A bowl, a cart or a tray is split into convex
+  parts (V-HACD) so things land inside it (Hollow shapes, on by default); the ground is the
+  render window's, Land view strokes not yet kept included; a mesh with no collision falls
+  as what is drawn.
+- **OpenMW Lua: more of the game** (`luarun.lua`, `74_wg_lua.js`, `75_wg_luaui.js`).
+  `nearby.castRay` hits only the collision types asked for (World, Door, Actor, HeightMap,
+  Water - the sea's surface outside; OpenMW's Default when none); `onNewExterior` for each
+  exterior square entered the first time; keys over the Preview reach player scripts'
+  `onKeyPress` and `onKeyRelease` and `input.isKeyPressed` (OpenMW's `input.KEY` numbers);
+  `ui.create`'s mouseMove, focusGain, focusLoss and keyPress events, an Image's color tinting
+  its texture, and OpenMW's own font (its resources' MysticCards). More of OpenMW's built-ins
+  run: `I.Combat`, `I.UI`, `I.SkillProgression`, `I.AnimationController`, crimes and use
+  handlers, the player's settings. A mod's other modules are read with it, for a `require`
+  built at run time. An enum the preview does not list answers its names, and a package it
+  does not run answers every call.
+- **The OpenMW folder for the Scripts panel's Lua** (the OpenMW folder... button), for an
+  install the cfg does not name: its LuaJIT runs the scripts and its built-ins run with them.
+- **A save's game in the Scripts panel** (From a save...): its globals, its journal (OpenMW
+  Lua's `types.Player.quests` reads it) and what the player carries.
+- **The Dialogue window's In game tab, from a save: every faction and the inventory.** Each
+  faction condition asks the player's rank in its own faction; the Item conditions see what
+  the save's player carries. **Local and NotLocal** are checked against the speaker's script
+  (its declared locals, at the values the scene's running script has).
+- **MWScript in the Preview: ForceGreeting, spells, animations, a fairer fight.**
+  ForceGreeting opens the Dialogue window's In game tab on the speaker's greeting;
+  AddSpell, RemoveSpell, GetSpell, Cast, ExplodeSpell and GetSpellEffects are kept per
+  actor; PlayGroup and LoopGroup are listed with the actors; a blow's chance and damage come
+  from the record's attack skill, agility and strength (a creature's own attacks).
+- **Physics drop in the Editor** (`76_wg_physics.js`, the engine's `phys_drop`,
+  `viewer-shell/physcore` on Rapier). A Physics button beside Drop on the toolbar (also in
+  the right-click menus) opens a small panel: gravity, friction, bounce, a time limit and
+  Drop only (fall without tipping over). Run lets the selected object, or every object
+  Ctrl+clicked, fall, tumble and come to rest on the other objects' collision near them and,
+  outside, the land (OpenMW's -2048 where a square has none). The fall plays in the render
+  window as gold ghosts; Keep writes where they came to rest as one move (one Ctrl+Z), Drop
+  throws it away. Each body is the convex hull of its collision shape at its scale; a flat
+  one (a page, a rug, a veil) is thickened a little so it has a weight. An object with no
+  collision shape stays where it is and is named in the panel.
+- **The Dialogue window's In game tab checks the game you give it** (`52_wg_dialogue_views.js`,
+  `editcore::dialogue_graph::PlayState`).
+  - **The cell:** pick one from the load order's cells, take the Preview's, or use where the
+    speaker is placed (the first cell the load order puts them in). NotCell is checked
+    against it.
+  - **The player:** sex, race, faction and rank, and level.
+  - **The speaker's rank:** their record's, or one you set.
+  - **Globals, quest indexes and the player's items:** from the Scripts panel's game state,
+    shared. With New game, a quest, item or death that isn't set is at 0, as when a game
+    starts.
+  - **From a save:** loads the player, every global and each quest's index from an OpenMW
+    save (`toolscore::save::game_state`).
+  - What is still unknown is said beside the line and assumed, as before.
+- **The Dialogue window's Map zooms and pans:** the wheel zooms about the pointer, a drag
+  moves it, and there are − / + / Fit buttons. The area is larger and can be made taller
+  from its corner, and labels are written in full once zoomed in. Each ring is as wide as
+  its topics need, so a busy topic's map no longer piles labels on each other.
+- **OpenMW Lua runs in the scene too** (the same ▶ Scripts panel; `viewcore::luarun`,
+  `74_wg_lua.js`), on the install's own LuaJIT, loaded at run time from where each
+  platform's OpenMW keeps it (`lua51.dll`, `lib/libluajit-5.1.so.2`,
+  `Frameworks/libluajit-5.1.*.dylib`). Where there is none it runs on the Lua 5.4 the
+  viewer already has. OpenMW's own built-ins run first, from the install's `resources`
+  folder: `I.AI` (`ai.lua`), activation, the music playlists, weather and the world's
+  events. Then the load order's registered scripts run, each on what it is registered for:
+  GLOBAL once, PLAYER on the camera, NPC, LIGHT, DOOR and the rest on every loaded object of
+  that type.
+  - Scripts get `onInit`, `onActive`, `onInactive`, `onUpdate`, `onFrame` and `onActivated`
+    (Ctrl+click), events, interfaces, timers and storage.
+  - `openmw.world`, `self`, `nearby`, `types`, `core` (sound, weather), `ambient`, `ui`,
+    `util`, `async`, `vfs` and `openmw_aux` are there, with OpenMW's rules of where:
+    `openmw.world` only in global scripts, another object changed only from a global one.
+  - What the scripts do shows through the same scene layer as MWScript's: objects enabled,
+    disabled, teleported, scaled, created and removed; sounds and music; the weather and
+    the hour; MWScript globals and locals (`world.mwscript`); actors' health, inventories
+    and AI packages; messages.
+  - The panel says which Lua is running, and the log shows each script's prints and errors.
+  - `nearby.castRay` casts against the scene's collision: each drawn object's collision
+    shape (its hull, or its visible mesh where it has none) placed as the renderer places
+    it, and outside the land (flat at -2048 where a square has none). It answers the point,
+    the normal and the object hit, and takes `ignore`.
+  - Windows made with `ui.create` are drawn over the Preview (`75_wg_luaui.js`), OpenMW's
+    own `I.MWUI` templates among them (the built-in `mwui` runs). Templates are resolved as
+    OpenMW resolves them. Placing, sizing and anchoring follow OpenMW's props, and so do
+    Flex rows and columns, text, flat-color and texture images, and a Container sized to
+    what it holds. Clicks and typed text go back to the element's own callbacks.
+- **The scene's scripts, run** (the Preview's ▶ Scripts, `73_wg_scripts.js`). The loaded
+  objects' MWScript (and the start scripts, and the scripts they start) runs every frame as the
+  game runs it, each object with its own locals, and what it does shows in the scene: lamps
+  and statics enabled and disabled (by the hour, by a global), objects moved, turned, scaled
+  and placed (`SetPos`, `SetAngle`, `Move`, `Rotate`, `MoveWorld`, `RotateWorld`, `Position`,
+  `PlaceAtMe`, `SetScale`), music streamed and sounds played (`StreamMusic`, `PlaySound`,
+  `PlaySound3D`, `PlayLoopSound3D`, `Say`, `StopSound`), the weather changed, the view faded,
+  the clock set. Actors carry what the load order gives them (AddItem, RemoveItem, Drop,
+  GetItemCount), have health, magicka and fatigue (Set/Mod/ModCurrent*, OnDeath,
+  Resurrect), walk their AI packages through the scene (AiWander, AiTravel, AiFollow,
+  AiEscort, AiActivate) and fight (StartCombat: they close in and strike until one falls and
+  lies down). GetSoundPlaying, SayDone, GetLOS and GetDetected answer from the scene; a
+  MessageBox's buttons are put to you and the choice is GetButtonPressed; PlaceAtMe in a room
+  stays in that room. A state panel sets what the scripts read: the hour (the Preview's clock), the
+  day, month and year, every global, journal indexes; Pause, Step and Reset; Ctrl+click
+  activates an object. A log says what each script did, and names once each function the
+  preview does not run. Nothing is written: Reset or closing the panel puts the scene back.
+  The engine reads every scriptable record's script, the scripts' text, the start scripts and
+  the globals (`scene_scripts`, `script_texts`).
+- **Landscape brushes with a modern brush engine** (the Land view, `72_wg_landbrush.js`),
+  with GIMP's brush options and paint dynamics as the model. Nine height tools: Raise,
+  Lower, Smooth (average, gaussian or a wide blur), Sharpen, Flatten (to where the stroke
+  began, the brush's average, a fixed or picked height, or the sea; up and down, only up or
+  only down), Ramp, Noise (fractal: scale, octaves, roughness, seed), Terrace (step and
+  riser) and Erode (thermal, by talus angle). The brush has a falloff curve (smooth,
+  linear, sphere, sharp, gaussian, flat; drawn under the slider), a shape (circle, square,
+  diamond) with aspect ratio and angle, drawn as that outline on the ground, and spacing. The stroke has its own intensity for a
+  click and for a drag, a hold rate that builds while the button is held still (with a
+  delay), attack, decay (half-life), a fade over distance (none, loop, sawtooth, triangle),
+  velocity and random dynamics, jitter, smooth stroke (a stabilizer), and a per-stroke cap
+  (incremental at 0). Seven ready-made brushes (Gentle sculpt, Airbrush, Stamp, Clean line,
+  Tapering stroke, Rough...). Shift smooths, Alt inverts, [ ] the size, { } the strength.
+- **Map overlays in the Land view**, as the old 3D terrain view drew them: a hillshade from
+  the ground's own slope (over the textures, or a grey relief), lit from an azimuth and
+  altitude by one, three or six weighted lights; a height tint in the green-tan-white
+  (hypsometric), rainbow or grey palette at an opacity; and contours at an interval or a
+  round one picked for about a dozen lines, every fifth heavier and dropped where they
+  would crowd. **Relief map** turns the old view's look on in one click. Drawn in the
+  ground shader (06_gl.js), never in the water's reflection, and off outside the Land view.
+- **The first-person body** (the viewport's **🧍 Body** while walking). It moves at OpenMW's
+  pace from its stats: Speed, Athletics, Acrobatics, encumbrance and fatigue, and the
+  Levitate, Jump and Swift Swim magnitudes, each a slider (the stats whole numbers, 0 to 255) or typed,
+  set from a preset or from an OpenMW save's player (**From a save...**). The walk, run,
+  sneak (Ctrl), sideways step, swim, levitation and jump are OpenMW's formulas over the load
+  order's game settings (`game_settings` now carries them). In water deeper than
+  fSwimHeightScale of the body it swims where it looks, the head held at the surface; **L**
+  levitates (E up, Q down). It collides with the objects' collision shapes (a
+  RootCollisionNode, else the drawn mesh, nothing for a mesh without collision) instead of
+  every drawn triangle, and actors stand in its way. With Preview's Sounds on it hears its
+  steps by the boots' weight, wading, swim strokes and its landings, at a footsteps volume.
+  New command `walk_player_from_save` (`toolscore::save::player_stats`: the run of stats in the
+  save's `PLAY` record, checked on a format 39 save; `WG_PLAYER_SAVE=<save> cargo test -p
+  toolscore a_real_save -- --ignored --nocapture` prints what it reads).
+- **Degenerate and duplicate triangles in the mesh viewer**, under Draw order, per shape: a
+  triangle with a corner used twice or its corners in a line (it draws nothing), and one
+  with the same corners in the same winding as another (drawn twice). A back face, the
+  same corners wound the other way, is a two-sided part and is not counted
+  (`conflictcore::nif_order::triangle_faults`; the report's `degenerate`, `duplicate`).
+- **Matching IDs in Verify and the Use Report.** An object the patch changes or makes whose
+  id is also another object type (a Static and an NPC both called `fargoth`, say) is a
+  warning in Verify, naming the other type and the last plugin that defines it; the Use
+  Report says it above the uses. Morrowind.exe will not load the two; OpenMW keeps both and
+  places only one. `editUses` answers `twins` when there are any.
+- **Cancel for Merge Lands** (Tools page): beside Build while it runs. The merge stops at
+  its next step (each master, each batch of mods read, before and after the merge and the
+  seam repair, before the write) and writes nothing; the log says so. `landcore::service`
+  takes the switch as `MergeOptions::cancel`; new command `land_merge_cancel`.
+- **Script loops** (Preview, under Sounds): the switch for the loops objects' scripts
+  start. The viewer plays them whatever the script waits for (a quest stage, the hour, a
+  lever), so a loop that starts late in the game is heard from the first; off, only the
+  lights' loops play. On by default, kept with the other settings.
+- **A preview in the Land view.** **Preview first** (under In the patch, kept between
+  runs) holds strokes back from the patch: they are drawn, and **Keep** (Enter) writes them
+  while **Drop** (Esc, or Ctrl+Z) puts the ground back as it was, land made on an empty
+  square included. Leaving the Land view keeps what waits; strokes waiting on a cell follow
+  it when the scene is built again (a cell arrow, **Go**), so Keep writes them and not the
+  load order's ground.
+- **Sound checks in Verify.** A sound record's file, and now a dialogue response's, is
+  looked for as the game looks (a `.wav` nothing supplies is found as its `.mp3`, as the
+  voice files ship), then opened: a file that will not decode is an error; a silent one, a
+  clipped one (full scale held three samples or more, counted per place) and an OGG or FLAC
+  (OpenMW plays it, Morrowind.exe does not) are warnings. A voice response with no file is
+  a warning too.
+- **OpenMW 0.52 in the Lua check** (`luacore::api`): its built-in interfaces
+  (`Projectiles` and `SpellCasting` besides 0.51's) and built-in events (`AddGlow`,
+  `ApplyMagicEffects`, `CommitCrime`, `ExplodeSpell`, `PlayOnHitEffects`, `RemoveVfx`,
+  `SetSaveState`, `UnlockAttempted` besides 0.51's), read from 0.52.0 RC1's `resources`;
+  0.52 is the table for an install with no documentation, and an install that has its
+  `resources/lua_api` is read from them as before.
+- **A region map on the cell map.** The picker's **Regions** button colors every exterior
+  by its region (the region's own map color; one of its own where that is black) and opens
+  a bar: **Look**, **Paint region** (drag over cells: each gets the chosen region, or none, as
+  its cell's region in the Editor's patch; with **Make cells** a square without a cell gets
+  the patch's own first) and **Make exteriors** (drag a box over the sea: every empty square
+  in it gets flat land at the sea's level and its cell, and the chosen region). What the
+  patch changed is dashed; a cell's tip says its region. New Editor link `editCellRegions`;
+  the engine lists the regions (`regions_list`).
+- **Cell borders in the render window** (the viewport's **▢ Cell borders**, beside Cell
+  arrows): each exterior's edges on the ground, faintly through hills, and its name (or
+  grid) and region at its middle, following the camera and fading with distance.
+- **Path grid tools as OpenMW-CS has them.** Ctrl+drag from a point draws a link out: let
+  go on a point to link the two (again: unlink), on the ground for a new point there,
+  linked. A drag on the ground draws a box and selects the points in it (Shift adds), in a
+  path from the westmost so **J** joins them in a sensible chain.
+- **A key binding page** (the Editor's Keys menu, **Change the keys…**): every Editor
+  shortcut by group, a key changed by clicking it and pressing another, a second key added,
+  one taken away, a key two actions share marked, Reset per action or for everything; the
+  Keys help shows the keys as they are now. Below it, the controller: each of the pad's
+  functions (switch mode, Escape, the clicks, orbit/WASD, zoom or speed, the D-pad) on the
+  button you choose. Kept in the browser's storage.
+- **The Land view: landscape editing in the render window.** A new view mode (the **Land**
+  button beside **Editor**) brings Gardenfell's brush back for the ground itself, with
+  OpenMW-CS's three terrain modes: **Height** (raise, lower, smooth, and flatten to the
+  height where the stroke began), **Texture** (a land texture painted onto the 16 x 16
+  texture cells under the brush; pick one from the list or from the ground) and **Color**
+  (the vertex colors the game tints the ground with). Size, strength and feather are the
+  brush's own controls and are remembered. The ground changes under the brush as you paint;
+  a vertex on a cell's border belongs to both cells and moves in both, so no seam opens.
+  A moment after each stroke the touched cells go to the Editor's patch: heights with the
+  normals and world map derived as Merge Lands writes them (`landcore`), textures through
+  land texture records of the patch's own (a texture number means nothing outside its
+  plugin), colors as vertex colors. Undo, the journal and Test in OpenMW work as for any
+  record, and the view redraws what the patch has after an undo or a reconnect. Over the sea
+  the first stroke makes flat land of the patch's own (and its cell when there is none).
+  It is a view mode like the Editor: its dock takes the settings column's place, with the
+  modes, the tools, a filterable list of the land textures, the brush and **In the patch**
+  (the land cells the patch changes, each with Go and a ✕ to take it out, and Undo and Redo,
+  also Ctrl+Z and Ctrl+Y). Taking a cell out, here or in the Editor's Pending or Build patch,
+  puts the drawn ground back to the load order's at once, its neighbours' texture edges with
+  it. Leaving the mode, or opening the Editor, sends the last stroke to the patch first and
+  reads the Editor's Pending again. Its dock wears the chosen theme as the rest of the page
+  does: the chosen mode and tool lit as the page lights a chosen button, the sliders the
+  Preview's own, the chosen land texture in the theme's accent.
+- **Merge to master on the Tools page** (greatness7's merge_to_master, as 4.x's Tk had it):
+  a plugin into its master, or a whole list of plugins into one master, in the order given
+  (add files, your mods or the list's mods; move them up and down). The result goes to the
+  file you name, never over one of the plugins being merged; a file already there is kept
+  once as `.premerge.bak`. Options: remove
+  deleted records, apply moved references, keep duplicates.
+- **Play a sound from any field that names one.** In the Editor's record dialog every field
+  that names a Sound record - a door's open and close sounds, a light's, a magic effect's
+  cast, bolt, hit and area sounds, a sound generator's, a region's ambient sounds - has a
+  play button beside it (press again to stop), at that Sound's volume; so has a Sound's or a
+  response's file field, and every row of the Object Window's Sound tab. What was read is
+  kept for the session (the last 48 files), and dropped when the install changes.
+- **Sounds in place (Preview's "Sounds", off by default, with its own volume).** The lights
+  in the scene that loop a sound - a fire's crackle, a lantern's hum - play from where they
+  stand, heard from the camera: as loud and as far as OpenMW plays them (its
+  `10^((volume/255*3348-3348)/2000)` and the `fAudio*` range settings, from the load order),
+  stopped past their range, the 16 nearest at a time, each loop starting at a point of its
+  own so twenty braziers do not crackle in step. A file that cannot be played is said once in
+  Messages and skipped. The engine now keeps the load order's Sound records, the lights'
+  sounds and the regions' ambient sounds (`viewcore::world`; `sound_emitters`,
+  `region_sounds`).
+- **The world's sound and music (Preview, with Sounds on).** Outdoors, the region's ambient
+  sounds play as OpenMW picks them (every 1 to 5 seconds, the first of the region's list whose
+  chance comes up), and the weather chosen in Preview plays its loop (rain, a thunderstorm's
+  heavy rain, ash storm, blight, blizzard), fading in and out as it changes. **Music** plays
+  the data folders' Music/Explore in a shuffled order. Preview's sound controls are now
+  **Sound volume** (everything), **Effects** (objects, region, weather) and **Music volume**.
+  All of it follows the setup's own settings: openmw.cfg's `fallback=` lines, or
+  Morrowind.ini's `[Weather ...]` sections (the time between the region's sounds, each
+  weather's ambient and rain loops, the thunder), Morrowind.ini's values only where the setup
+  has none.
+- **Thunder in a thunderstorm**, as OpenMW strikes it: by the weather's thunder frequency, one
+  of its four thunder sounds (the nearest the loudest), with a lightning flash in the sky that
+  fades at the weather's flash decrement.
+- **Activators, doors and containers that loop a sound from their script**
+  (`PlayLoopSound3D`, `PlayLoopSound3DVP` with its volume) play it where they stand, beside
+  the lights. A script's first such call on its own object is taken, whatever the script's
+  conditions are.
+- **A third camera: first person, the game's.** Beside Orbit and WASD (Settings, Tab, or the
+  toolbar's button, which now go round the three): W A S D walk on the land and on objects'
+  tops at a person's eye height whenever the render window has the keyboard, Shift walks
+  slowly, Space jumps, the right button looks; gravity holds you down, a step of up to 34
+  units is climbed and anything taller stops you (you slide along it), and the view is
+  OpenMW's 60 degrees. The pace is an average character's (no stats are read). Collision is
+  against the drawn triangles, not the collision shapes.
+- **Drag files and folders onto the Load order page's lists.** Drop a plugin, or a folder of
+  plugins, on **content=**: its plugins go in where you let go (the line shows where; masters
+  first within a folder; any a level or two down are found too), and their folder goes into
+  **data=** unless it is there. Drop a folder (or a file: its folder) on **data=** and it is
+  added as a `data=` line in the cfg's own quoting. Names and folders already in the list are
+  skipped and counted. The new rows are marked and selected (Alt+arrows move them). It changes
+  the lists you see; Export writes them (the data= list is written when "Sort data paths" is
+  ticked, and the page says so when it is not); a new Sort starts again from the inputs. It
+  uses the drops the shell reports (`tauri://drag-drop`), since the webview never gets a
+  file drag itself; a browser has no paths to give.
+- **The bar between content= and data= can be dragged** (the page's other columns already
+  could): up or down for more of the height to one or the other, remembered; a double-click
+  puts it back.
+- **Mesh optimiser (Tools page).** Puts the load order's meshes in draw order (vertex
+  cache, overdraw, vertex fetch: the mesh viewer's Optimise) in one go, and only where it
+  pays. Analyse measures the winning copy of every loose `.nif` across the data folders
+  (last folder wins, case folded; archives are not read) and lists each mesh's gain; a shape
+  is moved only if it really draws better, and a mesh is rewritten only if its gain reaches
+  *Least gain* (default 3 %, triangle-weighted) and it has *Least triangles* (default 64).
+  Write copies puts the ticked meshes, optimised, into a separate output folder at their own
+  paths (add it last in the data= lines, or delete it to undo), with a record
+  (`wraithguard-mesh-optimiser.json`); no mod is modified. Every copy is read back and must
+  mean the same mesh as the original (triangles with the same corners, skin weights, morph
+  targets) or it is not written. What was measured is kept in the scan cache, so the next run
+  measures only the meshes that changed.
+- **Find in the Load order page's content= and data= lists.** A box on each header lights the
+  plugins (or data folders) whose text has what you type, with a count (`3/12`); Enter goes
+  to the next match, Shift+Enter to the one before, Esc clears. The lights stay through
+  ticking, dragging and re-sorting, and the rows are only lit, not hidden, so the order
+  around a match stays in view.
+
+### Fixed
+
 - **The Editor reads a plugin again after writing over it** (Static, 2026-11-03: two land
   squares in Build patch, "1 change" each, whose pencil said "(-69, 23) is not a record any
   plugin of this load order defines"). The Editor read each plugin once and kept it; writing
@@ -609,10 +622,8 @@
   to the right edge in the Preview was docked out of sight, and stayed there each time it
   was opened again. Outside the Editor the column now shows while one of the Preview's own
   panels is open in it; the Editor's panels docked there stay hidden until the Editor.
-
 - **The In game tab's cell filter checks NotCell:** it was only ever "assumed", even with a
   cell typed.
-
 - **New land starts where the Construction Set starts it.** An exterior square with no land
   is flat ground at -2048 (OpenMW's `ESM::Land::DEFAULT_HEIGHT`); New land, Add flat land,
   the region map's Make exteriors and the Land view's first stroke over an empty square
@@ -624,7 +635,6 @@
 - **Flat land's height was written eight times too high.** VHGT's offset is stored in
   eighths of a unit; `flat_land` wrote the height itself, which only went unnoticed
   because new land was always at 0. The pinned place cases had the same mistake.
-
 - **A Land stroke made just before a cell arrow was lost.** In the moment before a stroke
   goes to the patch, a step to another cell built the scene again: a cell still in view
   was written with the load order's ground, and one out of view not at all. The stroke now
@@ -644,7 +654,6 @@
   window instead of the browser window, so it landed off the pointer by the top bar's
   height. Such a panel is now measured from the browser window, and docking it no longer
   moves it back under the Load order page.
-
 - **tes3cmd's "Add your mods" / "Add list mods" said "The sort found no mods of yours" / "no
   curated list"** when the Load order page had not been sorted yet. The sort the Tools page
   ran for itself left out the Mods folder (where "your mods" come from) and used only the
@@ -780,7 +789,6 @@
   `AST-deps.md`, `wraithguard_flowcharts.md`, all of the Python package), and
   `viewer-shell/DROP-TK.md` (what was left after the port, now under "After 5.0" in
   `TODO.md`). All are in the repository's history.
-
 - **License files for what the program no longer carries** (2026-11-03): `License/Three.js`,
   `io_scene_mw`, `Tes3conv`, `PLOX`, `Tes3EditX` and `TES3Tool` (no longer shipped or run, or
   only ever read for reference; still credited in `CREDITS.md`).
