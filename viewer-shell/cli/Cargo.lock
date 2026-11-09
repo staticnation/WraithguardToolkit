@@ -1609,7 +1609,7 @@ dependencies = [
 
 [[package]]
 name = "wraithguard-cli"
-version = "5.0.1"
+version = "5.0.4"
 dependencies = [
  "base64",
  "chrono",

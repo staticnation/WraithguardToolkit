@@ -74,6 +74,9 @@ jobs:
       # triorder), against the C++'s own values (tests/oracle_values.tsv).
       - name: meshopt-port tests
         run: cargo test --manifest-path viewer-shell/meshopt-port/Cargo.toml
+      # The Editor's Physics drop (Rapier): the shapes, the hollow split, a fall coming to rest.
+      - name: physcore tests
+        run: cargo test --manifest-path viewer-shell/physcore/Cargo.toml
       # Clippy on our own crates (not the forks or dependencies), strict: a warning fails
       # the job. The style lints this code base has chosen not to follow are allowed in
       # each crate's Cargo.toml ([lints.clippy]), with the reason beside each. The viewer
@@ -83,7 +86,7 @@ jobs:
       - name: clippy
         run: |
           set -e
-          for m in viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/cli/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
+          for m in viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/cli/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/physcore/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
             echo "::group::clippy $m"
             cargo clippy --all-targets --manifest-path "$m" -- -D warnings
             echo "::endgroup::"

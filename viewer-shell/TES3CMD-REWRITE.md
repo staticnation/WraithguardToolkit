@@ -1,6 +1,6 @@
 # tes3cmd without Perl (long-term plan)
 
-Status: **not started.** For now (port step 4.4, slice 8, option a) the Tools page launches the
+Status: **not started** (planned 2026-11-09: its own crate, see the end). For now (port step 4.4, slice 8, option a) the Tools page launches the
 external tes3cmd (`toolscore::tes3cmd`): `clean` and a custom command on a copy staged with the
 plugin's masters, `header` in place, and the master-size sync done in-app. This file is the plan
 for option b: the commands Wraithguard uses rewritten over the tes3 crate, so the app no longer
@@ -51,12 +51,15 @@ needs tes3cmd, or Perl when only the script is installed.
   answer. The rewrite must produce the same records, byte for byte where the crate writes the
   same bytes, and the same set of removed records otherwise. The case file records tes3cmd's
   version.
-- tes3cmd is GPL-2.0-or-later (John Moonsugar). The rewrite reads its behaviour from its
-  documentation and from running it, the same method as the rest of the port; any code read
-  closely enough to be a derivative keeps its notice.
+- tes3cmd is MIT (its header: "Copyright 2016 by John Moonsugar ... under the MIT License";
+  this file said GPL-2.0 until 2026-11-09, which was wrong). So the Perl is ported directly, as
+  mlox, Merged Lands, yampt and MWEdit were, and the port carries its copyright notice.
 
 ## Where it goes
 
-`toolscore::clean` beside `toolscore::tes3cmd`, using editcore's plugin reader and writer; the
-Tools page's tes3cmd section gains an "in-app" choice per command as each lands, and the
-launcher stays as the fallback until every command Wraithguard offers has its own.
+Decided 2026-11-09: its own repository, `staticnation/tes3cmd-rs` - a library and a `tes3cmd`
+command line over greatness7's `tes3`, with tes3cmd's commands and flags, so the MOMW Tools Pack
+and existing batch files can use it unchanged, on every platform and without Perl. Wraithguard
+takes it as a git dependency (as merge_to_master); the Tools page's tes3cmd section gains an
+"in-app" choice per command as each lands, and the launcher stays as the fallback until every
+command Wraithguard offers has its own. The command list and order are in `TODO.md`.

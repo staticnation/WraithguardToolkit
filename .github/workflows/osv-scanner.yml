@@ -1,0 +1,30 @@
+# OSV-Scanner (Google): every lock file in the repository (both crates' Cargo.lock, the page
+# tests' package-lock.json) against the OSV database, which carries the RustSec advisories
+# cargo audit reads plus GitHub's and npm's. Results go to the Security tab (Code scanning).
+# Crates from git (the [patch] forks: tes3, merge_to_master, gtk-0.18-patches) are not
+# checked by it, nor by cargo audit: watch their upstreams by hand.
+
+name: OSV-Scanner
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "53 5 * * 1"   # Mondays, 05:53 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6ad84ce1ef2d4124ba333b221894c133c4a970ea # v2.7.0
+    permissions:
+      actions: read
+      contents: read
+      security-events: write   # uploads the SARIF
+    with:
+      scan-args: |-
+        -r
+        ./
