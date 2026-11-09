@@ -73,8 +73,7 @@ jobs:
           path: |
             ~/.cargo/registry
             viewer-shell/target
-            viewer-shell/cli/target
-          key: cargo-app-${{ matrix.name }}-${{ hashFiles('viewer-shell/Cargo.lock', 'viewer-shell/cli/Cargo.lock') }}
+          key: cargo-app-${{ matrix.name }}-${{ hashFiles('viewer-shell/Cargo.lock') }}
 
       - name: Install WebKitGTK (Linux)
         if: runner.os == 'Linux'
@@ -98,7 +97,7 @@ jobs:
           out=wraithguard-${{ matrix.name }}
           mkdir -p "$out"
           cp viewer-shell/target/release/wraithguard-toolkit${{ matrix.exe }} "$out/"
-          cp viewer-shell/cli/target/release/wraithguard${{ matrix.exe }} "$out/"
+          cp viewer-shell/target/release/wraithguard${{ matrix.exe }} "$out/"
           cp QUICKSTART.md README.md MLOX_RULES.md CHANGELOG.md LICENSE CREDITS.md "$out/" 2>/dev/null || true
           if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$out.zip" "$out" >/dev/null; else tar czf "$out.tar.gz" "$out"; fi
           ls -lh "$out"
@@ -221,8 +220,7 @@ jobs:
           path: |
             ~/.cargo/registry
             viewer-shell/target
-            viewer-shell/cli/target
-          key: cargo-app-windows-x86_64-${{ hashFiles('viewer-shell/Cargo.lock', 'viewer-shell/cli/Cargo.lock') }}
+          key: cargo-app-windows-x86_64-${{ hashFiles('viewer-shell/Cargo.lock') }}
 
       - name: Build the program and the command line
         shell: bash
@@ -238,7 +236,7 @@ jobs:
         run: |
           $out = "wraithguard-windows-x86_64-webview2"
           New-Item -ItemType Directory -Force -Path "$out/webview2" | Out-Null
-          Copy-Item viewer-shell/target/release/wraithguard-toolkit.exe, viewer-shell/cli/target/release/wraithguard.exe $out
+          Copy-Item viewer-shell/target/release/wraithguard-toolkit.exe, viewer-shell/target/release/wraithguard.exe $out
           foreach ($f in "QUICKSTART.md","README.md","MLOX_RULES.md","CHANGELOG.md","CREDITS.md") { if (Test-Path $f) { Copy-Item $f $out } }
           Invoke-WebRequest -Uri $env:WEBVIEW2_URL -OutFile webview2.cab
           expand.exe webview2.cab -F:* "$out/webview2" | Out-Null

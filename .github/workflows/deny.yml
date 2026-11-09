@@ -1,0 +1,48 @@
+# cargo-deny (viewer-shell/deny.toml): where every crate comes from (crates.io and our three
+# git forks, nothing else), the licenses of the whole dependency tree, and the advisories.
+# cargo audit (audit.yml) and OSV-Scanner read the lock file's crates.io entries only; this is
+# the check that a new git dependency or a new license does not arrive unseen.
+#
+# Runs when a manifest, the lock file or the rules change, and once a week (a new advisory).
+
+name: Deny
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "viewer-shell/Cargo.lock"
+      - "viewer-shell/**/Cargo.toml"
+      - "viewer-shell/deny.toml"
+      - ".github/workflows/deny.yml"
+  pull_request:
+    paths:
+      - "viewer-shell/Cargo.lock"
+      - "viewer-shell/**/Cargo.toml"
+      - "viewer-shell/deny.toml"
+      - ".github/workflows/deny.yml"
+  schedule:
+    - cron: "7 5 * * 1"   # Mondays, 05:07 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deny-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      # cargo-deny 0.20.2, as the rules were written against.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: viewer-shell/Cargo.toml
+          command: check
+          # all-features is in deny.toml ([graph]).
+          arguments: ""

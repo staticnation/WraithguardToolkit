@@ -83,23 +83,24 @@ jobs:
       # shell itself needs WebKitGTK, which this runner does not install; check-commands
       # compiles the same command code without it (tools/build_and_check_rust.ps1 covers
       # the shell locally).
+      # One workspace (viewer-shell/Cargo.toml): every crate of it but the shell.
       - name: clippy
-        run: |
-          set -e
-          for m in viewer-shell/luacore/Cargo.toml viewer-shell/ordercore/Cargo.toml viewer-shell/editcore/Cargo.toml viewer-shell/conflictcore/Cargo.toml viewer-shell/toolscore/Cargo.toml viewer-shell/landcore/Cargo.toml viewer-shell/cli/Cargo.toml viewer-shell/gardenfell-g7/Cargo.toml viewer-shell/meshopt-port/Cargo.toml viewer-shell/physcore/Cargo.toml viewer-shell/viewcore/Cargo.toml viewer-shell/check-commands/Cargo.toml; do
-            echo "::group::clippy $m"
-            cargo clippy --all-targets --manifest-path "$m" -- -D warnings
-            echo "::endgroup::"
-          done
+        run: cargo clippy --manifest-path viewer-shell/Cargo.toml --workspace --exclude wraithguard-toolkit --all-targets -- -D warnings
       - name: command layer compiles
         run: cargo build --manifest-path viewer-shell/check-commands/Cargo.toml
+      # Its own tests: every #[tauri::command] is registered in generate_handler! (one that is
+      # not answers "Command not found" in the program), and reached by serve or listed as not.
+      - name: commands registered and served
+        run: cargo test --manifest-path viewer-shell/check-commands/Cargo.toml
       - name: shell URL mode compiles
         run: cargo build --manifest-path viewer-shell/check/Cargo.toml
       # The page itself, booted in jsdom against the real command bodies (the headless
       # `wg-view-serve` engine): connects the fixture setup, loads a cell, opens ORI on
       # an object, and fails on any page error.
       - name: headless engine
-        run: cargo build --release --manifest-path viewer-shell/check-commands/Cargo.toml --bin wg-view-serve
+        # The `serve` profile (viewer-shell/Cargo.toml): release speed without the shipped
+        # programs' link-time optimisation. The binary is viewer-shell/target/serve/wg-view-serve.
+        run: cargo build --profile serve --manifest-path viewer-shell/check-commands/Cargo.toml --bin wg-view-serve
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: "22"

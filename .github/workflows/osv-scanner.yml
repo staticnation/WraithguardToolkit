@@ -1,5 +1,5 @@
-# OSV-Scanner (Google): every lock file in the repository (both crates' Cargo.lock, the page
-# tests' package-lock.json) against the OSV database, which carries the RustSec advisories
+# OSV-Scanner (Google): every lock file in the repository (the workspace's Cargo.lock, the
+# vendored Gardenfell's, the page tests' package-lock.json) against the OSV database, which carries the RustSec advisories
 # cargo audit reads plus GitHub's and npm's. Results go to the Security tab (Code scanning).
 # Crates from git (the [patch] forks: tes3, merge_to_master, gtk-0.18-patches) are not
 # checked by it, nor by cargo audit: watch their upstreams by hand.

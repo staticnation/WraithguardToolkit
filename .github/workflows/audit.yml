@@ -44,8 +44,8 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked --version 0.22.2
       - name: Audit every Cargo.lock
-        # One lockfile per crate here (there is no workspace), so each is audited on its own;
-        # a failure in one does not hide the others.
+        # Two: the workspace's (viewer-shell/Cargo.lock) and the vendored Gardenfell's. Each is
+        # audited on its own; a failure in one does not hide the other.
         run: |
           status=0
           for lock in $(git ls-files '*Cargo.lock'); do
