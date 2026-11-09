@@ -383,6 +383,19 @@
   Python-parity merge cases pass). A synthetic order gave 2.6x on the read; how much of a real
   Merge Lands that is has not been measured: `tests/probe_land_read.rs` times it over real
   plugins and checks the two agree.
+- **Merge Lands reads the masters together and the mods biggest first, and its log keeps its
+  timings** (`landcore::service::read_all`, `land_merge`'s `log`, `61_wg_tools.js`). The first
+  measured run (a 619-plugin order, 14.5 s): the 23 masters, the biggest plugins of the order,
+  were read one at a time (4.7 s, the reference landmass built with them); the 596 mods in
+  batches of thirty-two, each waiting for its slowest, the last batch alone 1.8 s of the 2.5 s;
+  the merge itself 6.9 s (seam repair, the slope limiter and the cleaning 4.7 s of it), the
+  write 0.2 s. All are now read on up to eight threads (two cores left), the biggest first and
+  each thread taking the next as it finishes; the answers come back in load order, so what is
+  merged is the same, and the first failure in load order is still the one said (the parity
+  cases, which compare the written plugin and the report with the Python's, pass). The page also
+  replaced the log it showed while the merge ran - every line, with the time it took - with the
+  report alone when it finished, without the timings or the progress lines; it now keeps the
+  whole log and adds the closing lines to it.
 - **Verify reads the dialogue it needs, not all of it** (Messages, 2026-11-07: the dialogue was
   31.8 s of a 33.8 s "reading the load order"). Verify read every plugin's whole dialogue (every
   topic, every response with its text and script) before it began, whatever the patch held, to

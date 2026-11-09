@@ -201,6 +201,135 @@ fn contributors(outcome: &MergeOutcome, texture_sources: &[String], reference: &
     ordered
 }
 
+/// Reads the plugins' terrain records on several threads and answers them in the order given.
+/// The biggest are taken first and each thread takes the next as it finishes, so a big plugin
+/// at the end of the load order is not left to one thread after the rest are done (a batch of
+/// thirty-two waited on its slowest, and the last batch took 1.8 s of 14.5 s on a 619-plugin
+/// order). `progress(done, total)` is called on this thread, every thirty-second plugin and at
+/// the end. Once `cancel` is set no more are started: the ones not read answer as nothing, and
+/// the caller stops.
+fn read_all(paths: &[&Path], cancel: Option<&std::sync::atomic::AtomicBool>, progress: &mut dyn FnMut(usize, usize)) -> Vec<(Vec<Record>, String)> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let total = paths.len();
+    if total == 0 {
+        return Vec::new();
+    }
+    let mut by_size: Vec<usize> = (0..total).collect();
+    by_size.sort_by_key(|&i| std::cmp::Reverse(std::fs::metadata(paths[i]).map(|m| m.len()).unwrap_or(0)));
+    // Not every core: the window and the Editor's own reads keep two.
+    let threads = std::thread::available_parallelism().map_or(2, |n| n.get().saturating_sub(2)).clamp(2, 8).min(total);
+    let next = AtomicUsize::new(0);
+    let mut out: Vec<Option<(Vec<Record>, String)>> = (0..total).map(|_| None).collect();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            let tx = tx.clone();
+            let (next, by_size) = (&next, &by_size);
+            s.spawn(move || {
+                loop {
+                    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+                        break;
+                    }
+                    let Some(&i) = by_size.get(next.fetch_add(1, Ordering::Relaxed)) else { break };
+                    let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| records_of(paths[i])))
+                        .unwrap_or_else(|_| (Vec::new(), "the reader failed on it".to_string()));
+                    if tx.send((i, read)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(tx);
+        let mut done = 0;
+        for (i, read) in rx {
+            out[i] = Some(read);
+            done += 1;
+            if done % 32 == 0 || done == total {
+                progress(done, total);
+            }
+        }
+    });
+    out.into_iter().map(Option::unwrap_or_default).collect()
+}
+
+#[cfg(test)]
+mod read_all_tests {
+    use super::*;
+
+    fn sub(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((data.len() as u32).to_le_bytes());
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn record(tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((body.len() as u32).to_le_bytes());
+        v.extend([0u8; 8]);
+        v.extend_from_slice(body);
+        v
+    }
+
+    fn plugin(lands: i32) -> Vec<u8> {
+        let mut raw = record(b"TES3", &sub(b"HEDR", &[0u8; 300]));
+        for g in 0..lands {
+            let mut grid = g.to_le_bytes().to_vec();
+            grid.extend(7i32.to_le_bytes());
+            let mut heights = 1.5f32.to_le_bytes().to_vec();
+            heights.extend((0..4232 - 4).map(|i| (i % 251) as u8));
+            let mut body = sub(b"INTV", &grid);
+            body.extend(sub(b"DATA", &9u32.to_le_bytes()));
+            body.extend(sub(b"VHGT", &heights));
+            raw.extend(record(b"LAND", &body));
+        }
+        raw
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("wg-readall-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn answers_in_the_order_given_what_reading_one_at_a_time_gives() {
+        let dir = scratch("order");
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for i in 0..70 {
+            let p = dir.join(format!("p{i:02}.esp"));
+            // Sizes that do not follow the order: the biggest first is not load order.
+            match i % 7 {
+                5 => std::fs::write(&p, b"TES4 not a morrowind plugin").unwrap(),
+                6 => {} // missing: not written
+                k => std::fs::write(&p, plugin(1 + ((i * 3 + k) % 9) as i32)).unwrap(),
+            }
+            paths.push(p);
+        }
+        let refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+        let mut seen: Vec<(usize, usize)> = Vec::new();
+        let got = read_all(&refs, None, &mut |d, t| seen.push((d, t)));
+        let want: Vec<(Vec<Record>, String)> = refs.iter().map(|p| records_of(p)).collect();
+        assert_eq!(got, want, "the same records, failures and order");
+        assert!(got.iter().any(|(r, _)| !r.is_empty()) && got.iter().any(|(_, f)| !f.is_empty()), "the sample has terrain and failures");
+        assert_eq!(seen, vec![(32, 70), (64, 70), (70, 70)]);
+        assert!(read_all(&[], None, &mut |_, _| panic!("nothing to say")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancel_starts_no_more_reads() {
+        let dir = scratch("cancel");
+        let p = dir.join("a.esp");
+        std::fs::write(&p, plugin(2)).unwrap();
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        let got = read_all(&[p.as_path(), p.as_path()], Some(&stop), &mut |_, _| {});
+        assert_eq!(got, vec![(Vec::new(), String::new()), (Vec::new(), String::new())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// Merge a load order's terrain and write `Merged Lands.esp` (`build_merged_lands`).
 /// `say` is called with each progress line as it happens. `Err` is the Python's
 /// `MergeServiceError`, with the lines said before it in `lines`.
@@ -272,23 +401,46 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     say!("reading masters ...");
     let mut metas: Vec<(String, PluginMeta)> = Vec::new();
     let mut masters: Vec<PluginRecords> = Vec::new();
+    // Found and measured one by one, in order; read together (they were read one at a time, the
+    // biggest of the load order among them). What stopped the walk is told after the reads of
+    // the masters before it, so the first failure in load order is the one said, as it was.
+    let mut found: Vec<(String, PathBuf)> = Vec::new();
+    let mut early: Option<String> = None;
     for name in &master_names {
         stop!();
         let Some(path) = resolve_plugin(name, dirs) else {
-            fail!(
+            early = Some(format!(
                 "master {name} is not in any of the {} data folder(s) searched. Every master has to be readable: they are the reference terrain the whole merge is measured against.",
                 dirs.len()
-            );
+            ));
+            break;
         };
         match meta::load_meta(&path) {
             Ok(m) => metas.push((name.clone(), m)),
-            Err(e) => fail!("{e}"),
+            Err(e) => {
+                early = Some(format!("{e}"));
+                break;
+            }
         }
-        let (records, failure) = records_of(&path);
+        found.push((name.clone(), path));
+    }
+    let master_paths: Vec<&Path> = found.iter().map(|(_, p)| p.as_path()).collect();
+    let master_reads = read_all(&master_paths, opts.cancel.as_deref(), &mut |done, total| {
+        if done == total {
+            // Worded as the mods' progress is ("  read n/m plugin(s)"): the parity cases leave out
+            // the lines of that shape, which are for the page and not the Python's.
+            say(&format!("  read {total} master plugin(s)"));
+        }
+    });
+    stop!();
+    for ((name, _), (records, failure)) in found.iter().zip(master_reads) {
         if !failure.is_empty() {
             fail!("could not read master {name}: {failure}");
         }
         masters.push(PluginRecords { name: name.clone(), records });
+    }
+    if let Some(e) = early {
+        fail!("{e}");
     }
     let meta_map: HashMap<String, PluginMeta> = metas.iter().cloned().collect();
     let (reference, mut loaded) = match build_reference(&masters, &mut known, &meta_map, &mut notes) {
@@ -311,21 +463,12 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         }
         resolved.push((name.clone(), path));
     }
-    // Read a few at a time, results in load order (later plugins win).
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).clamp(1, 4);
-    let mut reads: Vec<(Vec<Record>, String)> = Vec::with_capacity(resolved.len());
-    for chunk in resolved.chunks(threads.max(1) * 8) {
-        stop!();
-        let part: Vec<(Vec<Record>, String)> = std::thread::scope(|s| {
-            let per = chunk.len().div_ceil(threads).max(1);
-            let jobs: Vec<_> = chunk.chunks(per).map(|c| s.spawn(move || c.iter().map(|(_, p)| records_of(p)).collect::<Vec<_>>())).collect();
-            jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
-        });
-        reads.extend(part);
-        // Progress only (not a report line, so the report stays the Python's): the page
-        // shows it while a big order is read.
-        say(&format!("  read {}/{} plugin(s)", reads.len(), resolved.len()));
-    }
+    // Read together, the biggest first, results in load order (later plugins win).
+    let mod_paths: Vec<&Path> = resolved.iter().map(|(_, p)| p.as_path()).collect();
+    // Progress only (not a report line, so the report stays the Python's): the page shows it
+    // while a big order is read.
+    let reads = read_all(&mod_paths, opts.cancel.as_deref(), &mut |done, total| say(&format!("  read {done}/{total} plugin(s)")));
+    stop!();
     let mut mods: Vec<PluginRecords> = Vec::new();
     for (index, ((name, _), (records, failure))) in resolved.iter().zip(reads).enumerate() {
         if !records.is_empty() {
