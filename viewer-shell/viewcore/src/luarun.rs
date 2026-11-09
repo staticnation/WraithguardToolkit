@@ -815,7 +815,7 @@ mod tests {
         let mut door = Shape::placed(&quad, &[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 800.0, 0.0, 0.0, 1.0, 100.0], [0.0, 0.0], true);
         door.kind = collision_type::DOOR;
         c.shapes.insert("d1".into(), door);
-        *COLLIDER.lock().unwrap() = Some(c);
+        *COLLIDER.lock().unwrap_or_else(|p| p.into_inner()) = Some(c);
         let script = "local nearby = require('openmw.nearby') local util = require('openmw.util') local done = false\n\
             return { engineHandlers = { onUpdate = function() if done then return end done = true\n\
             local a = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 1000, 200))\n\
@@ -841,7 +841,7 @@ mod tests {
             assert!(got.contains(r#""text":"hit true ex_wall 500 -1"#), "{}: {got}", r.backend);
             assert!(got.contains(r#""text":"then true false false door_a door_a""#), "{}: {got}", r.backend);
         }
-        *COLLIDER.lock().unwrap() = None;
+        *COLLIDER.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     #[test]

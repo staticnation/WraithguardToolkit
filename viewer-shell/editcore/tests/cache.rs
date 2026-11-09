@@ -260,3 +260,21 @@ fn a_lookup_does_not_wait_for_the_writer() {
     assert!(t.elapsed() < std::time::Duration::from_millis(1000), "waited {:?}", t.elapsed());
     writer.join().unwrap();
 }
+
+#[test]
+fn over_its_size_the_search_text_goes_first_and_stays_out() {
+    let d = Dir::new("textcap");
+    let (a, b) = (d.plugin("a.esm", b"a"), d.plugin("b.esp", b"b"));
+    let both = [a.clone(), b.clone()];
+    let c = Cache::new(d.db(), "", 600_000);
+    let row = |k: &str| -> UseRow { (k.to_string(), "Book".into(), k.to_string(), "[\"id\"]".into(), 0) };
+    // Text that does not compress into nothing: every line its own.
+    let text: String = (0..40_000).map(|i| format!("line {i} of the tale {}\n", i * 7919 % 10007)).collect();
+    c.put_uses_with_text(&a, &[row("bk_a")], &[("Book".into(), "bk_a".into(), text.clone())]);
+    assert!(c.missing_uses(&both[..1]).is_empty(), "the index itself stands");
+    assert!(c.text_records(&both[..1], "the tale").is_none(), "the text went, so the search reads the records");
+    // And is not written again: the next plugin's index stays whole.
+    c.put_uses_with_text(&b, &[row("bk_b")], &[("Book".into(), "bk_b".into(), text)]);
+    assert!(c.missing_uses(&both).is_empty());
+    assert!(c.uses_for(&both, "bk_b").is_some());
+}

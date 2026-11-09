@@ -18,7 +18,7 @@
                     (G7's tes3 crate against Gardenfell's readers; patches 0004, 0007, 0008)
         meshopt     cargo test  viewer-shell/meshopt-port/        (meshoptimizer's ports, against the C++'s values)
         physics     cargo test  viewer-shell/physcore/            (the Editor's Physics drop, Rapier)
-        commands    cargo build viewer-shell/check-commands/      (the viewer's commands, without Tauri)
+        commands    cargo build + test viewer-shell/check-commands/  (the viewer's commands, without Tauri; every command registered)
         check       cargo build viewer-shell/check/
         clippy      cargo clippy on luacore, ordercore, conflictcore, toolscore, landcore, cli, editcore, gardenfell-g7, meshopt-port, physcore, viewcore, check-commands and the viewer
                     (a warning fails it, as in CI; -ClippyReport only lists them)
@@ -137,7 +137,9 @@ $steps = [ordered]@{
         (Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/gardenfell/Cargo.toml', '-p', 'gardenfell-nif', '--lib')) } }
     meshopt  = @{ Label = 'meshopt-port tests';          Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/meshopt-port/Cargo.toml') } }
     physics  = @{ Label = 'physcore tests';              Run = { Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/physcore/Cargo.toml') } }
-    commands = @{ Label = 'check-commands build';        Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml') } }
+    commands = @{ Label = 'check-commands build and tests'; Run = {
+        (Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml')) -and
+        (Invoke-Native cargo @('test', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml')) } }
     check    = @{ Label = 'check build';                 Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check/Cargo.toml') } }
     clippy   = @{ Label = $(if ($ClippyReport) { 'clippy (report)' } else { 'clippy' }); Run = { Invoke-Clippy } }
     pages    = @{ Label = 'page boot tests (cell, mesh)'; Run = { Invoke-PageTests } }

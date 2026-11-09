@@ -221,14 +221,14 @@ impl Session {
         // First, so that a read already under way (these run without the Editor's lock) does
         // not put the file as it was back in the cache after it is cleared.
         self.generation.fetch_add(1, Ordering::SeqCst);
-        self.cache.lock().unwrap().retain(|(p, _), _| *p != name);
-        self.masters.lock().unwrap().remove(&name);
-        self.home.lock().unwrap().remove(&name);
-        self.dialogue.lock().unwrap().remove(&name);
-        self.dialogue_index.lock().unwrap().remove(&name);
-        self.dialogue_topic.lock().unwrap().retain(|(p, _), _| *p != name);
-        self.ids.lock().unwrap().retain(|(p, _), _| *p != name);
-        *self.stamp_memo.lock().unwrap() = None;
+        self.cache.lock().unwrap_or_else(|p| p.into_inner()).retain(|(p, _), _| *p != name);
+        self.masters.lock().unwrap_or_else(|p| p.into_inner()).remove(&name);
+        self.home.lock().unwrap_or_else(|p| p.into_inner()).remove(&name);
+        self.dialogue.lock().unwrap_or_else(|p| p.into_inner()).remove(&name);
+        self.dialogue_index.lock().unwrap_or_else(|p| p.into_inner()).remove(&name);
+        self.dialogue_topic.lock().unwrap_or_else(|p| p.into_inner()).retain(|(p, _), _| *p != name);
+        self.ids.lock().unwrap_or_else(|p| p.into_inner()).retain(|(p, _), _| *p != name);
+        *self.stamp_memo.lock().unwrap_or_else(|p| p.into_inner()) = None;
         true
     }
 
@@ -255,7 +255,7 @@ impl Session {
     /// before it), read once. A plugin that cannot be read has none.
     pub fn dialogue(&self, plugin: &str) -> Arc<Vec<Value>> {
         let low = plugin.to_lowercase();
-        if let Some(hit) = self.dialogue.lock().unwrap().get(&low) {
+        if let Some(hit) = self.dialogue.lock().unwrap_or_else(|p| p.into_inner()).get(&low) {
             return hit.clone();
         }
         let generation = self.generation.load(Ordering::SeqCst);
@@ -281,7 +281,7 @@ impl Session {
             }
         }
         let found = Arc::new(found);
-        self.dialogue.lock().unwrap().insert(low, found.clone());
+        self.dialogue.lock().unwrap_or_else(|p| p.into_inner()).insert(low, found.clone());
         found
     }
 
@@ -291,14 +291,14 @@ impl Session {
         if !self.framing_dialogue {
             return None;
         }
-        if let Some(i) = self.dialogue_index.lock().unwrap().get(lower) {
+        if let Some(i) = self.dialogue_index.lock().unwrap_or_else(|p| p.into_inner()).get(lower) {
             return Some(i.clone());
         }
         let (_, path) = self.paths.get(lower)?;
         let generation = self.generation.load(Ordering::SeqCst);
         let index = Arc::new(with_file_bytes(path, |bytes| Ok(dialogue_index_of(bytes))).ok()?);
         if self.generation.load(Ordering::SeqCst) == generation {
-            self.dialogue_index.lock().unwrap().insert(lower.to_string(), index.clone());
+            self.dialogue_index.lock().unwrap_or_else(|p| p.into_inner()).insert(lower.to_string(), index.clone());
         }
         Some(index)
     }
@@ -311,7 +311,7 @@ impl Session {
             return self.warm_dialogue();
         }
         let todo: Vec<String> = {
-            let have = self.dialogue_index.lock().unwrap();
+            let have = self.dialogue_index.lock().unwrap_or_else(|p| p.into_inner());
             self.order.iter().map(|n| n.to_lowercase()).filter(|n| !have.contains_key(n)).collect()
         };
         let threads = readers().min(todo.len());
@@ -340,11 +340,11 @@ impl Session {
     /// callers pick their topic out of it either way.
     pub fn dialogue_for(&self, plugin: &str, want: &str) -> Arc<Vec<Value>> {
         let low = plugin.to_lowercase();
-        if let Some(whole) = self.dialogue.lock().unwrap().get(&low) {
+        if let Some(whole) = self.dialogue.lock().unwrap_or_else(|p| p.into_inner()).get(&low) {
             return whole.clone();
         }
         if want.is_ascii()
-            && let Some(hit) = self.dialogue_topic.lock().unwrap().get(&(low.clone(), want.to_string()))
+            && let Some(hit) = self.dialogue_topic.lock().unwrap_or_else(|p| p.into_inner()).get(&(low.clone(), want.to_string()))
         {
             return hit.clone();
         }
@@ -372,7 +372,7 @@ impl Session {
                 if let Some(records) = records {
                     let records = Arc::new(records);
                     if self.generation.load(Ordering::SeqCst) == generation {
-                        self.dialogue_topic.lock().unwrap().insert((low, want.to_string()), records.clone());
+                        self.dialogue_topic.lock().unwrap_or_else(|p| p.into_inner()).insert((low, want.to_string()), records.clone());
                     }
                     return records;
                 }
@@ -409,7 +409,7 @@ impl Session {
     /// more than a `&self`, so the links that read dialogue can do it before the Editor's lock.
     pub fn warm_dialogue(&self) {
         let names: Vec<&str> = {
-            let have = self.dialogue.lock().unwrap();
+            let have = self.dialogue.lock().unwrap_or_else(|p| p.into_inner());
             self.order.iter().map(String::as_str).filter(|n| !have.contains_key(&n.to_lowercase())).collect()
         };
         let mut todo: Vec<(&str, u64)> = names
@@ -489,11 +489,11 @@ impl Session {
         // at again once the claim list is held: a read puts its result in the cache before it
         // lets go of its claim, so a claim that is gone has left its result there.
         loop {
-            if let Some(hit) = self.cache.lock().unwrap().get(&k) {
+            if let Some(hit) = self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(&k) {
                 return hit.clone();
             }
             let mut busy = self.reading.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(hit) = self.cache.lock().unwrap().get(&k) {
+            if let Some(hit) = self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(&k) {
                 return hit.clone();
             }
             if busy.insert(k.clone()) {
@@ -537,7 +537,7 @@ impl Session {
         }
         let found = Arc::new(found);
         if self.generation.load(Ordering::SeqCst) == generation {
-            self.cache.lock().unwrap().insert(k, found.clone());
+            self.cache.lock().unwrap_or_else(|p| p.into_inner()).insert(k, found.clone());
         }
         found
     }
@@ -549,7 +549,7 @@ impl Session {
     pub fn warm(&self, tags: &[&str]) {
         let mut todo: Vec<(&str, &str, u64)> = Vec::new();
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
             for tag in tags {
                 for name in &self.order {
                     if !cache.contains_key(&(name.to_lowercase(), tag.to_string())) {
@@ -598,7 +598,7 @@ impl Session {
         if self.disk.get().and_then(|d| d.stale_of_stamped(&self.stamps(), tag)).is_some_and(|s| s.is_empty()) {
             return true;
         }
-        let have = self.ids.lock().unwrap();
+        let have = self.ids.lock().unwrap_or_else(|p| p.into_inner());
         self.order.iter().all(|n| have.contains_key(&(n.to_lowercase(), tag.to_string())))
     }
 
@@ -632,7 +632,7 @@ impl Session {
     /// half: the key index is asked about thirty types in a Verify and twenty-five in a Use
     /// Report, and each question stamped every file (about 1,200 `stat`s a question: seconds).
     fn stamps(&self) -> Arc<Vec<Option<Stamp>>> {
-        let mut memo = self.stamp_memo.lock().unwrap();
+        let mut memo = self.stamp_memo.lock().unwrap_or_else(|p| p.into_inner());
         if let Some((at, got)) = memo.as_ref()
             && at.elapsed() < std::time::Duration::from_millis(1500)
         {
@@ -655,11 +655,11 @@ impl Session {
     /// one.
     fn plugin_ids_of(&self, lower: &str, tag: &str) -> Arc<HashSet<String>> {
         let k = (lower.to_string(), tag.to_string());
-        if let Some(hit) = self.ids.lock().unwrap().get(&k) {
+        if let Some(hit) = self.ids.lock().unwrap_or_else(|p| p.into_inner()).get(&k) {
             return hit.clone();
         }
         let generation = self.generation.load(Ordering::SeqCst);
-        let mut set: Option<HashSet<String>> = self.cache.lock().unwrap().get(&k).map(|r| r.keys().cloned().collect());
+        let mut set: Option<HashSet<String>> = self.cache.lock().unwrap_or_else(|p| p.into_inner()).get(&k).map(|r| r.keys().cloned().collect());
         if set.is_none()
             && self.from_files
             && Session::key_only(tag)
@@ -677,7 +677,7 @@ impl Session {
             None => self.records(lower, tag).keys().cloned().collect(),
         });
         if self.generation.load(Ordering::SeqCst) == generation {
-            self.ids.lock().unwrap().insert(k, set.clone());
+            self.ids.lock().unwrap_or_else(|p| p.into_inner()).insert(k, set.clone());
         }
         set
     }
@@ -694,7 +694,7 @@ impl Session {
             if self.disk.get().and_then(|d| d.stale_of_stamped(&stamps, tag)).is_some_and(|s| s.is_empty()) {
                 continue;
             }
-            let have = self.ids.lock().unwrap();
+            let have = self.ids.lock().unwrap_or_else(|p| p.into_inner());
             for name in &self.order {
                 let low = name.to_lowercase();
                 if !have.contains_key(&(low.clone(), tag.to_string())) {
@@ -809,7 +809,7 @@ impl Session {
         let record_type = type_of(tag)?;
         let tag = crate::key::tag_of(record_type)?;
         let want = rid.trim().to_lowercase();
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
         let mut found = false;
         for name in &self.order {
             let recs = cache.get(&(name.to_lowercase(), tag.to_string()))?;
@@ -864,7 +864,7 @@ impl Session {
     /// A plugin's master list, from its header (read once).
     pub fn masters_of(&self, plugin: &str) -> Arc<Vec<String>> {
         let low = plugin.to_lowercase();
-        if let Some(hit) = self.masters.lock().unwrap().get(&low) {
+        if let Some(hit) = self.masters.lock().unwrap_or_else(|p| p.into_inner()).get(&low) {
             return hit.clone();
         }
         let mut out = Vec::new();
@@ -883,7 +883,7 @@ impl Session {
             }
         }
         let out = Arc::new(out);
-        self.masters.lock().unwrap().insert(low, out.clone());
+        self.masters.lock().unwrap_or_else(|p| p.into_inner()).insert(low, out.clone());
         out
     }
 
@@ -970,7 +970,7 @@ impl Session {
     /// One plugin's exterior references by index (walked once).
     fn home_index(&self, plugin: &str) -> Arc<HashMap<i64, Vec<(String, String)>>> {
         let low = plugin.to_lowercase();
-        if let Some(hit) = self.home.lock().unwrap().get(&low) {
+        if let Some(hit) = self.home.lock().unwrap_or_else(|p| p.into_inner()).get(&low) {
             return hit.clone();
         }
         let masters = self.masters_of(plugin);
@@ -990,7 +990,7 @@ impl Session {
             }
         }
         let index = Arc::new(index);
-        self.home.lock().unwrap().insert(low, index.clone());
+        self.home.lock().unwrap_or_else(|p| p.into_inner()).insert(low, index.clone());
         index
     }
 }
@@ -1370,7 +1370,7 @@ mod key_only_tests {
         second.set_disk_cache(cache.clone());
         assert_eq!(second.plugin_ids("STAT"), want);
         assert_eq!(second.id_holders("STAT", "rock_b"), vec!["b.esp"]);
-        assert!(second.ids.lock().unwrap().is_empty(), "no plugin was keyed again");
+        assert!(second.ids.lock().unwrap_or_else(|p| p.into_inner()).is_empty(), "no plugin was keyed again");
 
         // A plugin that changed is keyed again.
         std::fs::write(&b, [named(b"STAT", "Rock_C"), land(0, 0)].concat()).unwrap();

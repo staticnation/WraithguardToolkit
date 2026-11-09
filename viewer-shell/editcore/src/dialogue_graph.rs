@@ -854,11 +854,11 @@ impl DialogueIndex {
     }
 
     fn out_cached(&self, low: &str) -> Arc<Out> {
-        if let Some(hit) = self.out_cache.lock().unwrap().get(low) {
+        if let Some(hit) = self.out_cache.lock().unwrap_or_else(|p| p.into_inner()).get(low) {
             return hit.clone();
         }
         let got = Arc::new(self.out(low));
-        self.out_cache.lock().unwrap().insert(low.to_string(), got.clone());
+        self.out_cache.lock().unwrap_or_else(|p| p.into_inner()).insert(low.to_string(), got.clone());
         got
     }
 
@@ -1282,7 +1282,7 @@ impl Editor {
             }
         }
         let sig = json!([made.iter().map(|(t, tp, k, r)| json!([t, tp, k, r])).collect::<Vec<_>>(), edits.iter().map(|(k, v)| json!([k, v.iter().map(|(p, x)| json!([p, x])).collect::<Vec<_>>()])).collect::<Vec<_>>()]).to_string();
-        let mut cached = self.dial_index.lock().unwrap();
+        let mut cached = self.dial_index.lock().unwrap_or_else(|p| p.into_inner());
         if let Some((have, index)) = cached.as_ref()
             && *have == sig
         {

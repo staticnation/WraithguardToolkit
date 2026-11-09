@@ -84,7 +84,9 @@ viewer-shell.zip
 viewer-shell/gardenfell/fixture/
 
 # Runtime caches and journals written next to the app (per machine, never source)
-wraithguard_record_cache.sqlite3
 wraithguard_patch_journal.json
-wraithguard_record_cache.sqlite3-shm
-wraithguard_record_cache.sqlite3-wal
+# Every cache database (record cache, use index, scan cache) and its WAL files.
+wraithguard_*.sqlite3
+wraithguard_*.sqlite3-shm
+wraithguard_*.sqlite3-wal
+wraithguard_overlay_index.bin

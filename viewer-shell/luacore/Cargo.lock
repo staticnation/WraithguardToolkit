@@ -110,7 +110,7 @@ dependencies = [
 [[package]]
 name = "bytes_io"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -126,7 +126,7 @@ dependencies = [
 [[package]]
 name = "bytes_io_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -274,7 +274,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "esp"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "bitflags",
  "bstr",
@@ -293,7 +293,7 @@ dependencies = [
 [[package]]
 name = "esp_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -772,7 +772,7 @@ dependencies = [
 [[package]]
 name = "tes3"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "esp",
 ]

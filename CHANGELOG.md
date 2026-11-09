@@ -41,6 +41,30 @@
 
 ### Fixed
 
+- **Audit, 2026-11-09** (every crate's tests and Clippy, `cargo audit` on every lock file, the
+  workflows, the page for `eval`, remote fetches and the script order):
+  - One error could leave the Editor refusing everything until a restart: 51 of its locks
+    (`editcore`'s session, builds, dialogue graph and scripts; `viewcore::luarun`) were taken
+    with `lock().unwrap()`, which fails for good once a thread has panicked holding one, and
+    the Editor's links catch such a panic and carry on. They take the lock as the rest of
+    the code does now (`unwrap_or_else(|p| p.into_inner())`).
+  - The use index over its size dropped itself whole, search text included, and would have
+    been built again to the same size, never finishing. The text goes first now and stays
+    out (`text_off`), and Search all reads the records as it did before the index.
+  - `check-commands`' own tests were never run (CI and `build_and_check_rust.ps1` only built
+    the crate), and one had been failing unseen: 54 commands `wg-view-serve` does not
+    dispatch. They are listed as such (`NOT_SERVED`), a new command not served fails, and CI
+    and the script run the tests, so the check that every `#[tauri::command]` is registered
+    guards again.
+  - `loopback_post` refuses a URL whose path holds a space or a line end (it went into the
+    request line as given).
+  - `packaging/flatpak/` is removed: the AppImage replaced the Flatpak, and nothing named it.
+  - The last `paste` is gone: `gardenfell-g7`'s and `luacore`'s lock files were a commit behind
+    the tes3 fork (`1f1f5bd`), whose `nif` crate moved to `pastey` in `0bda25c`; both are on it
+    now, as the other eight already were.
+  - `.gitignore` names every cache database (`wraithguard_*.sqlite3` and their `-wal`/`-shm`)
+    and the overlay index, not the record cache alone.
+
 - **The dependency audit is clean** (RustSec, every `Cargo.lock`). The last two were Tauri 2's
   Linux stack, gtk-rs 0.18, which no Tauri 2 release moves off: `glib` 0.18.5's unsound
   `VariantStrIter` (`RUSTSEC-2024-0429`; a test program built in release segfaults on it) and

@@ -231,7 +231,7 @@ impl Editor {
     pub fn script_compiler(&self) -> Arc<ScriptCompiler> {
         let extra = self.pool_script_records();
         let key = format!("{extra:?}");
-        let mut cached = self.compiler.lock().unwrap();
+        let mut cached = self.compiler.lock().unwrap_or_else(|p| p.into_inner());
         if let Some((have, c)) = cached.as_ref()
             && *have == key
         {

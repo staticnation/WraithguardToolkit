@@ -46,8 +46,6 @@ files as their source; the platforms are Windows, Linux, macOS, Android and iOS.
 - Translations: English only until everything is in and working (Static, 2026-10-27). Then
   the page's string tables generated from the `.po` files in `locale/`, and the page's own
   strings extracted into the same `.pot` (`locale/README.md`).
-- Remove `packaging/flatpak/`: the AppImage (`build-app.yml`'s `linux-appimage`) replaced the
-  Flatpak.
 - Android and iOS (Tauri 2's mobile targets). First an audit of what the page and the
   commands assume of a desktop: spawned processes (`editor_preview_patch`, tes3cmd, the
   OpenMW test run), free file paths and `openmw.cfg` locations (OpenMW's Android app keeps
@@ -138,10 +136,10 @@ index were the ones lost, and are back (`CHANGELOG.md`, 5.0.4).
 - If the cache grows too big (the `uses` table is most of it): keep only the strings of
   fields that can name a record.
 - Search all from the use index (`use_text`, 2026-11-09): on the big order, read the hover
-  on its count (the time, the records looked at, the index's size). The use index's
-  database is capped at 1 GiB (`cache::MAX_BYTES`), and over it the whole index is dropped and
-  built again: if the text puts it over, raise its cap or keep only text the `uses` table
-  lacks (strings over 64 characters).
+  on its count (the time, the records looked at, the index's size). Over the use index's
+  1 GiB (`cache::MAX_BYTES`) the text goes first and is left out from then on (`text_off`;
+  Search all reads the records again): if that happens on the big order, raise the cap or
+  keep only text the `uses` table lacks (strings over 64 characters).
 
 ## Opening a big install (the viewer engine)
 
@@ -157,8 +155,7 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
 - Versions (sorted 2026-11-09 against GitHub): tags v5.0.0-v5.0.3 are pushed, and v5.0.3 is
   the only 5.x release published; `CHANGELOG.md` now has 5.0.1, 5.0.2, 5.0.3 and 5.0.4 (the
-  work since v5.0.3). Before tagging 5.0.4: delete the local, never-pushed `v5.0.4` tag
-  (`2bafaef`, "CodeQL fixes": `git tag -d v5.0.4`). The version is 5.0.4 in
+  work since v5.0.3). The version is 5.0.4 in
   `viewer-shell/Cargo.toml`, `viewer-shell/cli/Cargo.toml`, `viewer-shell/tauri.conf.json` and
   both `Cargo.lock`s (2026-11-09; the v5.0.2 and v5.0.3 programs called themselves 5.0.1).
 - The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`; `get_wraithguard`
@@ -179,6 +176,23 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   changes, then re-pin.
 - Tauri pins gtk 0.18 (glib patched, above), string_cache 0.9 and jsonptr 0.7 (Aikido: waiting
   on upstream); recheck each Tauri release.
+
+- From the audit of 2026-11-09, not done:
+  - `wg_post`, `wg_open_record` and the `url` branch of the mesh viewer's save
+    (`wg_save_edited`, `41_wg_meshview.js`) post to the Python app's loopback server, which
+    went with 5.0: remove them with whatever of the page still asks for `links`.
+  - `check-commands`' `NOT_SERVED` (54 commands `wg-view-serve` does not dispatch: Load
+    order, Conflicts, Tools, Help, sound, the mesh optimiser): the page's boot test cannot
+    reach those pages' real commands. Add them to the dispatch page by page, Conflicts and
+    Tools first.
+  - cargo-deny (`deny.toml`: the git sources allowed by name, licenses) beside `cargo audit`
+    and OSV-Scanner, neither of which reads the crates that come from git.
+  - One Cargo workspace for the crates (one `Cargo.lock` and one `target` in place of
+    fifteen of each: a dependency bump is one lock file, and CI builds each crate once).
+    `gardenfell` is vendored with its own workspace and stays out.
+  - `src/cellviewer/commands.rs` is 6,600 lines and 149 commands: split by page
+    (`commands/conflicts.rs`, `tools.rs`, `loadorder.rs`, `land.rs`, `help.rs`), the
+    `generate_handler!` list staying in one place for `check-commands`' registry test.
 
 ## Forks: LUAL, Clippy
 

@@ -62,7 +62,7 @@ dependencies = [
 [[package]]
 name = "bytes_io"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -79,7 +79,7 @@ dependencies = [
 [[package]]
 name = "bytes_io_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -193,7 +193,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "esp"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "bitflags",
  "bstr",
@@ -212,7 +212,7 @@ dependencies = [
 [[package]]
 name = "esp_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -345,7 +345,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "nif"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -354,7 +354,7 @@ dependencies = [
  "glam",
  "hashbrown",
  "nif_macros",
- "paste",
+ "pastey",
  "slotmap",
  "smart-default",
 ]
@@ -362,7 +362,7 @@ dependencies = [
 [[package]]
 name = "nif_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -378,10 +378,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
+name = "pastey"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "proc-macro2"
@@ -519,7 +519,7 @@ dependencies = [
 [[package]]
 name = "tes3"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#1f1f5bd7bf607389f39213d9fa9914d98c70c74c"
+source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
 dependencies = [
  "esp",
  "nif",

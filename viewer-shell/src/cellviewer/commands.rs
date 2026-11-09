@@ -6446,6 +6446,10 @@ pub(crate) fn loopback_post(url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
     let rest = url.strip_prefix("http://127.0.0.1:").ok_or("not a loopback URL")?;
     let (port, path) = rest.split_once('/').ok_or("bad URL")?;
     let port: u16 = port.parse().map_err(|_| "bad port")?;
+    // The path goes into the request line as it is: no space or line end may come with it.
+    if path.bytes().any(|b| b <= 0x20 || b == 0x7f) {
+        return Err("bad URL".into());
+    }
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
     s.set_read_timeout(Some(std::time::Duration::from_secs(60))).ok();
     let head = format!(
@@ -6600,6 +6604,7 @@ mod loopback_tests {
         assert!(loopback_post(&url, b"{}").unwrap_err().contains("400"));
         t.join().unwrap();
         assert!(loopback_post("http://example.com/x", b"").is_err());
+        assert!(loopback_post(&format!("http://127.0.0.1:{port}/x HTTP/1.0\r\nX: y"), b"").is_err());
     }
 }
 

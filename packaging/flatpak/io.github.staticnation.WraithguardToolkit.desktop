@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Wraithguard Toolkit
-Comment=Morrowind / OpenMW load order, conflicts and cell preview
-Exec=wraithguard
-Icon=io.github.staticnation.WraithguardToolkit
-Categories=Game;Utility;
-Terminal=false

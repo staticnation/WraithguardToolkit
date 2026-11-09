@@ -269,17 +269,17 @@ impl Builds {
 
     /// The last build's state.
     pub fn current(&self) -> Option<BuildState> {
-        self.state.lock().unwrap().clone()
+        self.state.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// `editBuildStatus`.
     pub fn status(&self, req: &Value) -> Res<Value> {
-        build_status(self.state.lock().unwrap().as_ref(), req)
+        build_status(self.state.lock().unwrap_or_else(|p| p.into_inner()).as_ref(), req)
     }
 
     /// A new build's state put in place (refused while one runs): its job number.
     fn begin(&self) -> Res<i64> {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.lock().unwrap_or_else(|p| p.into_inner());
         refuse_running(st.as_ref())?;
         let next = BuildState::next(st.as_ref());
         let job = next.job;
@@ -288,7 +288,7 @@ impl Builds {
     }
 
     fn with(&self, f: impl FnOnce(&mut BuildState)) {
-        if let Some(st) = self.state.lock().unwrap().as_mut() {
+        if let Some(st) = self.state.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
             f(st);
         }
     }
@@ -312,7 +312,7 @@ impl Builds {
     pub fn build(&self, editor: &Arc<Mutex<Editor>>, req: &Value) -> Res<Value> {
         let target = patch_target(req)?;
         let mode = build_mode(req, &target, self.current().as_ref())?;
-        let job = editor.lock().unwrap().prepare_patch(&target, mode == "append").map_err(|e| e.0)?;
+        let job = editor.lock().unwrap_or_else(|p| p.into_inner()).prepare_patch(&target, mode == "append").map_err(|e| e.0)?;
         let number = self.begin()?;
         let (me, editor) = (self.clone(), editor.clone());
         std::thread::Builder::new()
@@ -321,7 +321,7 @@ impl Builds {
                 let said = me.clone();
                 match run_patch_job(&job, false, &mut |l| said.say(l.to_string())) {
                     Ok(result) => {
-                        editor.lock().unwrap().finish_patch(&job, &result);
+                        editor.lock().unwrap_or_else(|p| p.into_inner()).finish_patch(&job, &result);
                         let answer = written_answer(&result);
                         me.with(|st| {
                             st.result = answer;
@@ -347,7 +347,7 @@ impl Builds {
         refuse_running(self.current().as_ref())?;
         let target = scratch.join(testrun::TEST_PLUGIN);
         let _ = std::fs::remove_file(&target);
-        let job = editor.lock().unwrap().prepare_patch(&target, false).map_err(|e| e.0)?;
+        let job = editor.lock().unwrap_or_else(|p| p.into_inner()).prepare_patch(&target, false).map_err(|e| e.0)?;
         let number = self.begin()?;
         let me = self.clone();
         let scratch = scratch.to_path_buf();
@@ -465,8 +465,8 @@ mod tests {
         assert_eq!(st["state"], "done", "{st}");
         assert_eq!((st["result"]["records"].clone(), st["result"]["output"].clone()), (json!(1), json!(target.to_string_lossy())));
         assert!(st["lines"].as_array().unwrap().last().unwrap().as_str().unwrap().starts_with("wrote "));
-        assert!(ed.lock().unwrap().queue.is_empty());
-        let info = build_info(&ed.lock().unwrap(), &["/data".into()]);
+        assert!(ed.lock().unwrap_or_else(|p| p.into_inner()).queue.is_empty());
+        let info = build_info(&ed.lock().unwrap_or_else(|p| p.into_inner()), &["/data".into()]);
         assert_eq!((info["last"].clone(), info["suggested"].clone()), (json!(target.to_string_lossy()), json!(target.to_string_lossy())));
         // Written: new is refused, and with the queue spent nothing is to be written.
         assert!(builds.build(&ed, &json!({"path": target.to_string_lossy()})).unwrap_err().ends_with("exists: choose Append or Replace"));
@@ -499,7 +499,7 @@ mod tests {
         assert!(lines.iter().any(|l| l.starts_with("args: --data")) && lines.contains(&"oops"), "{lines:?}");
         assert_eq!(st["result"]["exit"], json!(2));
         assert!(st["result"]["pid"].as_u64().unwrap() > 0);
-        assert_eq!(ed.lock().unwrap().queue.len(), 1, "the queue is kept");
+        assert_eq!(ed.lock().unwrap_or_else(|p| p.into_inner()).queue.len(), 1, "the queue is kept");
         assert_eq!(testrun::load_settings(&settings)["exe"], json!(game.to_string_lossy()), "the OpenMW chosen is kept");
         let missing = builds.test_run(&ed, &json!({"exe": dir.join("nope").to_string_lossy()}), &settings, &scratch).unwrap_err();
         assert!(missing.starts_with("needExe: ") && missing.ends_with("is not OpenMW"));

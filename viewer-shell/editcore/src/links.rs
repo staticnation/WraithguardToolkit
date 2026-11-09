@@ -1282,7 +1282,7 @@ mod tests {
         links.call("editSet", r#"{"tag": "NPC_", "id": "fargoth", "path": "data.level", "value": 9}"#).unwrap();
         // The plugin written again without the record, and the Editor told (as a build does).
         std::fs::write(&patch, crate::build::patch_bytes(&[header, npc("caius", 3)]).unwrap()).unwrap();
-        assert!(links.editor.lock().unwrap().session.forget_file(&patch));
+        assert!(links.editor.lock().unwrap_or_else(|p| p.into_inner()).session.forget_file(&patch));
         // The pool's list reads nothing itself (a CELL change would read every plugin, each time
         // it is asked): before the plugin is read again, it cannot say.
         let pending: Value = serde_json::from_str(&links.call("editPending", "{}").unwrap()).unwrap();
@@ -1299,7 +1299,7 @@ mod tests {
         // A placed object's changes and a new object, when what they name is gone: taken out
         // (or already out), not refused.
         {
-            let mut ed = links.editor.lock().unwrap();
+            let mut ed = links.editor.lock().unwrap_or_else(|p| p.into_inner());
             ed.queue.add_ref_edit(crate::queue::RefEdit { cell: "Gone Cell".into(), origin: "Gone.esp".into(), refr_index: 7, changes: Default::default(), plugins: vec!["Gone.esp".into()] });
         }
         let out: Value = serde_json::from_str(&links.call("editRefRevert", r#"{"cell": "gone cell", "origin": "Gone.esp", "refr": 7}"#).unwrap()).unwrap();

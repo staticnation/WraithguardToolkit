@@ -222,6 +222,7 @@ impl Cache {
             }
             tx.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", [SCHEMA])?;
             tx.execute("INSERT OR REPLACE INTO meta VALUES ('parser', ?)", [&want])?;
+            tx.execute("DELETE FROM meta WHERE k='text_off'", [])?;
         }
         tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS records (plugin TEXT NOT NULL, tag TEXT NOT NULL,
@@ -364,8 +365,16 @@ impl Cache {
             dropped += 1;
             (self.warn)(&format!("editor: record cache over {} bytes: dropped the {next} records", self.max_bytes));
         }
+        // The use index's text for Search all goes before the index itself, and stays out
+        // (`text_off`): dropped with the index it would be written again, put the file over
+        // again, and the index would never be whole. Search all reads the records without it.
+        if over(c) && c.query_row("SELECT 1 FROM use_text LIMIT 1", [], |_| Ok(())).optional().ok().flatten().is_some() {
+            let _ = c.execute_batch("INSERT INTO use_text(use_text) VALUES ('delete-all'); INSERT OR REPLACE INTO meta VALUES ('text_off', 1);");
+            (self.warn)(&format!("editor: record cache over {} bytes: dropped the search text, and it is left out from now on", self.max_bytes));
+            dropped += 1;
+        }
         if over(c) {
-            let _ = c.execute_batch("INSERT INTO use_text(use_text) VALUES ('delete-all'); DELETE FROM uses; DELETE FROM use_records; DELETE FROM use_plugins;");
+            let _ = c.execute_batch("DELETE FROM uses; DELETE FROM use_records; DELETE FROM use_plugins;");
             let _ = c.execute("DELETE FROM key_stamps WHERE tag=?", [USES_TAG]);
             (self.warn)(&format!("editor: record cache over {} bytes: dropped the use index", self.max_bytes));
             dropped += 1;
@@ -579,6 +588,11 @@ impl Cache {
         (records, strings)
     }
 
+    /// Whether the search text is left out of this file (it put it over its size once).
+    fn text_off(c: &Connection) -> bool {
+        c.query_row("SELECT 1 FROM meta WHERE k='text_off'", [], |_| Ok(())).optional().ok().flatten().is_some()
+    }
+
     /// Indexes every string a plugin's records hold (the use-report index).
     pub fn put_uses(&self, plugin: &Path, rows: &[UseRow]) {
         self.put_uses_with_text(plugin, rows, &[]);
@@ -606,7 +620,7 @@ impl Cache {
                     for (v, rid, p, n) in &strings {
                         ins.execute(params![v, rid, p, n])?;
                     }
-                    if !texts.is_empty() {
+                    if !texts.is_empty() && !Cache::text_off(&tx) {
                         // A record's text under its row id; a key two records of the plugin share
                         // (one record's run of rows each) goes under the last, both texts together.
                         let rid_of: HashMap<(&str, &str), i64> = records.iter().map(|(rid, t, k)| ((t.as_str(), k.as_str()), *rid)).collect();
@@ -693,6 +707,9 @@ impl Cache {
         // One phrase: the text as it is, its quotes doubled.
         let phrase = format!("\"{}\"", text.replace('"', "\"\""));
         let mut out = self.read(|c| {
+            if Cache::text_off(c) {
+                return None;
+            }
             let mut st = c
                 .prepare(
                     "SELECT p.plugin, r.rtype, r.key, r.rid FROM use_text t
