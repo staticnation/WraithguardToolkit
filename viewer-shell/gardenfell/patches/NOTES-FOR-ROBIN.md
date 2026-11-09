@@ -8,7 +8,7 @@ copy otherwise unmodified so your next release drops straight in. With your fixt
 folder (thank you for it) your whole suite passes with the first ten applied: 1553
 pass, 0 fail, against 1541 without them; the 12 more are tests we add. 0011-0014 came
 later (see "Applying them"); 0017 was a change to a rule of 18fc's and is withdrawn (see its
-section below); 0018-0022 (2026-10-29/30) are the newest.
+section below); 0018-0022 (2026-10-29/30) and 0023 (2026-11-09) are the newest.
 
 ## 0001 world: a record typer hook
 
@@ -528,3 +528,14 @@ only after your release, and only if it suits how you want the crate laid out.
 - **Your esp-format.md on our side**: record ids compared without case (§2) and interior names folded ASCII-only (§9.8) are in Wraithguard's own conflict code now, not in your crates; the notes were right on both.
 - A shared case file for the cfg reader (`openmw_cfg_cases.json`, 13 cases, every expected
   value from OpenMW's code or docs) that both our readers run; yours passes 13/13 with 0005.
+
+## 0023 world: a plain record un-moves a moved reference
+
+B.esp moves A.esm's rock from (1, 1) to (2, 1) with an `MVRF`. C.esp, which has only A.esm as
+a master and knows nothing of the move, has a plain `FRMR` for the same rock in (1, 1). The
+merge inserted C's record at home and left B's copy in (2, 1): one reference standing twice.
+`leave()` was called for a deletion, a move and a record for a deleted reference, but not for
+the plain record. 0023 calls it there too (guarded by `where_is.is_empty()`, so nothing is
+looked up until something has moved). The rule is the Construction Set's: the later plugin's
+record is the reference. Not checked in the game; a `GF_D3`-style test (a rock moved, then a
+later plain record with another scale) would settle it.

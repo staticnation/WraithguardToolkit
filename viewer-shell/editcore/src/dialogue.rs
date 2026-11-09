@@ -312,24 +312,59 @@ impl Editor {
         if placed == ids {
             return Ok(view); // already there
         }
-        if let Some(made) = self.queue.new_record("DialogueInfo", info_id).cloned() {
-            let mut record = made.record.clone();
-            if let Some(m) = record.as_object_mut() {
-                m.insert("prev_id".into(), json!(after));
-                m.insert("next_id".into(), json!(following));
-            }
-            self.queue.add_new_record(NewRecord { record, ..made });
-        } else {
-            let Some(found) = self.find("INFO", info_id, None) else {
-                return err(format!("{info_id} is not a response of this load order"));
-            };
-            for (path, value) in [("prev_id", after), ("next_id", following.as_str())] {
-                self.queue.add_field(&found.record_type, &found.key, Choice::Value { path: path.into(), value: json!(value) });
-            }
-            self.queue.set_base(&found.record_type, &found.key, found.winner());
+        if self.queue.new_record("DialogueInfo", info_id).is_none() && self.find("INFO", info_id, None).is_none() {
+            return err(format!("{info_id} is not a response of this load order"));
+        }
+        // The chain mended on both sides, as the Construction Set writes a move: the two it
+        // stood between are joined, and the two it now stands between point at it. Its own
+        // links alone left a response moved to the same place earlier still claiming it
+        // (two with one `prev_id`, placed by the order the build wrote them in).
+        let was = ids.iter().position(|i| i == info_id).unwrap();
+        let before = if was == 0 { String::new() } else { ids[was - 1].clone() };
+        let behind = ids.get(was + 1).cloned().unwrap_or_default();
+        self.link_response(info_id, &[("prev_id", after), ("next_id", following.as_str())]);
+        if !before.is_empty() {
+            self.link_response(&before, &[("next_id", behind.as_str())]);
+        }
+        if !behind.is_empty() {
+            self.link_response(&behind, &[("prev_id", before.as_str())]);
+        }
+        if !after.is_empty() {
+            self.link_response(after, &[("next_id", info_id)]);
+        }
+        if !following.is_empty() {
+            self.link_response(&following, &[("prev_id", info_id)]);
         }
         self.save_journal();
         self.topic(topic_id)
+    }
+
+    /// Sets a response's links (`prev_id`, `next_id`) in the pool: on the patch's own record
+    /// when the patch makes it, else as typed fields over the load order's version. A link
+    /// that is already so is left alone (no record is taken into the patch for nothing).
+    fn link_response(&mut self, info_id: &str, links: &[(&str, &str)]) {
+        if let Some(made) = self.queue.new_record("DialogueInfo", info_id).cloned() {
+            let mut record = made.record.clone();
+            if let Some(m) = record.as_object_mut() {
+                for (path, value) in links {
+                    m.insert((*path).into(), json!(value));
+                }
+            }
+            self.queue.add_new_record(NewRecord { record, ..made });
+            return;
+        }
+        let Some(found) = self.find("INFO", info_id, None) else { return };
+        let now = self.as_written(&found);
+        let mut changed = false;
+        for (path, value) in links {
+            if now.get(*path).and_then(Value::as_str).unwrap_or("") != *value {
+                self.queue.add_field(&found.record_type, &found.key, Choice::Value { path: (*path).into(), value: json!(value) });
+                changed = true;
+            }
+        }
+        if changed {
+            self.queue.set_base(&found.record_type, &found.key, found.winner());
+        }
     }
 
     /// Adds a response to a topic after another (or at the top), in the patch: placed by

@@ -1,5 +1,5 @@
 {
- "_about": "The dialogue window, one way for the Python Editor and the viewer's: run by tests/test_dialogue_cases.py (EditorSession.topics, topic, move_response, new_response, copy_topic) and viewer-shell/editcore/tests/cases.rs (editcore::dialogue). Each case is a load order (`plugins`, each with its masters and its records in the tes3conv schema, in file order: a response belongs to the topic before it) and operations: [\"topics\"], [\"topic\", id], [\"move_response\", topic, response, after], [\"new_response\", topic, after] (the new response's record dialog), [\"copy_topic\", topic, new name], [\"pending\"], [\"undo\"]. The responses the patch makes get random ids; they are given as labels (R1, R2, ... in the order the queue holds them), in the operations too. `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand.",
+ "_about": "The dialogue window, one way for the Python Editor and the viewer's: run by tests/test_dialogue_cases.py (EditorSession.topics, topic, move_response, new_response, copy_topic) and viewer-shell/editcore/tests/cases.rs (editcore::dialogue). Each case is a load order (`plugins`, each with its masters and its records in the tes3conv schema, in file order: a response belongs to the topic before it) and operations: [\"topics\"], [\"topic\", id], [\"move_response\", topic, response, after], [\"new_response\", topic, after] (the new response's record dialog), [\"copy_topic\", topic, new name], [\"pending\"], [\"undo\"]. The responses the patch makes get random ids; they are given as labels (R1, R2, ... in the order the queue holds them), in the operations too. `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand. Since 2026-11-09 a move mends the chain on both sides as the Construction Set writes it (the two it stood between joined, the two it now stands between pointing at it), where the Python set the moved response's own links only: the answers here were taken from the Rust side then (tools/take_cases_got.py).",
  "cases": [
   {
    "name": "the dialogue window over two plugins",
@@ -1357,7 +1357,8 @@
         "disposition": 10,
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "winner": "Mod.esp",
         "orphan": false,
@@ -1757,7 +1758,8 @@
         "disposition": 10,
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "winner": "Mod.esp",
         "orphan": false,
@@ -1807,6 +1809,18 @@
       "type": "Topic",
       "responses": [
        {
+        "id": "R1",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
         "id": "y",
         "text": "Lost.",
         "speaker": "",
@@ -1820,25 +1834,14 @@
         "quest": ""
        },
        {
-        "id": "R1",
-        "text": "",
-        "speaker": "",
-        "disposition": 0,
-        "plugins": [
-         "(this patch)"
-        ],
-        "winner": "(this patch)",
-        "orphan": false,
-        "quest": ""
-       },
-       {
         "id": "a",
         "text": "First.",
         "speaker": "who: trader",
         "disposition": 10,
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "winner": "Mod.esp",
         "orphan": false,
@@ -1863,10 +1866,11 @@
         "disposition": 0,
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "winner": "Mod.esp",
-        "orphan": true,
+        "orphan": false,
         "quest": ""
        }
       ]
@@ -1883,7 +1887,7 @@
       "responses": [
        {
         "id": "R3",
-        "text": "Lost.",
+        "text": "",
         "speaker": "",
         "disposition": 0,
         "plugins": [
@@ -1895,7 +1899,7 @@
        },
        {
         "id": "R4",
-        "text": "",
+        "text": "Lost.",
         "speaker": "",
         "disposition": 0,
         "plugins": [
@@ -2012,6 +2016,30 @@
         "quest": ""
        },
        {
+        "id": "R3",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
+        "id": "R4",
+        "text": "Lost.",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
         "id": "R6",
         "text": "Inserted.",
         "speaker": "",
@@ -2034,30 +2062,6 @@
         "winner": "(this patch)",
         "orphan": false,
         "quest": ""
-       },
-       {
-        "id": "R3",
-        "text": "Lost.",
-        "speaker": "",
-        "disposition": 0,
-        "plugins": [
-         "(this patch)"
-        ],
-        "winner": "(this patch)",
-        "orphan": false,
-        "quest": ""
-       },
-       {
-        "id": "R4",
-        "text": "",
-        "speaker": "",
-        "disposition": 0,
-        "plugins": [
-         "(this patch)"
-        ],
-        "winner": "(this patch)",
-        "orphan": false,
-        "quest": ""
        }
       ]
      },
@@ -2069,12 +2073,36 @@
        "whole": null,
        "changes": [
         {
-         "path": "prev_id",
-         "value": ""
-        },
-        {
          "path": "next_id",
          "value": "a"
+        },
+        {
+         "path": "prev_id",
+         "value": "R1"
+        }
+       ]
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "prev_id",
+         "value": "y"
+        }
+       ]
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
+       "id": "b",
+       "whole": null,
+       "changes": [
+        {
+         "path": "prev_id",
+         "value": "x"
         }
        ]
       },
@@ -2187,7 +2215,7 @@
       "responses": [
        {
         "id": "R3",
-        "text": "Lost.",
+        "text": "",
         "speaker": "",
         "disposition": 0,
         "plugins": [
@@ -2199,7 +2227,7 @@
        },
        {
         "id": "R4",
-        "text": "",
+        "text": "Lost.",
         "speaker": "",
         "disposition": 0,
         "plugins": [
@@ -2428,8 +2456,32 @@
       "type": "Topic",
       "responses": [
        {
-        "id": "y",
+        "id": "R1",
         "n": 1,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "",
+        "segments": [],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "y",
+        "n": 2,
         "speaker": "anyone",
         "conditions": [],
         "gate": null,
@@ -2450,30 +2502,6 @@
         "links": [],
         "plugins": [
          "Mod.esp",
-         "(this patch)"
-        ],
-        "orphan": false,
-        "quest": "",
-        "disposition": 0
-       },
-       {
-        "id": "R1",
-        "n": 2,
-        "speaker": "anyone",
-        "conditions": [],
-        "gate": null,
-        "text": "",
-        "segments": [],
-        "script": "",
-        "choices": [],
-        "addtopics": [],
-        "journal": [],
-        "sets": [],
-        "items": [],
-        "goodbye": false,
-        "other": [],
-        "links": [],
-        "plugins": [
          "(this patch)"
         ],
         "orphan": false,
@@ -2515,7 +2543,8 @@
         "links": [],
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "orphan": false,
         "quest": "",
@@ -2572,9 +2601,10 @@
         "links": [],
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
-        "orphan": true,
+        "orphan": false,
         "quest": "",
         "disposition": 0
        }
@@ -3099,13 +3129,9 @@
       ],
       "line": {
        "topic": "background",
-       "id": "y",
+       "id": "R1",
        "n": 1,
-       "segments": [
-        {
-         "t": "Lost."
-        }
-       ],
+       "segments": [],
        "choices": [],
        "goodbye": false,
        "conditions": [],
@@ -3244,8 +3270,32 @@
       "type": "Topic",
       "responses": [
        {
-        "id": "y",
+        "id": "R1",
         "n": 1,
+        "speaker": "anyone",
+        "conditions": [],
+        "gate": null,
+        "text": "",
+        "segments": [],
+        "script": "",
+        "choices": [],
+        "addtopics": [],
+        "journal": [],
+        "sets": [],
+        "items": [],
+        "goodbye": false,
+        "other": [],
+        "links": [],
+        "plugins": [
+         "(this patch)"
+        ],
+        "orphan": false,
+        "quest": "",
+        "disposition": 0
+       },
+       {
+        "id": "y",
+        "n": 2,
         "speaker": "anyone",
         "conditions": [],
         "gate": null,
@@ -3266,30 +3316,6 @@
         "links": [],
         "plugins": [
          "Mod.esp",
-         "(this patch)"
-        ],
-        "orphan": false,
-        "quest": "",
-        "disposition": 0
-       },
-       {
-        "id": "R1",
-        "n": 2,
-        "speaker": "anyone",
-        "conditions": [],
-        "gate": null,
-        "text": "",
-        "segments": [],
-        "script": "",
-        "choices": [],
-        "addtopics": [],
-        "journal": [],
-        "sets": [],
-        "items": [],
-        "goodbye": false,
-        "other": [],
-        "links": [],
-        "plugins": [
          "(this patch)"
         ],
         "orphan": false,
@@ -3331,7 +3357,8 @@
         "links": [],
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "orphan": false,
         "quest": "",
@@ -3388,9 +3415,10 @@
         "links": [],
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
-        "orphan": true,
+        "orphan": false,
         "quest": "",
         "disposition": 0
        }
@@ -3414,6 +3442,18 @@
       "type": "Topic",
       "responses": [
        {
+        "id": "R1",
+        "text": "",
+        "speaker": "",
+        "disposition": 0,
+        "plugins": [
+         "(this patch)"
+        ],
+        "winner": "(this patch)",
+        "orphan": false,
+        "quest": ""
+       },
+       {
         "id": "y",
         "text": "Lost.",
         "speaker": "",
@@ -3427,25 +3467,14 @@
         "quest": ""
        },
        {
-        "id": "R1",
-        "text": "",
-        "speaker": "",
-        "disposition": 0,
-        "plugins": [
-         "(this patch)"
-        ],
-        "winner": "(this patch)",
-        "orphan": false,
-        "quest": ""
-       },
-       {
         "id": "a",
         "text": "First.",
         "speaker": "who: trader",
         "disposition": 10,
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "winner": "Mod.esp",
         "orphan": false,
@@ -3470,10 +3499,11 @@
         "disposition": 0,
         "plugins": [
          "Morrowind.esm",
-         "Mod.esp"
+         "Mod.esp",
+         "(this patch)"
         ],
         "winner": "Mod.esp",
-        "orphan": true,
+        "orphan": false,
         "quest": ""
        }
       ]
@@ -3487,13 +3517,9 @@
       ],
       "line": {
        "topic": "background",
-       "id": "y",
+       "id": "R1",
        "n": 1,
-       "segments": [
-        {
-         "t": "Lost."
-        }
-       ],
+       "segments": [],
        "choices": [],
        "goodbye": false,
        "conditions": [],
@@ -3520,12 +3546,8 @@
         "speaker": "anyone",
         "conditions": [],
         "gate": null,
-        "text": "Lost.",
-        "segments": [
-         {
-          "t": "Lost."
-         }
-        ],
+        "text": "",
+        "segments": [],
         "script": "",
         "choices": [],
         "addtopics": [],
@@ -3548,8 +3570,12 @@
         "speaker": "anyone",
         "conditions": [],
         "gate": null,
-        "text": "",
-        "segments": [],
+        "text": "Lost.",
+        "segments": [
+         {
+          "t": "Lost."
+         }
+        ],
         "script": "",
         "choices": [],
         "addtopics": [],
@@ -3677,12 +3703,12 @@
        "base": "Mod.esp",
        "choices": [
         {
-         "path": "prev_id",
-         "value": ""
-        },
-        {
          "path": "next_id",
          "value": "a"
+        },
+        {
+         "path": "prev_id",
+         "value": "R1"
         }
        ]
       },
@@ -3692,12 +3718,27 @@
        "base": "Mod.esp",
        "choices": [
         {
+         "path": "prev_id",
+         "value": "y"
+        },
+        {
          "path": "text",
          "value": "First, said otherwise."
         },
         {
          "path": "data.disposition",
          "value": 30
+        }
+       ]
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "b",
+       "base": "Mod.esp",
+       "choices": [
+        {
+         "path": "prev_id",
+         "value": "x"
         }
        ]
       }
@@ -3799,7 +3840,7 @@
         "speaker_cell": "",
         "player_faction": "",
         "sound_path": "",
-        "text": "Lost.",
+        "text": "",
         "filters": [],
         "script_text": ""
        },
@@ -3829,7 +3870,7 @@
         "speaker_cell": "",
         "player_faction": "",
         "sound_path": "",
-        "text": "",
+        "text": "Lost.",
         "filters": [],
         "script_text": ""
        },

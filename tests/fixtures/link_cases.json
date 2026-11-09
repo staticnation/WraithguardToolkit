@@ -1,5 +1,5 @@
 {
- "_about": "The Editor's links as the page asks them, one way for Wraithguard and the viewer: run by tests/test_link_cases.py (gui/editorlink.py's handlers) and viewer-shell/editcore/tests/cases.rs (editcore::links). Each case is a load order (`plugins`, each with its masters and records) and operations: [\"link\", name, body] and [\"journal\", document] (the shared journal written as the other side writes it; null removes it). A new reference's editor name is a label (U1...) in requests and answers; editRevision's `rev` is each side's own count and is left out. `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand.",
+ "_about": "The Editor's links as the page asks them, one way for Wraithguard and the viewer: run by tests/test_link_cases.py (gui/editorlink.py's handlers) and viewer-shell/editcore/tests/cases.rs (editcore::links). Each case is a load order (`plugins`, each with its masters and records) and operations: [\"link\", name, body] and [\"journal\", document] (the shared journal written as the other side writes it; null removes it). A new reference's editor name is a label (U1...) in requests and answers; editRevision's `rev` is each side's own count and is left out. `expect` is what each gave and the journal after them. Generated from the Python side when a case is added, and read by hand. The `dialogue` case's moves follow dialogue_cases.json's rule of 2026-11-09 (the chain mended on both sides).",
  "cases": [
   {
    "name": "a record read, changed, put back, undone",
@@ -9386,7 +9386,8 @@
         "speaker": "who: fargoth",
         "disposition": 0,
         "plugins": [
-         "Morrowind.esm"
+         "Morrowind.esm",
+         "(this patch)"
         ],
         "winner": "Morrowind.esm",
         "orphan": false,
@@ -9503,7 +9504,8 @@
         "other": [],
         "links": [],
         "plugins": [
-         "Morrowind.esm"
+         "Morrowind.esm",
+         "(this patch)"
         ],
         "orphan": false,
         "quest": "",
@@ -9624,6 +9626,18 @@
       {
        "tag": "INFO",
        "type": "DialogueInfo",
+       "id": "b1",
+       "whole": null,
+       "changes": [
+        {
+         "path": "prev_id",
+         "value": "b2"
+        }
+       ]
+      },
+      {
+       "tag": "INFO",
+       "type": "DialogueInfo",
        "id": "R1",
        "whole": null,
        "made": {
@@ -9701,6 +9715,17 @@
          "value": "b1"
         }
        ]
+      },
+      {
+       "type": "DialogueInfo",
+       "key": "b1",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "prev_id",
+         "value": "b2"
+        }
+       ]
       }
      ],
      "refs": [],
@@ -9713,7 +9738,7 @@
         "flags": "",
         "id": "R1",
         "prev_id": "b1",
-        "next_id": "b2",
+        "next_id": "",
         "data": {
          "dialogue_type": "Topic",
          "disposition": 0,

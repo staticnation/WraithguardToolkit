@@ -1938,6 +1938,10 @@ impl World {
                             }
                             continue;
                         }
+                        // Wraithguard (0023): a plain record un-moves it. See the exterior branch.
+                        if !where_is.is_empty() {
+                            leave(&mut where_is, r.num, &here, &mut evict);
+                        }
                         if room.refs.insert(r.num, r).is_some() {
                             w.stats.refs_overridden += 1;
                             room.prov.replaced += 1;
@@ -2049,6 +2053,13 @@ impl World {
                             hist.gone.push(Gone { r: old, by: pi as i32, moved: false });
                         }
                         continue;
+                    }
+                    /* Wraithguard (0023): a plain record for a reference an earlier plugin
+                       moved away. The later record is the reference now, as the Construction
+                       Set reads it: here, in the cell it sits in, and no longer where the move
+                       put it (it stood in both). Only looked up once something has moved. */
+                    if !where_is.is_empty() {
+                        leave(&mut where_is, r.num, &here, &mut evict);
                     }
                     let t_ins = sample.then(std::time::Instant::now);
                     let replaced = cell.refs.insert(r.num, r).is_some();

@@ -186,7 +186,9 @@ mod tests {
     fn cell_specs() {
         assert_eq!(parse_cell("-3, 7").unwrap()["y"], 7);
         assert_eq!(parse_cell("int:Balmora, Guild").unwrap()["kind"], "int");
-        assert!(parse_cell("x").is_none());
+        // A bare name is an interior's (`CellKey::parse`); nothing is no cell.
+        assert_eq!(parse_cell("x").unwrap()["kind"], "int");
+        assert!(parse_cell("").is_none());
         assert_eq!(parse_cell("plugin:My Mod.esp").unwrap()["name"], "My Mod.esp");
     }
 

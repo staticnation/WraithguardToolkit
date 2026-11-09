@@ -40,7 +40,9 @@ fn main() {
         }
     };
 
-    match rewrite(&text, &stub) {
+    let pages = src.with_extension("");
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    match rewrite(&text, &stub, &pages, &out_dir) {
         Ok(body) => std::fs::write(&out, body).unwrap(),
         Err(why) => {
             // A restructured main.rs should say so plainly rather than produce a file
@@ -51,7 +53,47 @@ fn main() {
     }
 }
 
-fn rewrite(text: &str, stub: &Path) -> Result<String, String> {
+/// One page's file of `commands/` (`mod NAME;` in commands.rs), rewritten as commands.rs is,
+/// line for line: the command attribute dropped, `pub(super)` made `pub` (so `serve` can call
+/// the command bodies through commands.rs's `use NAME::*`). The commands it defines go onto
+/// `commands`, and a bare `#[tauri::command]` onto `bare` as `NAME.rs:line`.
+fn rewrite_page(name: &str, text: &str, commands: &mut Vec<String>, bare: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    let mut want_command = false;
+    for (no, line) in text.lines().enumerate() {
+        let t = line.trim_start();
+        if t == "#[tauri::command]" {
+            bare.push(format!("{name}.rs:{}", no + 1));
+        }
+        if t == "#[tauri::command]" || t == "#[tauri::command(async)]" {
+            want_command = true;
+        } else if want_command && (line.starts_with("pub(super) fn ") || line.starts_with("fn ")) {
+            let rest = line.trim_start_matches("pub(super) ").trim_start_matches("fn ");
+            let fname = rest.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("");
+            if !fname.is_empty() {
+                commands.push(fname.to_string());
+            }
+            want_command = false;
+        }
+        if t.starts_with("#![") || t == "#[tauri::command]" || t == "#[tauri::command(async)]" || t == "#[derive(serde::Deserialize)]" {
+            out.push('\n');
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("//!") {
+            out.push_str("//");
+            out.push_str(rest);
+        } else if let Some(rest) = line.strip_prefix("pub(super) ") {
+            out.push_str("pub ");
+            out.push_str(rest);
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn rewrite(text: &str, stub: &Path, pages: &Path, out_dir: &Path) -> Result<String, String> {
     let cut = text
         .find("\npub fn builder()")
         .ok_or("no `fn main()` in viewer-shell/src/cellviewer/commands.rs — has the file been restructured?")?;
@@ -76,7 +118,7 @@ fn rewrite(text: &str, stub: &Path) -> Result<String, String> {
      * process behind a pipe, where the page waits rather than blocks, so they would stay
      * green while the desktop build locked up. Reported by line number, because that is
      * the one thing the reader needs. */
-    let mut bare: Vec<usize> = Vec::new();
+    let mut bare: Vec<String> = Vec::new();
     /* Every function a command attribute actually landed on, in order — which is not the
        same as every function somebody meant it to land on. See `handler_gaps`. */
     let mut commands: Vec<String> = Vec::new();
@@ -85,7 +127,25 @@ fn rewrite(text: &str, stub: &Path) -> Result<String, String> {
     for (no, line) in text[..cut].lines().enumerate() {
         let t = line.trim_start();
         if t == "#[tauri::command]" {
-            bare.push(no + 1);
+            bare.push((no + 1).to_string());
+        }
+        /* A page's file (`mod NAME;`, `commands/NAME.rs`): rewritten into OUT_DIR beside this
+           one and named here by its path, on the same line; its `use NAME::*` published, so
+           the commands in it are called as this file's are. */
+        if let Some(name) = line.strip_prefix("mod ").and_then(|r| r.strip_suffix(';')).filter(|n| n.chars().all(|c| c.is_alphanumeric() || c == '_')) {
+            let file = pages.join(format!("{name}.rs"));
+            println!("cargo:rerun-if-changed={}", file.display());
+            let page = std::fs::read_to_string(&file).map_err(|e| format!("{} unreadable ({e})", file.display()))?;
+            let made = out_dir.join(format!("checked_{name}.rs"));
+            std::fs::write(&made, rewrite_page(name, &page, &mut commands, &mut bare)).map_err(|e| e.to_string())?;
+            out.push_str(&format!("#[path = {:?}] pub mod {name};\n", made.to_string_lossy().replace('\\', "/")));
+            continue;
+        }
+        if line.starts_with("use ") && line.ends_with("::*;") && !line.contains("::{") && line.matches("::").count() == 1 {
+            out.push_str("pub ");
+            out.push_str(line);
+            out.push('\n');
+            continue;
         }
         if t == "#[tauri::command]" || t == "#[tauri::command(async)]" {
             want_command = true;
@@ -173,7 +233,7 @@ fn rewrite(text: &str, stub: &Path) -> Result<String, String> {
             "compile_error!(\"viewer-shell/src/cellviewer/commands.rs: #[tauri::command] on line(s) {} would \
              run on the main thread, which is the thread the window is drawn on. Use \
              #[tauri::command(async)] — see the note at the top of that file.\");\n",
-            bare.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+            bare.join(", ")
         ));
     }
     Ok(out)

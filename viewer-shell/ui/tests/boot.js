@@ -175,7 +175,7 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
     const taint=v=>typeof v==='string'? v+TAINT : Array.isArray(v)? v.map(taint)
       : v && typeof v==='object'? Object.fromEntries(Object.entries(v).map(([k,x])=>[k,taint(x)])) : v;
     const taintOf=(cmd,r)=>{
-      if(!process.env.WG_TAINT || r instanceof ArrayBuffer || /^(viewer_profile_read|wg_post|wg_open_record)$/.test(cmd) && !(process.env.WG_TAINT==='2' && cmd==='open_install')) return r;
+      if(!process.env.WG_TAINT || r instanceof ArrayBuffer || /^(viewer_profile_read|wg_post)$/.test(cmd) && !(process.env.WG_TAINT==='2' && cmd==='open_install')) return r;
       if(cmd==='open_install' && process.env.WG_TAINT!=='2') return r;
       try{ return JSON.stringify(taint(typeof r==='string'? JSON.parse(r) : r)); }catch(_){ return r; }
     };

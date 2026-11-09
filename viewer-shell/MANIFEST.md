@@ -10,7 +10,7 @@ viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of th
 | Path | What | License |
 |---|---|---|
 | `src/main.rs` | Shell entry: the program on its own, URL mode, `--cell-viewer`, the mesh viewer; the Tauri context generated once | MIT |
-| `src/cellviewer/` | The window, its launch arguments, and `commands.rs`: every command the page calls (below) | MIT |
+| `src/cellviewer/` | The window, its launch arguments, and `commands.rs` with `commands/` (the Conflicts, Tools, Load order, Merge Lands and Help pages' commands, a file each): every command the page calls (below) | MIT |
 | `viewcore/` | The viewer engine: the install, the merged world, meshes, textures, sound | MIT |
 | `editcore/` | The Editor: plugins as records, the queue and journal, edits, search, the Use Report, dialogue, MWScript, Verify, the patch build, Test in OpenMW | MIT |
 | `ordercore/` | The load order: openmw.cfg, mlox rules, the sort and export, MOMW lists, rule authoring, cells and references resolved as the game does | MIT |
@@ -28,7 +28,7 @@ viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of th
 | `ui/viewer_only.html` | What the viewer hides and adds over the page; the docks' styles | GPL-2.0 silo |
 | `ui/tests/` | `boot.js` (the page against `wg-view-serve`, cell and mesh mode) and `editor/` (the Editor's page tests) | MIT |
 | `check/` | Compile check of `main.rs` against a stub Tauri | MIT |
-| `check-commands/` | Compiles `commands.rs` without Tauri; builds `wg-view-serve`, the headless engine the page tests drive | MIT |
+| `check-commands/` | Compiles `commands.rs` and `commands/` without Tauri; builds `wg-view-serve`, the headless engine the page tests drive | MIT |
 | `capabilities/cellviewer.json` | Window permissions | MIT |
 
 The page is a separate frontend loaded into the webview, so the GPL-2.0 silo does not reach
@@ -162,7 +162,7 @@ names a command that is not defined, or one is left unregistered.
 - **find**: `find_record`
 - **editor**: `editor_tags`, `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs`, `editor_cell_refs_bytes`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`
 - **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`
-- **wg**: `wg_post`, `wg_open_record`, `wg_save_edited`
+- **wg**: `wg_post`, `wg_save_edited` (the page tests' seam to a stand-in host; nothing serves them since 5.0)
 - **scan**: `scan_cache_warm`
 - **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`
 - **meshopt**: `meshopt_analyse`, `meshopt_write`, `meshopt_progress`

@@ -39,6 +39,32 @@
   left on PATH answers `wraithguard` in a terminal, and fails with "No module named
   'wraithguard_toolkit'".
 
+### Changed
+
+- **Three rules settled as the Construction Set has them** (Static, 2026-11-09):
+  - *A moved reference, then a later plugin's plain record for it in its home cell.* The later
+    record is the reference: it stands at home and is taken out of the cell the move put it
+    in. The Editor already answered so; the viewer's engine kept it in both cells (Gardenfell
+    patch 0023, `leave()` before the insert; `move_cases.json` has one answer for both now).
+    From the CS's rule that a later plugin's record replaces the reference, not from a run of
+    the CS: `WG_Move_B.esp` and `WG_Move_C.esp` are there to see it.
+  - *A record the load order deletes* stays in the Object Window, marked **D** and dimmed, and
+    the search still finds it (`editColumns` answers `deleted`).
+  - *Moving a response* mends the chain on both sides: the two it stood between are joined,
+    and the two it now stands between point at it, each as a typed field in the patch (only
+    where the link changes). Its own `prev_id`/`next_id` alone left two responses moved to
+    the same place both claiming it. `dialogue_cases.json` and `link_cases.json` were recorded
+    again from the Rust side (`WG_CASES_GOT`, `tools/take_cases_got.py`: the Python that
+    recorded them is gone).
+- **`commands.rs` split by page**: `src/cellviewer/commands/` has the Conflicts, Editor, Help,
+  Merge Lands, Load order, sound and Tools commands (2,600 lines moved out, 4,200 left).
+  `builder()` still names every command in one place; `check-commands` reads the page
+  files too.
+- **The headless test server answers every command** but the three that start a program or
+  end this one (`wg-view-serve`: 51 arms added for the Load order, Conflicts, Tools and Help
+  pages, Merge Lands, the sound and the charts).
+- `wg_open_record` is removed: nothing called it since the Python app went.
+
 ### Fixed
 
 - **Audit, 2026-11-09** (every crate's tests and Clippy, `cargo audit` on every lock file, the

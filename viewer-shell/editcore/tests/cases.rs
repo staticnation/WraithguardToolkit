@@ -378,6 +378,21 @@ fn run_edit(case: &Value) -> Value {
 }
 
 /// Where two values first differ, for a failure message.
+/// With `WG_CASES_GOT=<folder>` set, a case whose answer differs from its `expect` has the
+/// answer written there (`<file>.got.json`: `{case name: answer}`), to put into the fixture
+/// once the difference is the one meant (`tools/take_cases_got.py`). The Python that recorded
+/// the fixtures is gone, so a rule changed on purpose is recorded from this side.
+fn keep_got(file: &str, case: &Value, got: &Value) {
+    let Some(dir) = std::env::var_os("WG_CASES_GOT") else { return };
+    if *got == case["expect"] {
+        return;
+    }
+    let path = Path::new(&dir).join(format!("{file}.got.json"));
+    let mut all: Value = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
+    all[case["name"].as_str().unwrap_or("")] = got.clone();
+    let _ = std::fs::write(&path, all.to_string());
+}
+
 fn first_difference(a: &Value, b: &Value, at: &str) -> Option<String> {
     match (a, b) {
         (Value::Object(x), Value::Object(y)) => {
@@ -875,6 +890,7 @@ fn dialogue_cases_read_and_change_dialogue_as_the_python_editor_does() {
     for case in cases("dialogue_cases.json") {
         let got = run_dialogue(&case);
         assert_eq!(got["results"].as_array().map(Vec::len), case["ops"].as_array().map(Vec::len));
+        keep_got("dialogue_cases.json", &case, &got);
         if got != case["expect"] {
             let d = first_difference(&got, &case["expect"], "").unwrap_or_else(|| "a key missing on one side".into());
             failed.push(format!("{}: {d}", case["name"]));
@@ -1402,6 +1418,7 @@ fn link_cases_answer_as_wraithguard_does() {
         std::fs::create_dir_all(&folder).unwrap();
         let got = run_links(case, &folder);
         let _ = std::fs::remove_dir_all(&folder);
+        keep_got("link_cases.json", case, &got);
         if got != case["expect"] {
             let d = first_difference(&got, &case["expect"], "").unwrap_or_else(|| "a key missing on one side".into());
             failed.push(format!("{}: {d}", case["name"]));

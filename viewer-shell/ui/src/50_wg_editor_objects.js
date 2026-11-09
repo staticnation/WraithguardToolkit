@@ -276,9 +276,12 @@ Object.assign(WgEditor, {
     const snd=this.tag==='SOUN' && typeof WgSound==='object' && this.canEdit();
     let h='<table class="edT edObj"><thead><tr>'+cols.map((t,k)=>
       '<th data-col="'+k+'"'+(t.title? ' title="'+escHtml(t.title)+'"' : '')+'>'+escHtml(t.label)+(k===c? (dir>0?' ▲':' ▼') : '')+'</th>').join('')+'</tr></thead><tbody>';
+    // The records the load order deletes (`editColumns`' `deleted`): listed, and marked D.
+    const gone=new Set((((this._cols||{})[this.tag]||{}).deleted)||[]);
     const cell=(t, r)=>{
       const v=t.get(r);
       if(t.kind==='id') return '<td>'+(icon? '<span class="edIco">'+icon+'</span>' : '')+escHtml(v)+
+        (gone.has(String(v).toLowerCase())? ' <span class="edGone" title="Deleted: the last plugin that has it deletes it (the Construction Set\'s D)">D</span>' : '')+
         (snd? ' <button class="btn sm dim edSndRow" title="Play it (again: stop)">▶</button>' : '')+'</td>';
       if(t.kind==='defs') return '<td title="'+escHtml(v.join(' > '))+'">'+escHtml(v[v.length-1]||'')+(v.length>1? ' <span class="from">+'+(v.length-1)+'</span>' : '')+'</td>';
       if(t.kind==='num') return '<td class="num">'+escHtml(v==null? '' : String(v))+'</td>';
@@ -291,7 +294,7 @@ Object.assign(WgEditor, {
     if(this._rowsSel){ const there=new Set(rows.map(r=>r[0])); for(const id of [...this._rowsSel]) if(!there.has(id)) this._rowsSel.delete(id); }
     for(const r of rows.slice(0,this.limit('objects'))){
       const ed=this.isEdited(r[0]);
-      h+='<tr class="'+(ed?'edited':'')+'" data-id="'+escHtml(r[0])+'">'+cols.map(t=>cell(t, r)).join('')+'</tr>';
+      h+='<tr class="'+(ed?'edited':'')+(gone.has(r[0].toLowerCase())?' gone':'')+'" data-id="'+escHtml(r[0])+'">'+cols.map(t=>cell(t, r)).join('')+'</tr>';
     }
     h+='</tbody></table>';
     const P=this._rowsProblem && this._rowsProblem.tag===this.tag && !this.rows.length? this._rowsProblem : null;

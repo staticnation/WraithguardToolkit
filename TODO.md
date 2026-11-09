@@ -69,12 +69,12 @@ for code: it is GPL-3.
 
 ### Foundations
 
-- Phase 2b, Static decides: a reference moved by one plugin (MVRF), then given a plain
-  record in its home cell by a later plugin. The engine keeps it in both cells; the Editor
-  puts it back home. Options: (a) home - Gardenfell patch 0018 (`leave()` for every record)
-  and a note for Robin; (b) the move stands and the plain record only edits it
-  (`WG_Move_B.esp` moves a rock, `WG_Move_C.esp` edits its scale at home). Pinned:
-  `tests/fixtures/move_cases.json`, "moved, then a plain record in its home cell".
+- Phase 2b is decided (Static, 2026-11-09: as the Construction Set): a later plugin's plain
+  record for a moved reference is the reference, at home (Gardenfell patch 0023). Not seen in
+  the Construction Set or the game itself: `WG_Move_B.esp` moves a rock and `WG_Move_C.esp`
+  edits its scale at home - load both in the CS and see where the rock stands; if it stands
+  where B moved it, 0023 and the Editor's rule turn round together
+  (`tests/fixtures/move_cases.json`, "moved, then a plain record in its home cell").
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
@@ -82,9 +82,6 @@ for code: it is GPL-3.
   into ordercore.
 - Why `editor_records` came back unreadable on Static's setup (Messages has the first 120
   characters of the answer).
-- Decide: the Object Window's search matches a record's deleting version (a later plugin's
-  DELETED record). Decide: moving a response sets only its own `prev_id`/`next_id`, so two
-  responses moved to the same place both claim it (the build writes them in queue order).
 
 ### Editor stalls (Messages "Editor link ... took N s"): done, 2026-11-07
 
@@ -178,21 +175,25 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   on upstream); recheck each Tauri release.
 
 - From the audit of 2026-11-09, not done:
-  - `wg_post`, `wg_open_record` and the `url` branch of the mesh viewer's save
-    (`wg_save_edited`, `41_wg_meshview.js`) post to the Python app's loopback server, which
-    went with 5.0: remove them with whatever of the page still asks for `links`.
-  - `check-commands`' `NOT_SERVED` (54 commands `wg-view-serve` does not dispatch: Load
-    order, Conflicts, Tools, Help, sound, the mesh optimiser): the page's boot test cannot
-    reach those pages' real commands. Add them to the dispatch page by page, Conflicts and
-    Tools first.
+  - `wg_post` and the `url` branch of the mesh viewer's save (`wg_save_edited`,
+    `41_wg_meshview.js`) posted to the Python app's loopback server. No host serves them
+    since 5.0, but the page tests' stand-in host answers the Editor's links over them
+    (`ui/tests/boot.js`): move those tests onto `editor_link`, then remove both and the
+    page's `links`. (`wg_open_record` had no caller left and is gone.)
+  - `wg-view-serve` dispatches every command now but the three that start a program or end
+    this one. The boot test still opens only the cell viewer, the mesh viewer and Setup: a
+    boot of the Load order, Conflicts and Tools pages against the fixture setup would use
+    the new arms.
   - cargo-deny (`deny.toml`: the git sources allowed by name, licenses) beside `cargo audit`
     and OSV-Scanner, neither of which reads the crates that come from git.
   - One Cargo workspace for the crates (one `Cargo.lock` and one `target` in place of
     fifteen of each: a dependency bump is one lock file, and CI builds each crate once).
     `gardenfell` is vendored with its own workspace and stays out.
-  - `src/cellviewer/commands.rs` is 6,600 lines and 149 commands: split by page
-    (`commands/conflicts.rs`, `tools.rs`, `loadorder.rs`, `land.rs`, `help.rs`), the
-    `generate_handler!` list staying in one place for `check-commands`' registry test.
+  - `src/cellviewer/commands.rs` is split by page (`commands/`: conflicts, editor, help,
+    land, loadorder, sound, tools) and is 4,200 lines: what is left is the viewer's own
+    (the install, cells, meshes, textures, the distant view, Lua, settings). `loadorder_drop_probe`
+    went with the Conflicts file and `editor_preview_patch` with Help, by where they stood:
+    move each to its page's file.
 
 ## Forks: LUAL, Clippy
 

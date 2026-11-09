@@ -41,11 +41,11 @@ const Engine={
     }
   },
   /** The commands whose answer is a file's text (it may or may not be JSON), and
-   *  `wg_post` and `wg_open_record`, which pass on Wraithguard's own answer for their callers to
+   *  `wg_post`, which passes on a host's own answer for its callers to
    *  read (the conflict viewer's is the text `ok`, not JSON: reading it as JSON made every
    *  "open in the conflict viewer" click say the engine's answer did not read), and
    *  `editor_link`, the viewer's own Editor answering a link as Wraithguard would (`ok` too). */
-  TEXT:new Set(['viewer_profile_read', 'wg_post', 'wg_open_record', 'editor_link']),
+  TEXT:new Set(['viewer_profile_read', 'wg_post', 'editor_link']),
 
   /** A command returning raw bytes — meshes and textures, which never become JSON. */
   async bytes(cmd,args){

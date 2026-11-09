@@ -386,7 +386,8 @@ fn show(value: Value, kind: &str) -> Value {
 /// The type's own columns for every record, read off the winning versions (`versions`:
 /// per plugin in load order, its records of the tag by lower-case id; the last wins):
 /// `{columns: [{label, kind, title, path}], rows: {id: [value, ...]}}`, persists and
-/// blocked last; empty for a type with no table. `path` is the field a column shows as
+/// blocked last; empty for a type with no table. `deleted`, when there are any: the ids
+/// whose winning version is a deletion. `path` is the field a column shows as
 /// it is (editable in place), null for one worked out.
 pub fn table(tag: &str, versions: &[&IndexMap<String, Value>], settings: &Settings) -> Value {
     let mut t = tag.to_uppercase();
@@ -410,9 +411,15 @@ pub fn table(tag: &str, versions: &[&IndexMap<String, Value>], settings: &Settin
         }
     }
     let mut rows = serde_json::Map::new();
+    // The records whose winning version deletes them: listed all the same, and marked, as the
+    // Construction Set lists a deleted object with its D (Static, 2026-11-09).
+    let mut deleted: Vec<Value> = Vec::new();
     for (key, rec) in winners {
         let row: Vec<Value> = cols.iter().map(|(_, get, kind, _)| show(read(*get, rec, settings).unwrap_or(json!("")), kind)).collect();
         rows.insert(key.clone(), Value::Array(row));
+        if crate::key::deletes(rec) {
+            deleted.push(json!(key));
+        }
     }
     let columns: Vec<Value> = cols
         .iter()
@@ -424,7 +431,11 @@ pub fn table(tag: &str, versions: &[&IndexMap<String, Value>], settings: &Settin
             json!({"label": label, "kind": kind, "title": title, "path": path})
         })
         .collect();
-    json!({"columns": columns, "rows": rows})
+    let mut out = json!({"columns": columns, "rows": rows});
+    if !deleted.is_empty() {
+        out["deleted"] = Value::Array(deleted);
+    }
+    out
 }
 
 // -- armor's weight class -------------------------------------------------------------

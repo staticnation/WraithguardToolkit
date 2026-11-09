@@ -49,6 +49,32 @@ fn strs(a: &Val, k: &str) -> Vec<String> {
 }
 
 
+/// A count or a size (absent, or below nothing: 0).
+fn u(a: &Val, k: &str) -> usize {
+    a.get(k).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize
+}
+
+/// A value handed on as the shell's commands take one (`serde_json::Value`).
+fn sj(v: &Val) -> serde_json::Value {
+    match v {
+        Val::Null => serde_json::Value::Null,
+        Val::Bool(b) => (*b).into(),
+        Val::Num(n) if n.fract() == 0.0 && n.abs() < 9e15 => (*n as i64).into(),
+        Val::Num(n) => (*n).into(),
+        Val::Str(s) => s.as_str().into(),
+        Val::Arr(xs) => xs.iter().map(sj).collect::<Vec<_>>().into(),
+        Val::Obj(kv) => serde_json::Value::Object(kv.iter().map(|(k, v)| (k.clone(), sj(v))).collect()),
+    }
+}
+
+/// A member as a `serde_json::Value` (absent: null), and a list of them.
+fn val(a: &Val, k: &str) -> serde_json::Value {
+    a.get(k).map(sj).unwrap_or(serde_json::Value::Null)
+}
+fn vals(a: &Val, k: &str) -> Vec<serde_json::Value> {
+    a.get(k).and_then(|v| v.as_arr()).map(|xs| xs.iter().map(sj).collect()).unwrap_or_default()
+}
+
 /// An optional string: absent and empty mean the same thing to every caller here.
 fn opt(a: &Val, k: &str) -> Option<String> {
     let v = s(a, k);
@@ -99,7 +125,6 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "viewer_profile_read" => Reply::Text(t::viewer_profile_read()?),
         "viewer_profile_write" => Reply::Text(t::viewer_profile_write(s(a, "text"))?),
         "wg_save_edited" => Reply::Text(t::wg_save_edited(s(a, "url"), s(a, "body"), s(a, "out"))?),
-        "wg_open_record" => Reply::Text(t::wg_open_record(s(a, "url"), s(a, "body"))?),
         "wg_post" => Reply::Text(t::wg_post(s(a, "url"), s(a, "body"))?),
         "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
         "editor_tags" => Reply::Json(t::editor_tags(st())?),
@@ -195,6 +220,101 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             )?;
             Reply::Raw("true".into())
         }
+        // Wraithguard's pages (the Load order, Conflicts, Tools and Help pages, Merge Lands, the
+        // sound and the charts): the argument names are the page's (Tauri's camelCase).
+        "sound_info" => Reply::Json(t::sound_info(s(a, "path"), u(a, "n"), st())?),
+        "sound_pcm" => Reply::Bytes(t::sound_pcm(s(a, "path"), st())?.0),
+        "mesh_save" => Reply::Text(t::mesh_save(s(a, "path"), s(a, "edits"), s(a, "out"), st())?),
+        "editor_script_flowchart" => Reply::Json(t::editor_script_flowchart(s(a, "id"), s(a, "text"))?),
+        "lua_chart" => Reply::Json(t::lua_chart(s(a, "path"), s(a, "text"), s(a, "kind"), a.get("line").and_then(|v| v.as_i64()).map(|v| v.max(0) as usize))?),
+        "loadorder_drop_probe" => Reply::Json(t::loadorder_drop_probe(strs(a, "paths"), strs(a, "existing"), b(a, "quoted"))?),
+        "loadorder_compute" => Reply::Json(t::loadorder_compute(s(a, "args"))?),
+        "loadorder_export" => Reply::Json(t::loadorder_export(s(a, "args"))?),
+        "loadorder_rule_ages" => Reply::Json(t::loadorder_rule_ages(strs(a, "rules"))?),
+        "loadorder_scan" => Reply::Json(t::loadorder_scan(s(a, "dir"))?),
+        "loadorder_update_rules" => Reply::Json(t::loadorder_update_rules(strs(a, "rules"), s(a, "stamp"))?),
+        "loadorder_update_yml" => Reply::Json(t::loadorder_update_yml(s(a, "path"), s(a, "stamp"))?),
+        "loadorder_fetch_data_paths" => Reply::Json(t::loadorder_fetch_data_paths(s(a, "path"), s(a, "listName"), s(a, "stamp"))?),
+        "meshopt_analyse" => Reply::Json(t::meshopt_analyse(s(a, "cfg"), val(a, "opts"), s(a, "outDir"), u(a, "limit"))?),
+        "meshopt_write" => Reply::Json(t::meshopt_write(s(a, "cfg"), val(a, "opts"), s(a, "outDir"), strs(a, "paths"))?),
+        "meshopt_progress" => {
+            let [done, total] = t::meshopt_progress();
+            Reply::Raw(format!("[{done},{total}]"))
+        }
+        "conflicts_scan" => Reply::Json(t::conflicts_scan(s(a, "cfg"), strs(a, "subset"), s(a, "mode"), strs(a, "exclude"))?),
+        "conflicts_fields" => Reply::Json(t::conflicts_fields(s(a, "cfg"), s(a, "rtype"), s(a, "id"))?),
+        "conflicts_land_surfaces" => Reply::Json(t::conflicts_land_surfaces(s(a, "cfg"), s(a, "id"))?),
+        "conflicts_resources" => Reply::Json(t::conflicts_resources(
+            s(a, "cfg"),
+            strs(a, "subsetDirs"),
+            strs(a, "excludeExts"),
+            b(a, "compare"),
+            b(a, "meshes"),
+            u(a, "meshLimit"),
+            s(a, "planFile"),
+        )?),
+        "conflicts_texture" => Reply::Json(t::conflicts_texture(s(a, "path"), strs(a, "providers"), u(a, "max") as u32)?),
+        "conflicts_report" => Reply::Text(t::conflicts_report(s(a, "kind"), b(a, "subsetOnly"), u(a, "limit"))?),
+        "conflicts_csv" => {
+            t::conflicts_csv(s(a, "kind"), s(a, "path"))?;
+            Reply::Raw("null".into())
+        }
+        "conflicts_patch" => Reply::Raw(
+            t::conflicts_patch(s(a, "journal"), s(a, "op"), s(a, "rtype"), s(a, "id"), s(a, "plugin"), s(a, "field"), s(a, "value"))?.to_string(),
+        ),
+        "conflicts_by_plugin" => Reply::Json(t::conflicts_by_plugin(s(a, "cfg"), strs(a, "subset"))?),
+        "conflicts_plugin_group" => Reply::Json(t::conflicts_plugin_group(s(a, "cfg"), s(a, "plugin"), s(a, "rtype"))?),
+        "conflicts_verdicts" => Reply::Json(t::conflicts_verdicts(s(a, "cfg"))?),
+        "conflicts_plugin_bulk" => Reply::Json(t::conflicts_plugin_bulk(s(a, "cfg"), s(a, "plugin"))?),
+        "conflicts_plugin_bulk_apply" => Reply::Raw(t::conflicts_plugin_bulk_apply(s(a, "journal"), s(a, "plugin"), strs(a, "paths"), b(a, "dry"))?.to_string()),
+        "land_meta_read" => Reply::Json(t::land_meta_read(s(a, "plugin"))?),
+        "land_meta_preview" => Reply::Json(t::land_meta_preview(s(a, "metaType"), vals(a, "layers"))?),
+        "land_meta_write" => Reply::Json(t::land_meta_write(s(a, "plugin"), s(a, "metaType"), vals(a, "layers"))?),
+        "land_merge_home" => Reply::Json(t::land_merge_home(s(a, "cfg"))?),
+        "land_merge" => Reply::Json(t::land_merge(
+            s(a, "cfg"),
+            s(a, "folder"),
+            b(a, "dryRun"),
+            b(a, "verbose"),
+            s(a, "model"),
+            a.get("ignore").and_then(|v| v.as_arr()).map(|_| strs(a, "ignore")),
+        )?),
+        "land_merge_cancel" => Reply::Raw(t::land_merge_cancel()?.to_string()),
+        "land_merge_progress" => Reply::Json(t::land_merge_progress(u(a, "from"))?),
+        "help_docs" => Reply::Json(t::help_docs(strs(a, "dirs"))?),
+        "help_doc" => Reply::Json(t::help_doc(s(a, "name"), strs(a, "dirs"))?),
+        "tools_lint" => Reply::Json(t::tools_lint(s(a, "cfg"), strs(a, "subset"))?),
+        "tools_backups" => Reply::Json(t::tools_backups(s(a, "cfg"), strs(a, "dirs"))?),
+        "tools_backups_restore" => Reply::Json(t::tools_backups_restore(
+            a.get("pairs")
+                .and_then(|v| v.as_arr())
+                .map(|xs| {
+                    xs.iter()
+                        .filter_map(|p| p.as_arr())
+                        .filter_map(|p| Some((p.first()?.as_str()?.to_string(), p.get(1)?.as_str()?.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )?),
+        "tools_backups_delete" => Reply::Raw(t::tools_backups_delete(strs(a, "paths"))?.to_string()),
+        "tools_masters" => Reply::Json(t::tools_masters(s(a, "path"))?),
+        "tools_remove_master" => Reply::Json(t::tools_remove_master(s(a, "path"), s(a, "master"), b(a, "dryRun"))?),
+        "tools_merge_master" => Reply::Json(t::tools_merge_master(
+            s(a, "mode"),
+            s(a, "plugin"),
+            s(a, "master"),
+            strs(a, "plugins"),
+            s(a, "out"),
+            b(a, "removeDeleted"),
+            b(a, "applyMoved"),
+            b(a, "keepDuplicates"),
+        )?),
+        "tools_rename_master" => Reply::Json(t::tools_rename_master(s(a, "path"), s(a, "old"), s(a, "newPath"))?),
+        "tools_save_check" => Reply::Json(t::tools_save_check(s(a, "cfg"), strs(a, "saves"), u(a, "details"), strs(a, "mods"), b(a, "all"), strs(a, "dump"))?),
+        "tools_journal" => Reply::Json(t::tools_journal(s(a, "cfg"))?),
+        "tools_tes3cmd_find" => Reply::Text(t::tools_tes3cmd_find(s(a, "cfg"), s(a, "explicit"))),
+        "tools_locate" => Reply::Json(t::tools_locate(s(a, "cfg"), strs(a, "names"))?),
+        "tools_tes3cmd" => Reply::Json(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"))?),
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),
         "mesh_collision" => Reply::Bytes(t::mesh_collision(s(a, "path"), st())?.0),
@@ -426,7 +546,19 @@ fn main() { std::process::exit(run()) }
    reaches this crate's compiler. */
 #[cfg(test)]
 mod registry {
-    const MAIN: &str = include_str!("../../../src/cellviewer/commands.rs");
+    /// commands.rs and its pages' files (`commands/`), as one text: the commands are looked
+    /// for in all of it, the `generate_handler!` list is commands.rs's own.
+    const MAIN: &str = concat!(
+        include_str!("../../../src/cellviewer/commands.rs"),
+        "\n",
+        include_str!("../../../src/cellviewer/commands/conflicts.rs"),
+        include_str!("../../../src/cellviewer/commands/editor.rs"),
+        include_str!("../../../src/cellviewer/commands/help.rs"),
+        include_str!("../../../src/cellviewer/commands/land.rs"),
+        include_str!("../../../src/cellviewer/commands/loadorder.rs"),
+        include_str!("../../../src/cellviewer/commands/sound.rs"),
+        include_str!("../../../src/cellviewer/commands/tools.rs"),
+    );
     const SERVE: &str = include_str!("wg-view-serve.rs");
 
     /// Every `#[tauri::command]` function in the shell, by name.
@@ -443,7 +575,7 @@ mod registry {
                 if t.starts_with('#') || t.starts_with("//") || t.is_empty() {
                     continue;
                 }
-                let t = t.strip_prefix("pub ").unwrap_or(t);
+                let t = t.strip_prefix("pub(super) ").or_else(|| t.strip_prefix("pub ")).unwrap_or(t);
                 if let Some(rest) = t.strip_prefix("fn ") {
                     let name: String =
                         rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
@@ -497,25 +629,10 @@ mod registry {
         assert!(stale.is_empty(), "named in generate_handler! but no such command: {stale:?}");
     }
 
-    /// The commands serve's dispatch does not reach: the pages that came over from Wraithguard
-    /// in the port (Load order, Conflicts, Tools, Help, the sound and the mesh optimiser), whose
-    /// page tests answer them with a stand-in engine (`ui/tests/editor`) and whose work is the
-    /// crates' own tests. A new command goes into the dispatch, not onto this list.
-    const NOT_SERVED: &[&str] = &[
-        "sound_info", "sound_pcm", "mesh_save", "editor_script_flowchart", "lua_chart",
-        "loadorder_drop_probe", "meshopt_analyse", "meshopt_write", "meshopt_progress",
-        "conflicts_scan", "conflicts_fields", "conflicts_land_surfaces", "conflicts_resources",
-        "conflicts_texture", "conflicts_report", "conflicts_csv", "conflicts_patch",
-        "land_meta_read", "land_meta_preview", "land_meta_write", "land_merge_home", "land_merge",
-        "land_merge_cancel", "land_merge_progress", "help_docs", "help_doc", "help_open_link",
-        "editor_preview_patch", "conflicts_by_plugin", "conflicts_plugin_group",
-        "conflicts_verdicts", "conflicts_plugin_bulk", "conflicts_plugin_bulk_apply", "tools_lint",
-        "tools_backups", "tools_backups_restore", "tools_backups_delete", "tools_masters",
-        "tools_remove_master", "tools_merge_master", "tools_rename_master", "tools_save_check",
-        "tools_journal", "tools_tes3cmd_find", "tools_locate", "tools_tes3cmd", "loadorder_compute",
-        "loadorder_export", "app_restart", "loadorder_rule_ages", "loadorder_scan",
-        "loadorder_update_rules", "loadorder_update_yml", "loadorder_fetch_data_paths",
-    ];
+    /// The commands serve's dispatch does not reach, on purpose: each starts another program
+    /// (a second viewer, the system's browser) or ends this one, which a test server must not.
+    /// A new command goes into the dispatch, not onto this list.
+    const NOT_SERVED: &[&str] = &["help_open_link", "editor_preview_patch", "app_restart"];
 
     #[test]
     fn every_command_is_reachable_through_serve_as_well() {
@@ -523,8 +640,8 @@ mod registry {
            a command no test can exercise however many are written. Reached either under its
            own name (`"foo" => … t::foo(…)`) or under another — `paint_layer_overrides` is
            the page's name for `paint_layer_set` — so what is checked is that the function
-           is called, not what the arm is spelled. The ones known not to be are `NOT_SERVED`
-           (this test failed on all of them, unseen: CI built this crate and never ran it). */
+           is called, not what the arm is spelled. The ones that must not be are `NOT_SERVED`
+           (this test failed on 54 of them, unseen: CI built this crate and never ran it). */
         let reached = |c: &str| SERVE.contains(&format!("t::{c}("));
         let unreached: Vec<String> = commands().into_iter().filter(|c| !reached(c) && !NOT_SERVED.contains(&c.as_str())).collect();
         assert!(

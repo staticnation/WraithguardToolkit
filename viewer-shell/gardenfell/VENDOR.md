@@ -206,6 +206,15 @@ the series and his fixture on his full 18hu source: it builds, and his whole sui
   `nif.rs` `mod autoplay_tests` (the bonelord waits; OAAB's ripples and TR's water free-run) and
   `with_no_kf_the_controllers_stand_at_time_zero` in `wraithguard_kf_clock.rs`.
 
+- `patches/0023-a-plain-record-un-moves-a-moved-reference.patch`: a plain record (no MVRF, not
+  deleted) for a reference an earlier plugin moved away is the reference from then on: it
+  stands in the cell the record sits in and is taken out of the cell the move put it in
+  (`world.rs`, `leave()` before the insert, in the exterior and the interior branch; it stood
+  in both cells). As the Construction Set reads a later plugin's record (Static, 2026-11-09),
+  and what the Editor already answered. Only looked up once a reference has moved, so a load
+  order with no moves pays nothing. Test: `tests/fixtures/move_cases.json`, "moved, then a plain
+  record in its home cell" (`viewcore/tests/ref_moves.rs`), one answer for both sides now.
+
 ## File hashes (SHA-256)
 
 ```
@@ -486,7 +495,7 @@ cd818520480df52f8da3792a48e52ee201f4ce63f9768d0af3212360e12ed4a7  ./crates/garde
 a3e3052e7d9889cc6af68c489a51971e27bcb3d03f0a4ed7568b8099e23a9f0c  ./crates/gardenfell-world/src/objects.rs
 e51c338eb68dca06779d18d58c719e27a25ee435b58f9a0becff5247c393d9b5  ./crates/gardenfell-world/src/spans.rs
 75f89b16e5c0f6f00b3c3c725e4288d0ec7ca7b8a08a164065f07965e1c8e921  ./crates/gardenfell-world/src/terrain.rs
-61465efe3777906bc532286df087a10703f0d1d79eb3d026b65a6c0c504699ba  ./crates/gardenfell-world/src/world.rs
+38f017fbb33e28106633719a7d567e96409443e07e1239945f51c4ce347a1687  ./crates/gardenfell-world/src/world.rs
 5876469a5664ecde75b497a4f8f561822038f6220052a540b953fe686f456cd6  ./crates/gardenfell-world/src/worldmap.rs
 4bea1a576800a07f224a4b8fe0ad80ef7c73b0e163680c2d794617de5d4feb70  ./crates/gardenfell-world/tests/bsa.rs
 0dfa4d9044b8d52021083ec1e919185e02fc61df05624ca482e0aca962966311  ./crates/gardenfell-world/tests/coverage.rs
