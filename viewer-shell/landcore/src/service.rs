@@ -252,84 +252,6 @@ fn read_all(paths: &[&Path], cancel: Option<&std::sync::atomic::AtomicBool>, pro
     out.into_iter().map(Option::unwrap_or_default).collect()
 }
 
-#[cfg(test)]
-mod read_all_tests {
-    use super::*;
-
-    fn sub(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
-        let mut v = tag.to_vec();
-        v.extend((data.len() as u32).to_le_bytes());
-        v.extend_from_slice(data);
-        v
-    }
-
-    fn record(tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
-        let mut v = tag.to_vec();
-        v.extend((body.len() as u32).to_le_bytes());
-        v.extend([0u8; 8]);
-        v.extend_from_slice(body);
-        v
-    }
-
-    fn plugin(lands: i32) -> Vec<u8> {
-        let mut raw = record(b"TES3", &sub(b"HEDR", &[0u8; 300]));
-        for g in 0..lands {
-            let mut grid = g.to_le_bytes().to_vec();
-            grid.extend(7i32.to_le_bytes());
-            let mut heights = 1.5f32.to_le_bytes().to_vec();
-            heights.extend((0..4232 - 4).map(|i| (i % 251) as u8));
-            let mut body = sub(b"INTV", &grid);
-            body.extend(sub(b"DATA", &9u32.to_le_bytes()));
-            body.extend(sub(b"VHGT", &heights));
-            raw.extend(record(b"LAND", &body));
-        }
-        raw
-    }
-
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("wg-readall-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
-
-    #[test]
-    fn answers_in_the_order_given_what_reading_one_at_a_time_gives() {
-        let dir = scratch("order");
-        let mut paths: Vec<PathBuf> = Vec::new();
-        for i in 0..70 {
-            let p = dir.join(format!("p{i:02}.esp"));
-            // Sizes that do not follow the order: the biggest first is not load order.
-            match i % 7 {
-                5 => std::fs::write(&p, b"TES4 not a morrowind plugin").unwrap(),
-                6 => {} // missing: not written
-                k => std::fs::write(&p, plugin(1 + ((i * 3 + k) % 9) as i32)).unwrap(),
-            }
-            paths.push(p);
-        }
-        let refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
-        let mut seen: Vec<(usize, usize)> = Vec::new();
-        let got = read_all(&refs, None, &mut |d, t| seen.push((d, t)));
-        let want: Vec<(Vec<Record>, String)> = refs.iter().map(|p| records_of(p)).collect();
-        assert_eq!(got, want, "the same records, failures and order");
-        assert!(got.iter().any(|(r, _)| !r.is_empty()) && got.iter().any(|(_, f)| !f.is_empty()), "the sample has terrain and failures");
-        assert_eq!(seen, vec![(32, 70), (64, 70), (70, 70)]);
-        assert!(read_all(&[], None, &mut |_, _| panic!("nothing to say")).is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_cancel_starts_no_more_reads() {
-        let dir = scratch("cancel");
-        let p = dir.join("a.esp");
-        std::fs::write(&p, plugin(2)).unwrap();
-        let stop = std::sync::atomic::AtomicBool::new(true);
-        let got = read_all(&[p.as_path(), p.as_path()], Some(&stop), &mut |_, _| {});
-        assert_eq!(got, vec![(Vec::new(), String::new()), (Vec::new(), String::new())]);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
 /// Merge a load order's terrain and write `Merged Lands.esp` (`build_merged_lands`).
 /// `say` is called with each progress line as it happens. `Err` is the Python's
 /// `MergeServiceError`, with the lines said before it in `lines`.
@@ -656,4 +578,82 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     result.lines = lines;
     result.notes = notes;
     Ok(result)
+}
+
+#[cfg(test)]
+mod read_all_tests {
+    use super::*;
+
+    fn sub(tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((data.len() as u32).to_le_bytes());
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn record(tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut v = tag.to_vec();
+        v.extend((body.len() as u32).to_le_bytes());
+        v.extend([0u8; 8]);
+        v.extend_from_slice(body);
+        v
+    }
+
+    fn plugin(lands: i32) -> Vec<u8> {
+        let mut raw = record(b"TES3", &sub(b"HEDR", &[0u8; 300]));
+        for g in 0..lands {
+            let mut grid = g.to_le_bytes().to_vec();
+            grid.extend(7i32.to_le_bytes());
+            let mut heights = 1.5f32.to_le_bytes().to_vec();
+            heights.extend((0..4232 - 4).map(|i| (i % 251) as u8));
+            let mut body = sub(b"INTV", &grid);
+            body.extend(sub(b"DATA", &9u32.to_le_bytes()));
+            body.extend(sub(b"VHGT", &heights));
+            raw.extend(record(b"LAND", &body));
+        }
+        raw
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("wg-readall-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn answers_in_the_order_given_what_reading_one_at_a_time_gives() {
+        let dir = scratch("order");
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for i in 0..70 {
+            let p = dir.join(format!("p{i:02}.esp"));
+            // Sizes that do not follow the order: the biggest first is not load order.
+            match i % 7 {
+                5 => std::fs::write(&p, b"TES4 not a morrowind plugin").unwrap(),
+                6 => {} // missing: not written
+                k => std::fs::write(&p, plugin(1 + ((i * 3 + k) % 9))).unwrap(),
+            }
+            paths.push(p);
+        }
+        let refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+        let mut seen: Vec<(usize, usize)> = Vec::new();
+        let got = read_all(&refs, None, &mut |d, t| seen.push((d, t)));
+        let want: Vec<(Vec<Record>, String)> = refs.iter().map(|p| records_of(p)).collect();
+        assert_eq!(got, want, "the same records, failures and order");
+        assert!(got.iter().any(|(r, _)| !r.is_empty()) && got.iter().any(|(_, f)| !f.is_empty()), "the sample has terrain and failures");
+        assert_eq!(seen, vec![(32, 70), (64, 70), (70, 70)]);
+        assert!(read_all(&[], None, &mut |_, _| panic!("nothing to say")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancel_starts_no_more_reads() {
+        let dir = scratch("cancel");
+        let p = dir.join("a.esp");
+        std::fs::write(&p, plugin(2)).unwrap();
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        let got = read_all(&[p.as_path(), p.as_path()], Some(&stop), &mut |_, _| {});
+        assert_eq!(got, vec![(Vec::new(), String::new()), (Vec::new(), String::new())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
