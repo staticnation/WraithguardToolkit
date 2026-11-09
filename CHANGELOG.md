@@ -330,6 +330,16 @@
 
 ### Fixed
 
+- **One cell index, not two** (`Session::cell_holders`). Which plugins have a cell was kept twice:
+  in memory per run (`cell_keys`, read from every plugin's framing at each launch) and in the key
+  index on disk (`ids_of`, `id_holders`, which already keys a cell from its framing and keeps it
+  between runs). `cell_holders` now asks the key index (`id_holders("CELL", ...)`), the in-memory
+  one is gone, and the Editor's start-up read of the cells' names is `warm_ids(&["CELL"])`, which
+  does nothing when the index on disk has every plugin as it is: the cell index costs a launch
+  after the first only its stamps. The use index's start waits on `ids_ready("CELL")`. A name that
+  is not ASCII, and the tests' sessions (their records are not the files'), still take the cells'
+  own records as before. `probe_cell_index` (`tests/probe_find.rs`) checks the holders against the
+  parsed cells on the real load order.
 - **The Editor's stalls, measured** (Messages, 2026-11-07, a warm second launch of Static's
   619-plugin order). Where the session began with `editPlace` 100 s, `editUses` 101 s,
   `editTopics` 52 s, `editVerify` 357.8 s and `editRevision` waiting 94 s behind them: Verify

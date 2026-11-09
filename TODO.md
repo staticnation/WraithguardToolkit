@@ -121,8 +121,6 @@ placing reads a cell's spelling from the file framing (0.10 s against 5.03 s of 
 cells of `TR_Mainland.esm`, same key); a topic is read from its own records (48 ms for 1,446
 records, against every plugin's dialogue). What is left is small:
 
-- Two cell indexes: `Session::cell_keys` (the framing, in memory, `cell_holders`) and the
-  ids index kept on disk (`ids_of`, `id_holders`). They agree; fold one onto the other.
 - Verify's game settings (`GMST`, 0.7 s of its 2.7 s) are read each launch; they could be kept
   on disk with the rest.
 - The Use Report was not in the last measured session: click it once on a warm launch and read

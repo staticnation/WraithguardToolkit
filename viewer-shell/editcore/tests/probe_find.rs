@@ -169,7 +169,7 @@ fn probe_cell_index() {
     let session = Session::new(plugins);
 
     let t = Instant::now();
-    session.warm_cell_keys();
+    session.warm_ids(&["CELL"]);
     println!("cell names of {} plugin(s) read in {:?}", session.order().len(), t.elapsed());
 
     let fast: Vec<(String, Option<Vec<String>>, std::time::Duration)> = keys
@@ -343,7 +343,7 @@ fn probe_place_cell() {
     let keys = std::env::var("WG_CELLS")
         .unwrap_or_else(|_| "(-2, -9);(0, 0);(-3, -2);(41, 16);balmora, guild of mages;seyda neen, census and excise office;vivec, arena canton".into());
     let session = Session::new(plugins);
-    session.warm_cell_keys();
+    session.warm_ids(&["CELL"]);
     let mut bad = 0;
     for want in keys.split(';').map(|k| k.trim().to_lowercase()) {
         let Some(holders) = session.cell_holders(&want) else { println!("{want:<44} no index answer"); continue };

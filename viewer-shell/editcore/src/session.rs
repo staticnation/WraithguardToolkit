@@ -127,10 +127,6 @@ pub struct Session {
     masters: Mutex<HashMap<String, Arc<Vec<String>>>>,
     /// Per plugin: its exterior references by index, `index -> [(origin, cell key)]`.
     home: Mutex<HashMap<String, Arc<HashMap<i64, Vec<(String, String)>>>>>,
-    /// Per plugin: the keys (lower case) of its CELL records, read from the file's record and
-    /// subrecord framing alone (`cell_keys_of`): which plugins have a cell is known without
-    /// parsing a cell, and a cell's references are most of a plugin.
-    cell_keys: Mutex<HashMap<String, Arc<HashSet<String>>>>,
     /// Per plugin: where each topic's records lie in the file (`dialogue_index_of`), so a topic
     /// is read without reading the plugin's other topics. Only while `framing_dialogue`.
     dialogue_index: Mutex<HashMap<String, Arc<DialogueIndex>>>,
@@ -202,7 +198,6 @@ impl Session {
             cache: Mutex::default(),
             masters: Mutex::default(),
             home: Mutex::default(),
-            cell_keys: Mutex::default(),
             dialogue_index: Mutex::default(),
             dialogue_topic: Mutex::default(),
             framing_dialogue: true,
@@ -230,7 +225,6 @@ impl Session {
         self.masters.lock().unwrap().remove(&name);
         self.home.lock().unwrap().remove(&name);
         self.dialogue.lock().unwrap().remove(&name);
-        self.cell_keys.lock().unwrap().remove(&name);
         self.dialogue_index.lock().unwrap().remove(&name);
         self.dialogue_topic.lock().unwrap().retain(|(p, _), _| *p != name);
         self.ids.lock().unwrap().retain(|(p, _), _| *p != name);
@@ -598,76 +592,27 @@ impl Session {
         with_file_bytes(path, |bytes| Ok(cell_name_of(bytes, want))).ok().flatten()
     }
 
-    /// A plugin's cell keys (lower case; `cell_keys_of`), read once; `None` when the file
-    /// cannot be read.
-    fn plugin_cell_keys(&self, lower: &str) -> Option<Arc<HashSet<String>>> {
-        if let Some(k) = self.cell_keys.lock().unwrap().get(lower) {
-            return Some(k.clone());
+    /// Whether a tag's record keys are known for every plugin (`warm_ids` has finished, wherever it
+    /// ran, or the key index on disk has them all as the plugins now are).
+    pub fn ids_ready(&self, tag: &str) -> bool {
+        if self.disk.get().and_then(|d| d.stale_of_stamped(&self.stamps(), tag)).is_some_and(|s| s.is_empty()) {
+            return true;
         }
-        let (_, path) = self.paths.get(lower)?;
-        let generation = self.generation.load(Ordering::SeqCst);
-        let file = std::fs::File::open(path).ok()?;
-        // SAFETY: the plugin is only read, and only while mapped here.
-        let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
-        let keys = Arc::new(cell_keys_of(&map));
-        // A plugin forgotten while it was read is not kept as it was read.
-        if self.generation.load(Ordering::SeqCst) == generation {
-            self.cell_keys.lock().unwrap().insert(lower.to_string(), keys.clone());
-        }
-        Some(keys)
-    }
-
-    /// Reads every plugin's cell keys that are not read yet, on several threads. Needs no more
-    /// than a `&self`, so a link can do it before the Editor's lock is taken.
-    pub fn warm_cell_keys(&self) {
-        let todo: Vec<String> = {
-            let have = self.cell_keys.lock().unwrap();
-            self.order.iter().map(|n| n.to_lowercase()).filter(|n| !have.contains_key(n)).collect()
-        };
-        let threads = readers().min(MAX_READERS).min(todo.len());
-        if threads <= 1 {
-            for name in &todo {
-                let _ = self.plugin_cell_keys(name);
-            }
-            return;
-        }
-        let next = AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for _ in 0..threads {
-                scope.spawn(|| {
-                    while let Some(name) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
-                        let _ = self.plugin_cell_keys(name);
-                    }
-                });
-            }
-        });
-    }
-
-    /// Whether every plugin's cell keys are read (`warm_cell_keys` has finished, wherever it ran).
-    pub fn cell_keys_ready(&self) -> bool {
-        let have = self.cell_keys.lock().unwrap();
-        self.order.iter().all(|n| have.contains_key(&n.to_lowercase()))
+        let have = self.ids.lock().unwrap();
+        self.order.iter().all(|n| have.contains_key(&(n.to_lowercase(), tag.to_string())))
     }
 
     /// The plugins with a CELL record for a cell (`want`: an interior's name or an exterior's
-    /// `(x, y)`, lower case), in load order, as the load order spells them - from the plugins'
-    /// own cell names and grids, no cell parsed. `None` when this cannot say: a name that is
-    /// not ASCII (the framing cannot say what the plugin's text decodes to), or no plugin file
-    /// that can be read (the tests' sessions): the caller reads the cells then.
+    /// `(x, y)`, lower case), in load order, as the load order spells them - from the key index
+    /// (`id_holders`): the plugins' own cell names and grids, kept between runs, no cell parsed.
+    /// `None` when this cannot say: a name that is not ASCII (the framing cannot say what the
+    /// plugin's text decodes to), or the tests' sessions, whose records are not the files': the
+    /// caller reads the cells then.
     pub fn cell_holders(&self, want: &str) -> Option<Vec<String>> {
-        if want.is_empty() || !want.is_ascii() {
+        if want.is_empty() || !want.is_ascii() || !self.from_files {
             return None;
         }
-        self.warm_cell_keys();
-        let (mut out, mut readable) = (Vec::new(), 0usize);
-        for name in &self.order {
-            let Some(keys) = self.plugin_cell_keys(&name.to_lowercase()) else { continue };
-            readable += 1;
-            if keys.contains(want) {
-                out.push(name.clone());
-            }
-        }
-        (readable > 0).then_some(out)
+        Some(self.id_holders("CELL", want))
     }
 
     /// Each plugin's records of a tag, in load order (`records` for all of them, the unread
@@ -1111,6 +1056,7 @@ pub(crate) fn dialogue_index_of(raw: &[u8]) -> DialogueIndex {
     DialogueIndex { blocks }
 }
 
+#[cfg(test)]
 /// The keys (lower case) of the CELL records in a plugin's bytes, from the record and
 /// subrecord framing alone: an interior's name (its `IS_INTERIOR` flag, the first bit of
 /// `DATA`'s flags), an exterior's `(x, y)` from `DATA`'s grid - the key `record_key` gives the

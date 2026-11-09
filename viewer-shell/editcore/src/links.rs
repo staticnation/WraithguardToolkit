@@ -187,11 +187,12 @@ impl Links {
         }
         let session = Arc::new(session);
         let editor = Editor::new(session.clone(), queue, journal.clone());
-        // Which plugins have which cells, read now in the background (the file framing alone,
-        // a second or two): placing and every cell lookup are answered from it.
+        // Which plugins have which cells, read now in the background (the file framing alone, a
+        // second or two; nothing at all when the key index on disk has them): placing and every
+        // cell lookup are answered from it.
         let warm = session.clone();
         let _ = std::thread::Builder::new().name("cell-keys".into()).spawn(move || {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| warm.warm_cell_keys()));
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| warm.warm_ids(&["CELL"])));
         });
         Links { editor: Arc::new(Mutex::new(editor)), session, seen: Mutex::new(seen), plugins, journal, ..Links::blank() }
     }
@@ -257,7 +258,7 @@ impl Links {
                     // Not before the cell index is read (up to five minutes' wait: it is a
                     // minute at most, and the Editor is unusable without it).
                     for _ in 0..600 {
-                        if session.cell_keys_ready() {
+                        if session.ids_ready("CELL") {
                             break;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -333,7 +334,7 @@ impl Links {
             return;
         }
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.session.warm_cell_keys();
+            self.session.warm_ids(&["CELL"]);
         }));
     }
 
