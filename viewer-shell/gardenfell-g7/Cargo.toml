@@ -20,9 +20,3 @@ gardenfell-world = { path = "../gardenfell/crates/gardenfell-world" }
 gardenfell-nif = { path = "../gardenfell/crates/gardenfell-nif" }
 
 [lints.clippy]
-
-# Our fork of tes3 (LUAL, Greatness7/tes3#7; the NIF fix), as viewcore and native/ have
-# it. A [patch] only counts in the package being built: this one is for building alone.
-[patch."https://github.com/Greatness7/tes3"]
-tes3 = { git = "https://github.com/staticnation/tes3" }
-bytes_io = { git = "https://github.com/staticnation/tes3" }

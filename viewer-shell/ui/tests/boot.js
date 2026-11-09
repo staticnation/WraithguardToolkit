@@ -6,7 +6,7 @@
 // loads. jsdom has no GPU: WebGL is a no-op stub, so this checks scripts, DOM wiring
 // and the engine round trips, not pixels.
 //
-//   cargo build --release --manifest-path ../../check-commands/Cargo.toml --bin wg-view-serve
+//   cargo build --profile serve --manifest-path ../../check-commands/Cargo.toml --bin wg-view-serve
 //   npm install && node boot.js
 //
 // Env: WG_VIEW_SERVE (engine path), WG_VIEW_CFG / WG_VIEW_CELL (override the fixture),
@@ -154,7 +154,7 @@ const fakeServer=http.createServer((req,res)=>{
 });
 fakeServer.listen(0,'127.0.0.1');
 const {spawn}=require('child_process');
-const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../../check-commands/target/release/wg-view-serve'+(process.platform==='win32'?'.exe':'')),[],{stdio:['pipe','pipe','inherit']});
+const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../../target/serve/wg-view-serve'+(process.platform==='win32'?'.exe':'')),[],{stdio:['pipe','pipe','inherit']});
 let nextId=1; const waiting=new Map(); let buf='';
 eng.stdout.on('data',d=>{buf+=d; let nl; while((nl=buf.indexOf('\n'))>=0){const line=buf.slice(0,nl); buf=buf.slice(nl+1); let m; try{m=JSON.parse(line);}catch(e){continue;} if(m.ready) continue; const w=waiting.get(m.id); if(w){waiting.delete(m.id); w(m);}}});
 function engineCall(cmd,args){ return new Promise((res,rej)=>{ const id=nextId++; waiting.set(id,m=>{ if('err' in m) rej(m.err); else if('b64' in m){ const b=Buffer.from(m.b64,'base64'); res(b.buffer.slice(b.byteOffset,b.byteOffset+b.length)); } else res(m.ok); }); eng.stdin.write(JSON.stringify({id,cmd,args:args||{}})+'\n'); }); }

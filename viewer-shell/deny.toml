@@ -1,0 +1,67 @@
+# cargo-deny (`.github/workflows/deny.yml`; locally `cargo deny check` from viewer-shell/).
+# Beside cargo audit and OSV-Scanner, for what neither reads: where each crate comes from
+# (the three git forks named here and crates.io, nothing else) and the licenses of everything
+# the program is built from. The advisories are checked here too, from the same database
+# cargo audit uses.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+# Unmaintained crates are told by `audit.yml` as warnings; here they would fail the run for
+# crates only Tauri can replace (gtk-rs 0.18's family). Vulnerabilities and unsound crates fail.
+unmaintained = "none"
+ignore = []
+
+[licenses]
+version = 2
+# What the dependency tree holds today (2026-11-09). The program is GPL-2.0 (the page) over
+# MIT crates of ours; each of these may be combined with it. A new license fails the run: read
+# it, then add it here or drop the crate.
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+# Ours, unpublished: the shell and its two check crates name no license of their own
+# (the repository's is in License/).
+[licenses.private]
+ignore = true
+
+# merge_to_master (greatness7's, our fork) has no license field and no license file: its
+# author said to consider it public domain (CREDITS.md has his words).
+[[licenses.clarify]]
+crate = "merge_to_master"
+expression = "Unlicense"
+license-files = []
+
+[bans]
+# Tauri's tree holds two versions of many crates; nothing to do about it from here.
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# The forks ([patch] in Cargo.toml and the crates' own git dependencies). cargo audit and
+# OSV-Scanner do not read these: watch their upstreams by hand (TODO.md, Forks).
+allow-git = [
+    "https://github.com/staticnation/tes3",
+    "https://github.com/staticnation/merge_to_master",
+    "https://github.com/staticnation/gtk-0.18-patches",
+]

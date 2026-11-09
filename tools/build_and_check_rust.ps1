@@ -83,7 +83,8 @@ function Invoke-PageTests {
         Write-Host "  Node is not installed (needs Node 22)" -ForegroundColor Red
         return $false
     }
-    $ok = Invoke-Native cargo @('build', '--release', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml', '--bin', 'wg-view-serve')
+    # The `serve` profile (viewer-shell/Cargo.toml): the binary is viewer-shell/target/serve/wg-view-serve.
+    $ok = Invoke-Native cargo @('build', '--profile', 'serve', '--manifest-path', 'viewer-shell/check-commands/Cargo.toml', '--bin', 'wg-view-serve')
     if (-not $ok) { return $false }
     Push-Location 'viewer-shell/ui/tests'
     try {

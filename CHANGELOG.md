@@ -64,6 +64,27 @@
   end this one (`wg-view-serve`: 51 arms added for the Load order, Conflicts, Tools and Help
   pages, Merge Lands, the sound and the charts).
 - `wg_open_record` is removed: nothing called it since the Python app went.
+- **One Cargo workspace.** The program and its thirteen crates are one workspace
+  (`viewer-shell/Cargo.toml`): one `Cargo.lock` and one `target` folder where there were
+  fourteen of each, so a dependency bump is one lock file and CI builds each crate once.
+  A crate is still built and tested on its own (`--manifest-path` as before, or `-p`); only
+  what it needs is compiled, so the command line and the crates' tests still need no
+  webview. The tes3 `[patch]` is at the root alone (a workspace reads it nowhere else). The
+  lock file is the program's own with the command line's and the tests' crates added: no
+  version of anything the program ships moved, and the crates' tests now run on the
+  versions it ships (they had drifted a patch release or two ahead, `toml` 0.8.23 against
+  the program's 0.8.2 the furthest). What moves:
+  - the command line is built to `viewer-shell/target/release/wraithguard`, beside the
+    program, and takes the program's release profile (link-time optimised, stripped);
+  - the headless test engine is built with `--profile serve` to
+    `viewer-shell/target/serve/wg-view-serve` (release speed without the link-time work);
+  - `ci.yml` lints the workspace in one Clippy run; `build-app.yml` and `audit.yml` follow
+    the one lock file. The vendored `gardenfell` keeps its own workspace and lock file.
+- **cargo-deny** (`viewer-shell/deny.toml`, `deny.yml`): every crate comes from crates.io or
+  one of our three forks, named; the tree's licenses are the fourteen listed (a new one
+  fails the run); advisories as cargo audit has them. It is the check that reads the git
+  dependencies, which cargo audit and OSV-Scanner do not. Passes today (cargo-deny 0.20.2).
+  merge_to_master, which names no license, is recorded as its author's public-domain grant.
 
 ### Fixed
 

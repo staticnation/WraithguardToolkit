@@ -2282,6 +2282,8 @@ name = "landcore"
 version = "0.1.0"
 dependencies = [
  "glam 0.30.10",
+ "serde_json",
+ "sha2",
  "tes3",
  "toml 0.8.2",
 ]
@@ -2498,6 +2500,9 @@ dependencies = [
 [[package]]
 name = "meshopt-port"
 version = "0.1.0"
+dependencies = [
+ "gardenfell-nif",
+]
 
 [[package]]
 name = "mime"
@@ -5995,6 +6000,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
+name = "wraithguard-cli"
+version = "5.0.4"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "conflictcore",
+ "editcore",
+ "landcore",
+ "ordercore",
+ "serde_json",
+ "toolscore",
+]
+
+[[package]]
 name = "wraithguard-toolkit"
 version = "5.0.4"
 dependencies = [
@@ -6006,6 +6026,23 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "toolscore",
+ "ureq",
+ "viewcore",
+]
+
+[[package]]
+name = "wraithguard-viewer-check"
+version = "0.1.0"
+
+[[package]]
+name = "wraithguard-viewer-check-commands"
+version = "0.1.0"
+dependencies = [
+ "conflictcore",
+ "editcore",
+ "landcore",
+ "serde_json",
  "toolscore",
  "ureq",
  "viewcore",

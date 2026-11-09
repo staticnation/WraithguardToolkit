@@ -2,7 +2,33 @@
 name = "wraithguard-toolkit"
 version = "5.0.4"
 edition = "2021"
+publish = false
 description = "Wraithguard: the program (the cell viewer, Editor, Load order, Conflicts and Tools pages) on Tauri; started on its own it opens on the settings file's openmw.cfg."
+
+# One workspace for the program and its crates (2026-11-09): one Cargo.lock and one `target`
+# (here), where each crate had its own - fifteen of each, a dependency bump made in fifteen
+# lock files and every crate built again per crate in CI. A crate is still built and tested
+# on its own (`cargo test --manifest-path viewer-shell/editcore/Cargo.toml`, or `-p editcore`
+# from here): only what that crate needs is compiled, so the command line and the crates'
+# tests need no webview. `gardenfell` is Robin Hjelte's workspace, vendored, and stays its own.
+[workspace]
+resolver = "2"
+members = [
+    "check",
+    "check-commands",
+    "cli",
+    "conflictcore",
+    "editcore",
+    "gardenfell-g7",
+    "landcore",
+    "luacore",
+    "meshopt-port",
+    "ordercore",
+    "physcore",
+    "toolscore",
+    "viewcore",
+]
+exclude = ["gardenfell"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -29,7 +55,8 @@ serde_json = "1"
 # (rustls, Mozilla's roots via webpki-roots), no OpenSSL to ship.
 ureq = "3"
 
-# tes3 from our fork, as viewcore has it (see native/Cargo.toml).
+# tes3 from our fork, for every crate of the workspace (a [patch] counts only here, at its
+# root): the crates name greatness7's repository, and build ours.
 [patch."https://github.com/Greatness7/tes3"]
 tes3 = { git = "https://github.com/staticnation/tes3" }
 bytes_io = { git = "https://github.com/staticnation/tes3" }
@@ -67,3 +94,12 @@ strip = true
 # engine catches that (viewcore nif::from_crate) and reads the file its own way instead.
 # Under "abort" one broken mesh in a load order would close the viewer.
 panic = "unwind"
+
+# The headless test engine (`wg-view-serve`, check-commands): release speed without the
+# link-time work the shipped programs get, which would be minutes of every CI run.
+# `cargo build --profile serve ...` puts it in `target/serve/`.
+[profile.serve]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = false

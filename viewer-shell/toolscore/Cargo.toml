@@ -30,10 +30,6 @@ toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 [dev-dependencies]
 
-# [patch] only counts in the package being built (see native/Cargo.toml).
-[patch."https://github.com/Greatness7/tes3"]
-tes3 = { git = "https://github.com/staticnation/tes3" }
-bytes_io = { git = "https://github.com/staticnation/tes3" }
 
 [lints.clippy]
 type_complexity = "allow"

@@ -154,7 +154,7 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   the only 5.x release published; `CHANGELOG.md` now has 5.0.1, 5.0.2, 5.0.3 and 5.0.4 (the
   work since v5.0.3). The version is 5.0.4 in
   `viewer-shell/Cargo.toml`, `viewer-shell/cli/Cargo.toml`, `viewer-shell/tauri.conf.json` and
-  both `Cargo.lock`s (2026-11-09; the v5.0.2 and v5.0.3 programs called themselves 5.0.1).
+  `viewer-shell/Cargo.lock` (2026-11-09; the v5.0.2 and v5.0.3 programs called themselves 5.0.1).
 - The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`; `get_wraithguard`
   in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in the Linux pack and the
   macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet sent upstream). Move it to
@@ -184,11 +184,12 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
     this one. The boot test still opens only the cell viewer, the mesh viewer and Setup: a
     boot of the Load order, Conflicts and Tools pages against the fixture setup would use
     the new arms.
-  - cargo-deny (`deny.toml`: the git sources allowed by name, licenses) beside `cargo audit`
-    and OSV-Scanner, neither of which reads the crates that come from git.
-  - One Cargo workspace for the crates (one `Cargo.lock` and one `target` in place of
-    fifteen of each: a dependency bump is one lock file, and CI builds each crate once).
-    `gardenfell` is vendored with its own workspace and stays out.
+  - The workspace (2026-11-09): copy `subset sort\workflows\` (`ci.yml`, `build-app.yml`,
+    `audit.yml`, `osv-scanner.yml`, `deny.yml`) into `.github\workflows\` in the same commit as the
+    workspace, or CI looks for the command line and the test engine where they no longer
+    are; `deny.yml` there too (cargo-deny, `viewer-shell/deny.toml`). Then delete the old per-crate `target` folders (`viewer-shell\*\target`): only
+    `viewer-shell\target` is used. First run on GitHub to watch: `build-app.yml` (the
+    command line is `viewer-shell/target/release/wraithguard` now) and the AppImage.
   - `src/cellviewer/commands.rs` is split by page (`commands/`: conflicts, editor, help,
     land, loadorder, sound, tools) and is 4,200 lines: what is left is the viewer's own
     (the install, cells, meshes, textures, the distant view, Lua, settings). `loadorder_drop_probe`

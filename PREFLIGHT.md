@@ -55,7 +55,7 @@ Needed after changing `viewer-shell\ui\` or the viewer's commands (`-Pages` abov
 them):
 
 ```powershell
-cargo build --release --manifest-path viewer-shell\check-commands\Cargo.toml --bin wg-view-serve
+cargo build --profile serve --manifest-path viewer-shell\check-commands\Cargo.toml --bin wg-view-serve
 cd viewer-shell\ui\tests
 npm ci --no-audit --no-fund
 npm run preview                          # the preview's loading races
@@ -86,12 +86,14 @@ git status
   `wraithguard_record_cache.sqlite3*`, `plugin_cache\`), any `*.key`. `.gitignore`
   covers these; if something like that shows up, add it to `.gitignore` rather than
   committing it.
-- **Lockfiles**: after changing a `Cargo.toml`, commit the `Cargo.lock` next to it. Each
-  crate in `viewer-shell\` that is not a workspace member has its own.
+- **Lockfiles**: after changing a `Cargo.toml`, commit `viewer-shell\Cargo.lock`. The
+  program and its crates are one workspace with that one lock file; the vendored
+  `viewer-shell\gardenfell\` has its own.
 - **Never commit a lockfile built against a local copy of the tes3 or merge_to_master
   crates.** In a lockfile built that way, their entries (`tes3`, `esp`, `nif`, `bsa`,
   `bytes_io`, `merge_to_master`) have no `source = "git+https://github.com/..."` line.
-  `git diff -- '*Cargo.lock'` shows it.
+  `git diff -- '*Cargo.lock'` shows it. A `[patch]` counts only in `viewer-shell\Cargo.toml`,
+  the workspace's root: one in a crate's own `Cargo.toml` is ignored.
 
 ## 2. The push sequences
 
@@ -134,7 +136,7 @@ git push -u origin build/test --force-with-lease
 ### A release (tag)
 
 1. **Set the version** in `viewer-shell\Cargo.toml`, `viewer-shell\tauri.conf.json` and
-   `viewer-shell\cli\Cargo.toml` (then build once, so the `Cargo.lock`s carry it).
+   `viewer-shell\cli\Cargo.toml` (then build once, so `Cargo.lock` carries it).
 2. **Check the top heading of `CHANGELOG.md`** is that version: the entries since the last
    release gather under it.
 3. **Check the repository settings** (**Settings → Secrets and variables → Actions**):

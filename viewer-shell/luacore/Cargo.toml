@@ -31,9 +31,3 @@ teal = ["dep:htl-core", "dep:anyhow"]
 
 [lints.clippy]
 type_complexity = "allow"
-
-# Our fork of tes3 (LUAL records, Greatness7/tes3#7), as native/ and viewcore have it. A
-# [patch] only counts in the package being built: this one is for building luacore alone.
-[patch."https://github.com/Greatness7/tes3"]
-tes3 = { git = "https://github.com/staticnation/tes3" }
-bytes_io = { git = "https://github.com/staticnation/tes3" }

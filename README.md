@@ -439,7 +439,8 @@ cargo build --release --manifest-path viewer-shell/cli/Cargo.toml   # the comman
 ```
 
 The program is `viewer-shell/target/release/wraithguard-toolkit`, and the command line is
-`viewer-shell/cli/target/release/wraithguard`.
+`viewer-shell/target/release/wraithguard` beside it (the crates are one Cargo workspace, with
+one `target` folder).
 
 **Before pushing, see [PREFLIGHT.md](PREFLIGHT.md).** One script builds the program and
 runs every check CI runs:
