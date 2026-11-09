@@ -48,7 +48,7 @@ function checkAnswer(link, ans) {
  *  window (as one concatenated page would have them). */
 function source(rel) {
   return fs.readFileSync(path.join(UI, rel), 'utf8')
-    .replace(/^<script>/, '')
+    .replace(/^<script>/i, '')
     .replace(/^const (\w+)=/mg, 'var $1=')
     .replace(/^class (\w+)/mg, 'var $1=class $1');
 }

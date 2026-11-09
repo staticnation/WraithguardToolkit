@@ -1,8 +1,12 @@
 # What CodeQL reads (sast.yml). Not our code: the vendored Mermaid bundle, the fixtures the
-# tests pin (large JSON and plugin files) and the locale catalogues.
+# tests pin (large JSON and plugin files) and the locale catalogues. Not shipped: the page's
+# tests (`viewer-shell/ui/tests`), whose stand-in engine answers only the test run on
+# 127.0.0.1 (its property writes keyed by request fields, and the harness stripping our own
+# `<script>` wrapper, were flagged as if they faced the network).
 name: Wraithguard CodeQL
 paths-ignore:
   - viewer-shell/ui/assets
   - tests/fixtures
   - testdata
   - locale
+  - viewer-shell/ui/tests

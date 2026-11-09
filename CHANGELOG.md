@@ -29,8 +29,9 @@
 - **CodeQL's findings, gone through** (17 open, 2026-11-09). The page's tests are no longer
   scanned (`.github/codeql/codeql-config.yml`): their stand-in engine answers only the test
   run on 127.0.0.1, and its 9 property writes and the harness's `<script>` strip were flagged
-  as if they faced the network. A save test no longer prints the player's sex
-  (`rust/cleartext-logging`). The 6 `js/xss-through-dom` are the page's wording read back from
+  as if they faced the network. `rust/cleartext-logging` on a save test printing the player
+  character's sex is a false positive (the rule goes by field names: a Morrowind character,
+  not a person) and is dismissed, the print kept. The 6 `js/xss-through-dom` are the page's wording read back from
   its own markup (`Text.builtin`, the `data-tx` snapshot) and put into the page again, every
   value from a plugin or the engine passing through `escHtml` on the way: dismissed as false
   positives, not changed.
