@@ -5,6 +5,14 @@
 
 ### Fixed
 
+- **The dependency audit is clean** (RustSec, every `Cargo.lock`). The last two were Tauri 2's
+  Linux stack, gtk-rs 0.18, which no Tauri 2 release moves off: `glib` 0.18.5's unsound
+  `VariantStrIter` (`RUSTSEC-2024-0429`; a test program built in release segfaults on it) and
+  `proc-macro-error` 1.0.4, unmaintained (`RUSTSEC-2024-0370`), which `glib-macros` uses.
+  `viewer-shell` patches both (`[patch.crates-io]`) from staticnation/gtk-0.18-patches: glib
+  0.18.5 with the fix backported from 0.20, and proc-macro-error 1.0.4's API re-exported from
+  proc-macro-error3. Same names and versions, so gtk and webkit2gtk take them unchanged; only
+  Linux builds them. `syn` 1 left the lock file with the old proc-macro-error.
 - **`paste` is gone** (unmaintained, `RUSTSEC-2024-0436`). It came in through
   `lending-iterator`, which merge_to_master used for one pass over neighbouring dialogue
   responses; our fork does that with `split_at_mut` now (staticnation/merge_to_master

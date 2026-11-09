@@ -209,6 +209,10 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   published 2026-10-13; patched from 1.53.3: `cargo update -p tokio` took it to 1.54.1) and a
   yanked `yoke-derive` 0.8.3 (`cargo update -p yoke-derive` took it to 0.8.4; commit
   `viewer-shell/Cargo.lock`). None fails the job.
+- gtk-0.18-patches (`viewer-shell/Cargo.toml` `[patch.crates-io]`, 2026-11-09): check the
+  first Linux build with it (the AppImage job) and that the Cell Preview opens there. Each
+  Tauri release: is `webkit2gtk` still in `viewer-shell/Cargo.lock`? When it is gone (a wry on
+  WebKitGTK 6), drop the two patch lines and archive the repository.
 - `viewer-shell/physcore`'s tests and clippy are in neither `ci.yml` nor
   `build_and_check_rust.ps1` yet: add them to both.
 - Actions are pinned to a commit of their current major; moving to the Node 24 majors

@@ -34,6 +34,16 @@ ureq = "3"
 tes3 = { git = "https://github.com/staticnation/tes3" }
 bytes_io = { git = "https://github.com/staticnation/tes3" }
 
+# Tauri 2's Linux stack is gtk-rs 0.18, which brings glib 0.18 (RUSTSEC-2024-0429, an unsound
+# VariantStrIter: a segfault in release builds) and, through glib-macros, proc-macro-error 1.0.4
+# (RUSTSEC-2024-0370, unmaintained). Our patches keep their names and versions: glib with the
+# fix backported from 0.20, proc-macro-error re-exporting proc-macro-error3
+# (staticnation/gtk-0.18-patches, its README). Linux only in effect: nothing else builds gtk.
+# Drop both when Tauri's webview leaves gtk-rs 0.18 (a wry on WebKitGTK 6).
+[patch.crates-io]
+glib = { git = "https://github.com/staticnation/gtk-0.18-patches" }
+proc-macro-error = { git = "https://github.com/staticnation/gtk-0.18-patches" }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(wg_check)"] }
 
