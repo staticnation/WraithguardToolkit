@@ -26,7 +26,10 @@ use rusqlite::{params, params_from_iter, Connection, ErrorCode, OptionalExtensio
 /// Bumped when what is stored changes shape; an older database is emptied, not read.
 /// 4: bodies are zstd'd bytes of the caller's (tagged JSON from Python), not pickles.
 /// 5: the use index has the words of dialogue responses' results too.
-/// 6: the use index has each record's text fields in `use_text`, for Search all.
+/// 6: the use index has each record's text fields in `use_text`, for Search all. A file at 5
+/// keeps what it has but the use index, which is built again with the text (the records,
+/// keys and spans are as they were: 5.0.4's first build dropped them all, every cache read
+/// again from the plugins - Static, 2026-11-09).
 pub const SCHEMA: i64 = 6;
 
 /// How much of the file the record bodies may take before the largest tag's go.
@@ -96,13 +99,18 @@ struct State {
 /// What to do with a warning (the Python side sends it to its log).
 pub type Warn = dyn Fn(&str) + Send + Sync;
 
-/// Plugin records of one tag, kept in a SQLite file. One connection shared by every
-/// thread, under a lock.
+/// Plugin records of one tag, kept in a SQLite file. One connection for the writes, shared by
+/// every thread under a lock, and one for the lookups beside it, so a lookup does not wait
+/// behind the writes (the use index built in the background holds the writer for a plugin at a
+/// time, back to back: a Use Report or Search all asking whether the index is ready waited
+/// behind all of them - Static, 2026-11-09).
 pub struct Cache {
     pub path: PathBuf,
     pub parser: String,
     pub max_bytes: u64,
     state: Mutex<State>,
+    /// The lookups' connection (WAL: it reads what the writer has committed, without its lock).
+    reader: Mutex<Option<Connection>>,
     warn: Box<Warn>,
     /// How many times a type's records or the use index were dropped for size, since this
     /// run began (`drops`: the warning goes to a console a window program has not got).
@@ -126,7 +134,7 @@ impl Cache {
 
     /// As [`Cache::new`], with warnings going to `warn`.
     pub fn with_warn(path: PathBuf, parser: &str, max_bytes: u64, warn: Box<Warn>) -> Cache {
-        Cache { path, parser: parser.to_string(), max_bytes, state: Mutex::new(State { conn: None, dead: false }), warn, drops: std::sync::atomic::AtomicUsize::new(0) }
+        Cache { path, parser: parser.to_string(), max_bytes, state: Mutex::new(State { conn: None, dead: false }), reader: Mutex::new(None), warn, drops: std::sync::atomic::AtomicUsize::new(0) }
     }
 
     /// Runs `f` on the open connection; `None` when the cache cannot be had.
@@ -158,6 +166,23 @@ impl Cache {
         f(st.conn.as_mut()?)
     }
 
+    /// Runs a lookup `f` on the lookups' connection, opened once the writer has made
+    /// the file ready; `None` when the cache cannot be had.
+    fn read<T>(&self, f: impl FnOnce(&Connection) -> Option<T>) -> Option<T> {
+        let mut r = self.reader.lock().unwrap_or_else(|p| p.into_inner());
+        if r.is_none() {
+            // The file set up (made, or emptied for another shape) by the writer first.
+            self.with(|_| Some(()))?;
+            // Read-write, though it only reads: a read-only connection cannot set up the WAL's
+            // shared memory when it is the first to need it.
+            let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX | rusqlite::OpenFlags::SQLITE_OPEN_URI;
+            let c = Connection::open_with_flags(&self.path, flags).ok()?;
+            c.busy_timeout(Duration::from_secs(30)).ok()?;
+            *r = Some(c);
+        }
+        f(r.as_ref()?)
+    }
+
     /// Opens the file and makes it ready.
     fn open(&self) -> rusqlite::Result<Connection> {
         if let Some(dir) = self.path.parent() {
@@ -180,7 +205,16 @@ impl Cache {
                 _ => None,
             });
         let want = format!("p:{}", self.parser);
-        if schema != Some(SCHEMA) || made.as_deref() != Some(want.as_str()) {
+        if schema == Some(5) && made.as_deref() == Some(want.as_str()) {
+            // 5 to 6: only the use index goes (it lacks the text); the rest stands.
+            for t in ["uses", "use_records", "use_plugins"] {
+                tx.execute(&format!("DROP TABLE IF EXISTS {t}"), [])?;
+            }
+            if tx.query_row("SELECT 1 FROM sqlite_master WHERE name='key_stamps'", [], |_| Ok(())).optional()?.is_some() {
+                tx.execute("DELETE FROM key_stamps WHERE tag=?", [USES_TAG])?;
+            }
+            tx.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", [SCHEMA])?;
+        } else if schema != Some(SCHEMA) || made.as_deref() != Some(want.as_str()) {
             // Another shape, or made by another build of the reader: none of it is to be
             // trusted, the key index with the records.
             for t in DERIVED {
@@ -261,7 +295,7 @@ impl Cache {
         // The stored bytes are fetched under the connection's lock and unpacked after it is let
         // go: threads reading many plugins at once each unpack their own, rather than take turns
         // at it (Messages, 2026-11-06: a type's columns took 16 s on a warm cache).
-        let data = self.with(|c| {
+        let data = self.read(|c| {
             let row: Option<(i64, i64, Vec<u8>)> = c
                 .query_row("SELECT size, mtime_ns, data FROM records WHERE plugin=? AND tag=?", params![s.key, tag], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -361,7 +395,7 @@ impl Cache {
 
     /// The bytes of the database in use (0 when the cache is out).
     pub fn size_bytes(&self) -> i64 {
-        self.with(|c| Cache::used(c).ok()).unwrap_or(0)
+        self.read(|c| Cache::used(c).ok()).unwrap_or(0)
     }
 
     /// Replaces one plugin's indexed keys of a tag (the caller commits).
@@ -408,7 +442,7 @@ impl Cache {
     /// `stale_of` for stamps taken already (`stamps_of`).
     pub fn stale_of_stamped(&self, stamps: &[Option<Stamp>], tag: &str) -> Option<Vec<usize>> {
         let keyed: Vec<&str> = stamps.iter().flatten().map(|s| s.key.as_str()).collect();
-        let have = self.with(|c| {
+        let have = self.read(|c| {
             let mut have: HashMap<String, (i64, i64)> = HashMap::new();
             for part in keyed.chunks(CHUNK) {
                 let q = format!("SELECT plugin, size, mtime_ns FROM key_stamps WHERE tag=? AND plugin IN ({})", marks(part.len()));
@@ -470,7 +504,7 @@ impl Cache {
         }
         let stamped = Cache::stamped_of(stamps);
         let names: Vec<&str> = stamped.iter().map(|(_, s)| s.key.as_str()).collect();
-        let found = self.with(|c| {
+        let found = self.read(|c| {
             let mut found: HashSet<String> = HashSet::new();
             for part in names.chunks(CHUNK) {
                 let q = format!("SELECT plugin FROM keys WHERE tag=? AND key=? AND plugin IN ({})", marks(part.len()));
@@ -497,7 +531,7 @@ impl Cache {
         }
         let stamped = Cache::stamped_of(stamps);
         let names: Vec<&str> = stamped.iter().map(|(_, s)| s.key.as_str()).collect();
-        self.with(|c| {
+        self.read(|c| {
             let mut out = HashSet::new();
             for part in names.chunks(CHUNK) {
                 let q = format!("SELECT DISTINCT key FROM keys WHERE tag=? AND plugin IN ({})", marks(part.len()));
@@ -616,7 +650,7 @@ impl Cache {
             return None;
         }
         let order: HashMap<String, usize> = Cache::stamped(plugins).into_iter().map(|(i, s)| (s.key, i)).collect();
-        let mut out: Vec<(usize, i64, UseHit)> = self.with(|c| {
+        let mut out: Vec<(usize, i64, UseHit)> = self.read(|c| {
             let mut st = c
                 .prepare(
                     "SELECT p.plugin, r.rtype, r.key, u.paths, u.n, r.rid FROM uses u
@@ -658,7 +692,7 @@ impl Cache {
         let order: HashMap<String, usize> = Cache::stamped(plugins).into_iter().map(|(i, s)| (s.key, i)).collect();
         // One phrase: the text as it is, its quotes doubled.
         let phrase = format!("\"{}\"", text.replace('"', "\"\""));
-        let mut out = self.with(|c| {
+        let mut out = self.read(|c| {
             let mut st = c
                 .prepare(
                     "SELECT p.plugin, r.rtype, r.key, r.rid FROM use_text t
@@ -689,7 +723,7 @@ impl Cache {
         let wanted: HashSet<&(String, String)> = records.iter().collect();
         let mut values: Vec<&str> = records.iter().map(|(_, k)| k.as_str()).collect::<HashSet<_>>().into_iter().collect();
         values.sort();
-        let found = self.with(|c| {
+        let found = self.read(|c| {
             let mut found: HashMap<(String, String), HashSet<usize>> = HashMap::new();
             for part in values.chunks(CHUNK) {
                 let q = format!(
@@ -736,7 +770,7 @@ impl Cache {
 
     /// A report kept for a load order ([`Cache::load_order_signature`]).
     pub fn get_report(&self, sig: &str, kind: &str, key: &str) -> Option<Vec<u8>> {
-        self.with(|c| {
+        self.read(|c| {
             let data: Vec<u8> = c
                 .query_row("SELECT data FROM reports WHERE sig=? AND kind=? AND key=?", params![sig, kind, key], |r| r.get(0))
                 .optional()
@@ -799,7 +833,7 @@ impl Cache {
     /// key [`Cache::span`] does not find is not in the plugin).
     pub fn spans_current(&self, plugin: &Path) -> bool {
         let Some(s) = stamp(plugin) else { return false };
-        self.with(|c| {
+        self.read(|c| {
             let row: Option<(i64, i64)> = c
                 .query_row("SELECT size, mtime_ns FROM span_stamps2 WHERE plugin=?", [&s.key], |r| Ok((r.get(0)?, r.get(1)?)))
                 .optional()
@@ -813,7 +847,7 @@ impl Cache {
     /// when the spans are not kept for the plugin as it is, or it has no such record.
     pub fn span(&self, plugin: &Path, rtype: &str, id: &str) -> Option<(u64, u32)> {
         let s = stamp(plugin)?;
-        self.with(|c| {
+        self.read(|c| {
             c.query_row(
                 "SELECT p.off, p.len FROM spans2 p JOIN span_stamps2 t ON t.plugin = p.plugin \
                  WHERE p.plugin=?1 AND p.rtype=?2 AND p.id=?3 AND t.size=?4 AND t.mtime_ns=?5",
@@ -831,7 +865,7 @@ impl Cache {
     pub fn stale_spans(&self, plugins: &[PathBuf]) -> Option<Vec<usize>> {
         let stamps: Vec<Option<Stamp>> = plugins.iter().map(|p| stamp(p)).collect();
         let keyed: Vec<&str> = stamps.iter().flatten().map(|s| s.key.as_str()).collect();
-        let have = self.with(|c| {
+        let have = self.read(|c| {
             let mut have: HashMap<String, (i64, i64)> = HashMap::new();
             for part in keyed.chunks(CHUNK) {
                 let q = format!("SELECT plugin, size, mtime_ns FROM span_stamps2 WHERE plugin IN ({})", marks(part.len()));
@@ -889,9 +923,21 @@ impl Cache {
         .unwrap_or(false)
     }
 
+    /// Holds the writer's lock while `f` runs (the tests: a lookup must not wait for it).
+    #[doc(hidden)]
+    pub fn hold_writer_for_test(&self, f: impl FnOnce()) {
+        self.with(|_| {
+            f();
+            Some(())
+        });
+    }
+
     /// Closes the database (it reopens on next use), compacting it first if it is mostly
     /// free pages.
     pub fn close(&self) {
+        if let Some(r) = self.reader.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            let _ = r.close();
+        }
         let mut st = self.state.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(c) = st.conn.take() {
             self.shrink(&c);

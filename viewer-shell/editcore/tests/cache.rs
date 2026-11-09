@@ -214,3 +214,49 @@ fn the_use_index_answers_by_string_in_load_and_file_order() {
     assert_eq!(def.get(&("Weapon".to_string(), "iron_sword".to_string())), Some(&vec![0]));
     assert!(c.missing_uses(&both).is_empty());
 }
+
+#[test]
+fn a_file_at_schema_5_keeps_its_records_and_builds_only_the_use_index_again() {
+    let d = Dir::new("schema5");
+    let a = d.plugin("a.esm", b"a");
+    let row: UseRow = ("iron_sword".into(), "Npc".into(), "guard".into(), "[\"inventory\"]".into(), 1);
+    {
+        let c = cache(&d.db());
+        c.put(&a, "NPC_", b"the npcs", Some(&["guard".to_string()]));
+        c.put_uses(&a, std::slice::from_ref(&row));
+        c.close();
+    }
+    // As 5.0.3 left it: schema 5, no text.
+    let conn = rusqlite::Connection::open(d.db()).unwrap();
+    conn.execute_batch("UPDATE meta SET v=5 WHERE k='schema'; DROP TABLE use_text;").unwrap();
+    drop(conn);
+    let c = cache(&d.db());
+    assert_eq!(c.get(&a, "NPC_").as_deref(), Some(&b"the npcs"[..]), "the records stand");
+    assert!(c.keys_current(&a, "NPC_"), "and the key index");
+    assert_eq!(c.missing_uses(std::slice::from_ref(&a)), vec![0], "the use index is built again, with the text");
+    c.put_uses(&a, &[row]);
+    assert!(c.missing_uses(std::slice::from_ref(&a)).is_empty());
+}
+
+#[test]
+fn a_lookup_does_not_wait_for_the_writer() {
+    let d = Dir::new("reader");
+    let a = d.plugin("a.esm", b"a");
+    let c = std::sync::Arc::new(cache(&d.db()));
+    c.put_uses(&a, &[("x".into(), "Npc".into(), "guard".into(), "[]".into(), 0)]);
+    assert!(c.missing_uses(std::slice::from_ref(&a)).is_empty());
+    // The writer held (as a plugin's index is written): the lookup answers all the same.
+    let held = c.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        held.hold_writer_for_test(|| {
+            tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+        })
+    });
+    rx.recv().unwrap();
+    let t = std::time::Instant::now();
+    assert!(c.missing_uses(std::slice::from_ref(&a)).is_empty());
+    assert!(t.elapsed() < std::time::Duration::from_millis(1000), "waited {:?}", t.elapsed());
+    writer.join().unwrap();
+}

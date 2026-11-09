@@ -24,8 +24,15 @@
   holds it to the scan, edits, new records, an override and a deletion included). Until the
   index has every plugin as it now is, or for text under three letters or not ASCII, the
   scan answers as before and the plugins are indexed behind it. The use index's schema is
-  6, so it is built again once. The count's hover says the time, the records looked at and
-  the index's size.
+  6: a cache at 5 keeps its records, keys and spans, and only the use index is built again
+  (the first build of this dropped every cache, the record and scan caches with it, and all
+  of them were read again from the plugins). The count's hover says the time, the records
+  looked at and the index's size.
+- **A Use Report or Search all no longer waits behind the use index being built.** Each
+  cache's lookups have a connection of their own beside the writer's (SQLite's WAL lets them
+  read while it writes): asking whether the index was ready waited for the writer's lock,
+  which the background build holds for one plugin after another, so either could sit until
+  the build was done (Static, 2026-11-09: neither gave results while the databases grew).
 - The Conflicts page times judging every record and Judge all in Messages, to see whether
   they need a cache on a big load order.
 - README's "Coming from 4.x?" says to `pip uninstall wraithguard-toolkit`: the old launcher
