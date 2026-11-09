@@ -4532,19 +4532,11 @@ fn land_merge_home(cfg: String) -> Result<String, String> {
     let setup = cf_setup(&cfg)?;
     let order = setup.plugins();
     let folders: Vec<PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
-    let mut best: Option<&PathBuf> = None;
-    let mut best_count = 0;
-    for f in &folders {
-        let count = order.iter().filter(|n| f.join(n).is_file()).count();
-        if count > best_count {
-            best = Some(f);
-            best_count = count;
-        }
-    }
+    let best = landcore::service::home_folder(&folders, &order);
     let name = landcore::service::DEFAULT_NAME;
     Ok(serde_json::json!({
         "folders": folders.iter().map(|f| f.display().to_string()).collect::<Vec<_>>(),
-        "home": best.map(|b| b.display().to_string()),
+        "home": best.as_ref().map(|b| b.display().to_string()),
         "name": name,
         "exists": best.is_some_and(|b| b.join(name).is_file()),
         "ignore": landcore::service::DEFAULT_IGNORE,

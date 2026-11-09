@@ -8,18 +8,6 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 `viewer-shell/DROP-TK.md`). Design notes that still guide open work: `viewer-shell/SOUND.md`,
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
-## Command line (`viewer-shell/cli`)
-
-- Merge Lands from the command line (Sophie, 2026-11-09: "How do I use your merged lands
-  cli?"). There is none: the 4.x Python had none either, and the 5.x `wraithguard` sorts,
-  exports, scans conflicts, lints and draws the cell map only. `landcore::service` already
-  runs the whole merge as one call with the Tools page's progress log: a flag (or
-  subcommand) over it, its output path and the `.mergedlands.toml` settings as on the Tools
-  page, a case in `tests/fixtures/cli_cases.json`, and README's command-line section.
-- README's "Coming from 4.x?": say to remove the old pip-installed launcher
-  (`pip uninstall wraithguard-toolkit`). Left on PATH, `wraithguard` in a terminal runs it,
-  and it fails with "No module named 'wraithguard_toolkit'" (Static, 2026-11-09).
-
 ## Tools page
 
 - Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
@@ -131,13 +119,16 @@ index were the ones lost, and are back (`CHANGELOG.md`, 5.0.4).
   `tests/probe_land_read.rs`, measures it), keep each plugin's `LAND`/`LTEX` records on disk as the Python kept `<stem>.land.json` and
   asked the scan cache whether a plugin has terrain (`landcore` does not depend on `editcore`:
   a shared cache crate, or move the cache).
-- Not yet checked for a cache lost in the port: the Lua archive scripts (the Python unpacked
-  them into `wraithguard_lua_archives`; `luacore/scan.rs` says the engine has its own overlay,
-  archives included: read the code, not the header) and the Conflicts window's per-scan result
-  caches (the Python's `_conf_singles`, `_conflict_adjacency_cache`; the page is JavaScript
-  now). Checked and kept: the NIF measurements (`nif_batch`, scan cache), the overlay's file
+- Checked and kept: the NIF measurements (`nif_batch`, scan cache), the overlay's file
   index (`wraithguard_overlay_index.bin`), the conflict scan's keys, cells and terrain flags
-  (`wraithguard_scan_cache.sqlite3`), the dialogue graph's lookups.
+  (`wraithguard_scan_cache.sqlite3`), the dialogue graph's lookups. Not needed (2026-11-09):
+  the Lua archive scripts the Python unpacked into `wraithguard_lua_archives` (the engine
+  reads them out of the archives where they are, `viewcore::luascan::VfsScripts` over the
+  overlay), and the Conflicts window's `_conf_singles` and `_conflict_adjacency_cache` (a
+  mode's rescan takes the cached keys, and the page counts a plugin's peers from the scan's
+  list it already holds).
+- `conflicts_verdicts` and `conflicts_plugin_group` read the scan's plugins again on each
+  call (`cf_read_many`): measure on the big order before keeping them between calls.
 
 ### The record cache (`editcore::cache`)
 

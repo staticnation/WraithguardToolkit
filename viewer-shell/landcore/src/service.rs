@@ -135,6 +135,22 @@ impl PluginIndex {
     }
 }
 
+/// Where Merge Lands writes by default: the data folder holding the most of the load order's
+/// plugins (the game's own `Data Files` on most setups), the first such in the cfg's order;
+/// `None` when no folder holds any. The Tools page offers it, and the command line uses it.
+pub fn home_folder(dirs: &[PathBuf], load_order: &[String]) -> Option<PathBuf> {
+    let mut best: Option<&PathBuf> = None;
+    let mut best_count = 0;
+    for d in dirs {
+        let count = load_order.iter().filter(|n| d.join(n).is_file()).count();
+        if count > best_count {
+            best = Some(d);
+            best_count = count;
+        }
+    }
+    best.cloned()
+}
+
 pub fn resolve_plugin(name: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     let wanted = name.to_lowercase();
     let mut found = None;

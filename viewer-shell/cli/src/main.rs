@@ -2,7 +2,9 @@
 //!
 //! Sort a load order with the mlox rules (and MOMW's `plugin-order.yml`), write `openmw.cfg` and
 //! a `momw-customizations.toml`, and, read-only, scan the result: the record conflicts, the cell
-//! map, the lint and the loose-file conflicts. The same flags, the same report on stdout, the
+//! map, the lint and the loose-file conflicts. And Merge Lands (`--merge-lands`), which the
+//! Python's command line never had: the Tools page's merge, [`landcore::service`], over the
+//! cfg's load order. The same flags, the same report on stdout, the
 //! same warnings on stderr, the same files; `tests/cli_cases.rs` holds it to the Python's
 //! answers (`tests/fixtures/cli_cases.json`).
 //!
@@ -53,7 +55,7 @@ fn command() -> Command {
         .arg(
             Arg::new("rules")
                 .long("rules")
-                .required(true)
+                .required_unless_present("merge-lands")
                 .num_args(1..)
                 .value_name("RULES")
                 .help("mlox rule file(s) or directories, in increasing priority order (mlox_base.txt first, mlox_user.txt last)"),
@@ -103,6 +105,35 @@ fn command() -> Command {
                 .help("Write a trace log of the run (default file wraithguard_toolkit_trace.log)"),
         )
         .arg(path("json-dump-dir", "Unused: only the Python's tes3conv fallback wrote JSON"))
+        .arg(
+            Arg::new("merge-lands")
+                .long("merge-lands")
+                .num_args(0..=1)
+                .default_missing_value("")
+                .value_name("FOLDER")
+                .help(
+                    "Merge the load order's terrain into Merged Lands.esp, written into FOLDER (default: the data folder \
+                     holding most of the load order). Each plugin's .mergedlands.toml settings apply, as on the Tools page. \
+                     With --rules, after the sort, from the cfg as it is then on disk; --dry-run writes nothing",
+                ),
+        )
+        .arg(
+            Arg::new("merge-model")
+                .long("merge-model")
+                .value_parser(["masters", "loadorder"])
+                .default_value("masters")
+                .help("With --merge-lands: measure each plugin's change against the masters, or against the load order before it"),
+        )
+        .arg(
+            Arg::new("merge-ignore")
+                .long("merge-ignore")
+                .num_args(0..)
+                .value_name("PLUGIN")
+                .help(
+                    "With --merge-lands: plugins to leave out, by file name, or every plugin under a folder given as a path. \
+                     Replaces the default list (generated plugins such as delta-merged.omwaddon); given empty, leaves nothing out",
+                ),
+        )
         .arg(Arg::new("verbose").short('v').long("verbose").action(ArgAction::Count).help("Show run diagnostics on stderr (-v, -vv)"))
 }
 
@@ -123,6 +154,11 @@ struct Args {
     exclude: Vec<String>,
     conflicts_subset_only: bool,
     trace: Option<String>,
+    /// `--merge-lands`: `Some("")` for the default folder.
+    merge_lands: Option<String>,
+    merge_model: String,
+    /// `--merge-ignore`, when given (else the default list).
+    merge_ignore: Option<Vec<String>>,
     unused: Vec<&'static str>,
     verbose: u8,
 }
@@ -174,6 +210,9 @@ impl Args {
             exclude: list("exclude"),
             conflicts_subset_only: on("conflicts-subset-only"),
             trace: m.get_one::<String>("trace").cloned(),
+            merge_lands: m.get_one::<String>("merge-lands").map(|v| if v.is_empty() { String::new() } else { py_path(v) }),
+            merge_model: m.get_one::<String>("merge-model").cloned().unwrap_or_else(|| "masters".into()),
+            merge_ignore: m.contains_id("merge-ignore").then(|| list("merge-ignore")),
             unused,
             verbose,
         }
@@ -199,6 +238,9 @@ impl Log {
     }
     fn error(&self, text: &str) {
         self.emit("ERROR", 0, text);
+    }
+    fn info(&self, text: &str) {
+        self.emit("INFO", 1, text);
     }
     fn debug(&self, text: &str) {
         self.emit("DEBUG", 2, text);
@@ -355,6 +397,49 @@ fn scans(args: &Args, got: &Computed, log: &Log, trace: &Trace) {
     }
 }
 
+// ---------------------------------------------------------------- Merge Lands
+
+/// `--merge-lands`: the Tools page's merge (`land_merge`) over the cfg's load order and data
+/// folders, each line printed as the merge says it. `Err` is why it stopped; it wrote nothing.
+fn merge_lands(args: &Args, folder: &str, log: &Log, trace: &Trace) -> Result<(), String> {
+    use landcore::pipeline::DiffModel;
+    use landcore::service::{build_merged_lands, home_folder, MergeOptions, DEFAULT_NAME};
+    let path = std::path::Path::new(&args.cfg);
+    let setup = ordercore::cfg::read(path, &ordercore::cfg::Tokens::for_cfg(path)).map_err(|e| format!("{} could not be read: {e}", args.cfg))?;
+    let order = setup.plugins();
+    let dirs: Vec<std::path::PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
+    section("MERGE LANDS");
+    println!("  {} plugin(s) in the load order, {} data folder(s)", order.len(), dirs.len());
+    let folder = if folder.is_empty() { home_folder(&dirs, &order) } else { Some(std::path::PathBuf::from(folder)) };
+    let Some(folder) = folder else {
+        return Err("no data folder holds any plugin of the load order: give the folder to write into, --merge-lands FOLDER".into());
+    };
+    println!("  writing into: {}", folder.display());
+    let model = if args.merge_model == "loadorder" { DiffModel::LoadOrder } else { DiffModel::Masters };
+    let mut opts =
+        MergeOptions { output: Some(folder.join(DEFAULT_NAME)), dry_run: args.dry_run, verbose: args.verbose > 0, model, ..Default::default() };
+    if let Some(ignore) = &args.merge_ignore {
+        opts.ignore = ignore.clone();
+    }
+    let started = std::time::Instant::now();
+    let mut say = |line: &str| {
+        println!("  {line}");
+        trace.line(&format!("merge lands [{:.1}s] {line}", started.elapsed().as_secs_f32()));
+    };
+    match build_merged_lands(&dirs, &order, &opts, &mut say) {
+        Ok(r) => {
+            for n in &r.notes {
+                log.info(n);
+            }
+            if r.output.is_some() && !order.iter().any(|n| n.eq_ignore_ascii_case(DEFAULT_NAME)) {
+                println!("\n  Load it last: add content={DEFAULT_NAME} at the end of the cfg's content= lines.");
+            }
+            Ok(())
+        }
+        Err((error, _)) => Err(format!("Merge Lands stopped: {error}")),
+    }
+}
+
 // ---------------------------------------------------------------- the run
 
 fn run(args: &Args) -> Result<(), String> {
@@ -363,6 +448,12 @@ fn run(args: &Args) -> Result<(), String> {
     trace.line("CLI started");
     for k in &args.unused {
         log.warning(&format!("--{k} is not used: plugins are read by the built-in reader"));
+    }
+    if args.plan.rules.is_empty() {
+        // --merge-lands alone: no sort.
+        let r = merge_lands(args, args.merge_lands.as_deref().unwrap_or_default(), &log, &trace);
+        trace.line("done");
+        return r;
     }
     let got = match plan::compute_plan(&args.plan) {
         Ok(got) => got,
@@ -393,6 +484,9 @@ fn run(args: &Args) -> Result<(), String> {
         ordercore::export::ExportError::Io(e) => format!("the export could not write: {e}"),
     })?;
     say(&done.report, &log, || {});
+    if let Some(folder) = &args.merge_lands {
+        merge_lands(args, folder, &log, &trace)?;
+    }
     trace.line("done");
     Ok(())
 }
@@ -430,6 +524,21 @@ mod tests {
         assert_eq!(a.plan.subset, vec!["A.esp", "B.esp"]);
         assert!(a.lint && a.verbose == 2 && a.trace.as_deref() == Some("wraithguard_toolkit_trace.log"));
         assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x"]).is_err());
+    }
+
+    #[test]
+    fn merge_lands_needs_no_rules() {
+        let m = command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands"]).unwrap();
+        let a = Args::read(&m);
+        assert_eq!(a.merge_lands.as_deref(), Some(""));
+        assert!(a.plan.rules.is_empty() && a.merge_ignore.is_none() && a.merge_model == "masters");
+        let m = command()
+            .try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "out/", "--merge-model", "loadorder", "--merge-ignore"])
+            .unwrap();
+        let a = Args::read(&m);
+        assert_eq!(a.merge_lands, Some(py_path("out/")));
+        assert_eq!((a.merge_model.as_str(), a.merge_ignore), ("loadorder", Some(Vec::new())));
+        assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-model", "odd", "--merge-lands"]).is_err());
     }
 
     #[test]

@@ -3,6 +3,22 @@
 
 ## 5.0.4
 
+### Added
+
+- **Merge Lands on the command line**: `wraithguard --cfg openmw.cfg --merge-lands [FOLDER]`
+  runs the Tools page's merge (`landcore::service`) over the cfg's load order and data
+  folders, printing its progress as it goes. `Merged Lands.esp` and its marker go into
+  FOLDER, or the data folder holding most of the load order (the Tools page's default, now
+  `landcore::service::home_folder`, which both use). Each plugin's `.mergedlands.toml`
+  applies; `--merge-model masters|loadorder` and `--merge-ignore` are the page's model and
+  ignore list, `--dry-run` writes nothing. `--rules` is no longer required with it; given,
+  the merge follows the sort. The 4.x command line never had one (asked on Discord,
+  2026-11-09). `cli/tests/merge_lands.rs` holds the command line's file to the one
+  `build_merged_lands` writes, byte for byte.
+- README's "Coming from 4.x?" says to `pip uninstall wraithguard-toolkit`: the old launcher
+  left on PATH answers `wraithguard` in a terminal, and fails with "No module named
+  'wraithguard_toolkit'".
+
 ### Fixed
 
 - **The dependency audit is clean** (RustSec, every `Cargo.lock`). The last two were Tauri 2's

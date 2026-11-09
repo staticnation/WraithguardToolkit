@@ -67,7 +67,10 @@ Help page shows. Unpack it anywhere and run the program; there is nothing to ins
 
 > **Coming from 4.x?** 5.0 is a single Rust program; the Python/Tk app is retired. Your
 > settings file carries over. A patch queue left by the 4.x Editor does not, so build it
-> into a patch with 4.x before you upgrade.
+> into a patch with 4.x before you upgrade. If you installed 4.x with pip, remove it
+> (`pip uninstall wraithguard-toolkit`): its `wraithguard` launcher stays on PATH otherwise,
+> and typing `wraithguard` runs it instead of 5.x's, which fails with
+> "No module named 'wraithguard_toolkit'".
 
 ---
 
@@ -355,9 +358,23 @@ wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
 
 By default it prints the plan and writes nothing.
 
+It also runs Merge Lands, the Tools page's merge, over the cfg's load order:
+
+```
+wraithguard --cfg openmw.cfg --merge-lands
+```
+
+That writes `Merged Lands.esp` (and its `.mergedlands.toml` marker) into the data folder
+holding most of the load order, or the folder you name (`--merge-lands "E:\OpenMW\Merged"`),
+and prints the merge's progress as it goes. A `Merged Lands.esp` already there is replaced. Each plugin's `.mergedlands.toml` settings
+apply, as they do on the Tools page. Add `--dry-run` to see the merge and write nothing.
+Given with `--rules`, the merge runs after the sort, from the cfg as it is on disk then (so
+after `--write-cfg`, if you gave that). Add `Merged Lands.esp` to the cfg's `content=`
+yourself, last, as you would after the Tools page's merge.
+
 | Flag | What it does |
 |---|---|
-| `--cfg PATH`, `--rules ...` | The cfg and the rule files (required). |
+| `--cfg PATH`, `--rules ...` | The cfg and the rule files (required; `--rules` not for `--merge-lands` alone). |
 | `--customizations PATH`, `--subset ...`, `--subset-file PATH` | Where the subset comes from. |
 | `--scan-dir DIR` | Scan a mods folder, write the result to `--subset-file`, then sort it. |
 | `--subset-from-cfg` | Sort the cfg's own unmanaged `content=` and `data=` entries. |
@@ -372,6 +389,9 @@ By default it prints the plan and writes nothing.
 | `--lint` | The Lint checks. |
 | `--cell-map PATH` | A self-contained HTML map of which mods touch which cells. |
 | `--exclude ...` | Plugins the scans leave out. |
+| `--merge-lands [FOLDER]` | Merge Lands, writing `Merged Lands.esp` into FOLDER (default: the folder holding most of the load order). |
+| `--merge-model masters\|loadorder` | Measure each plugin's terrain against the masters (default), or against the load order before it. |
+| `--merge-ignore ...` | Plugins Merge Lands leaves out, by name or by folder; replaces the default list (generated plugins such as `delta-merged.omwaddon`). |
 | `--no-predicate-warnings`, `-v`/`-vv`, `--trace` | Quieter, louder, or a trace log. |
 
 `wraithguard --help` lists them all.
@@ -395,7 +415,7 @@ By default it prints the plan and writes nothing.
 
 - **Nothing is written until you say so.** Export, Build patch, Keep and the Tools' write
   buttons are the only things that write. *Dry run* and the command line's default write
-  nothing.
+  nothing (its `--write-cfg`, `--emit-toml` and `--merge-lands` write).
 - **Backups first.** `openmw.cfg`, a customizations TOML, a plugin whose master is removed,
   and a file tes3cmd cleans are all copied before they change.
 - **A curated list's order is never changed.** Only your additions move.
