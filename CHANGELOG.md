@@ -5,6 +5,22 @@
 
 ### Added
 
+- **A plugin edited in place.** Build patch can write the pool into one of the load order's
+  own plugins, as the Construction Set saves its active file: choose the plugin as where
+  the patch goes, and "Edit it in place" is offered (and chosen) beside Append and Replace.
+  A record the pool changes takes its own record's place; a new one is added at the end, a
+  response into its topic where its links place it (as merge_to_master does); a cell whose
+  references the pool changes is the plugin's own record with those changes, its own
+  references still numbered as its own. Every other record is copied as its bytes: the
+  reader does not write a plugin back the same (thousands of records of the game's masters
+  differ - padding, a script's terminator, empty subrecords; `tests/roundtrip.rs` lists
+  them), so nothing the build did not decide is re-encoded. The header keeps its author,
+  description and masters; a master the build needs besides goes after its own, so no
+  reference is renumbered. The plugin as it was is kept beside it once
+  (`name.preedit.bak`, listed by the Tools page's Backups), and the new file is written
+  beside it and put in its place. One NPC's name changed in Morrowind.esm: 5.4 s, one
+  record of 48,296 different (`editcore/src/inplace.rs`, `tests/inplace.rs`).
+
 - **Merge Lands on the command line**: `wraithguard --cfg openmw.cfg --merge-lands [FOLDER]`
   runs the Tools page's merge (`landcore::service`) over the cfg's load order and data
   folders, printing its progress as it goes. `Merged Lands.esp` and its marker go into

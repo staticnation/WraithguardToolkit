@@ -18,7 +18,7 @@ use crate::testrun::{self, clean_setup};
 /// What a patch may be called.
 pub const PATCH_SUFFIXES: [&str; 3] = [".esp", ".esm", ".omwaddon"];
 /// How a build treats a file already there.
-pub const MODES: [&str; 3] = ["new", "append", "replace"];
+pub const MODES: [&str; 4] = ["new", "append", "replace", "inplace"];
 
 /// A refusal: the reason the page shows.
 pub type Res<T> = Result<T, String>;
@@ -101,8 +101,9 @@ pub fn refuse_running(running: Option<&BuildState>) -> Res<()> {
     }
 }
 
-/// How `editBuild` writes (`{mode?}`: `new`, the default, `append` or `replace`), or
-/// why it will not start.
+/// How `editBuild` writes (`{mode?}`: `new`, the default, `append`, `replace`, or
+/// `inplace` - the file is one of the load order's plugins, and the pool is written into
+/// it), or why it will not start.
 pub fn build_mode(req: &Value, target: &Path, running: Option<&BuildState>) -> Res<String> {
     let mode = match req.get("mode") {
         Some(m) if crate::session::truthy(m) => m.clone(),
@@ -111,6 +112,9 @@ pub fn build_mode(req: &Value, target: &Path, running: Option<&BuildState>) -> R
     let Some(mode) = mode.as_str().filter(|m| MODES.contains(m)) else { return Err("bad mode".into()) };
     if mode == "new" && target.exists() {
         return Err(format!("{} exists: choose Append or Replace", name_of(target)));
+    }
+    if mode == "inplace" && !target.is_file() {
+        return Err(format!("{} is not there to edit", name_of(target)));
     }
     refuse_running(running)?;
     Ok(mode.to_string())
@@ -251,6 +255,7 @@ pub fn written_answer(result: &PatchResult) -> Value {
         "carried": result.carried,
         "masters": result.masters,
         "remapped": result.remapped,
+        "backup": result.backup.as_ref().map(|p| p.to_string_lossy().to_string()),
         "note": written_note(result),
     })
 }
@@ -312,7 +317,10 @@ impl Builds {
     pub fn build(&self, editor: &Arc<Mutex<Editor>>, req: &Value) -> Res<Value> {
         let target = patch_target(req)?;
         let mode = build_mode(req, &target, self.current().as_ref())?;
-        let job = editor.lock().unwrap_or_else(|p| p.into_inner()).prepare_patch(&target, mode == "append").map_err(|e| e.0)?;
+        let job = {
+            let ed = editor.lock().unwrap_or_else(|p| p.into_inner());
+            if mode == "inplace" { ed.prepare_in_place(&target) } else { ed.prepare_patch(&target, mode == "append") }.map_err(|e| e.0)?
+        };
         let number = self.begin()?;
         let (me, editor) = (self.clone(), editor.clone());
         std::thread::Builder::new()

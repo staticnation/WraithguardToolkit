@@ -12,25 +12,27 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 
 Two features, in this order (Static: the Editor first).
 
-### 1. The Editor edits an existing plugin (an "active plugin")
+### 1. The Editor edits an existing plugin: the build is in (2026-11-10), the rest is not
 
-Today the pool is a list of decisions (a record taken whole, a field set, a reference placed)
-that a build turns into a new plugin; a rebuild of a patch it made carries the earlier
-build's records forward (`build::carry_forward`). There is no way to say "this plugin is the
-file I am editing", as the Construction Set's active file is.
+In: Build patch's "Edit it in place" (`inplace::build_in_place`, `CHANGELOG.md` 5.0.4): the
+pool written into a plugin of the load order, every record it does not decide copied as its
+bytes, a backup kept. Tried on the test plugins and on copies of the game's masters, not
+yet in the game. Left:
 
-- An active plugin, chosen in the Editor (any plugin of the load order; none: a new patch,
-  as now). The pool starts from its records and the edits lie over them; the record lists
-  mark what is the active plugin's own.
-- Build writes it back under its own name, a backup beside it first (as the Tools page's
-  backups), its masters and the order of its records kept, a reference renumbered only where
-  it must be. The patch build stays as it is: the same build, another start and target.
-- A record of the active plugin removed: taken out of the file when no master has it, a
-  DELETED record when one does (as the Construction Set).
-- Hard parts, each with a test before the code: a plugin read and written back with nothing
-  changed is the same bytes (or the differences listed and explained); a script not edited is
-  never compiled again; reference indices stay, so saves and plugins that name them still do;
-  the journal names its active plugin, so a pool is not applied to another file.
+- An active plugin chosen in the Editor, before editing rather than at the build: the
+  Editor's load order with it last (as the Construction Set loads its active file last), so
+  a record is edited as that plugin has it; the record lists marking what is its own; the
+  journal naming it, so a pool is not written into another file by mistake. Today the pool
+  is made against the load order as it is, and a record a later plugin overrides is built
+  from that later plugin's version.
+- Taking a record out of the plugin: out of the file when no master has it, a DELETED
+  record when one does (as the Construction Set). The pool has no such decision yet.
+- A landscape taken from another plugin: its texture indices are that plugin's (its LTEX
+  list), and are not renumbered for the edited plugin's (merge_to_master's `remap_textures`
+  does this). The patch build has the same gap.
+- A record the plugin has twice: the last is the one replaced.
+- The engine's world is not read again after the write: Preview opens it in a new Cell
+  Preview, as for a patch.
 
 ### 2. One setup type for every page (reading only)
 

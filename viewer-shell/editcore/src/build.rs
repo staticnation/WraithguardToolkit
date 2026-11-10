@@ -93,6 +93,8 @@ pub struct PatchResult {
     pub remapped: usize,
     /// The build's report.
     pub lines: Vec<String>,
+    /// For a plugin edited in place: the copy of it as it was, kept beside it.
+    pub backup: Option<PathBuf>,
 }
 
 fn rtype(r: &Value) -> &str {
@@ -140,6 +142,13 @@ pub fn master_names(records: &[Value]) -> Vec<String> {
 /// How one plugin's `mast_index` values read in the patch: 0 (the plugin itself) and
 /// each of its masters to their places in the patch's list.
 pub fn index_map(source: &str, source_masters: &[String], patch_masters: &[String]) -> Res<HashMap<i64, i64>> {
+    index_map_own(source, source_masters, patch_masters, "")
+}
+
+/// [`index_map`] for a build into the plugin `own` (edited in place, or a patch built over
+/// its own earlier build that the load order has): a record taken from that plugin itself
+/// keeps 0 for it, as the file names itself.
+pub fn index_map_own(source: &str, source_masters: &[String], patch_masters: &[String], own: &str) -> Res<HashMap<i64, i64>> {
     let lowered: HashMap<String, i64> = patch_masters.iter().enumerate().map(|(i, n)| (n.to_lowercase(), i as i64 + 1)).collect();
     let position = |name: &str| -> Res<i64> {
         match lowered.get(&name.to_lowercase()) {
@@ -150,7 +159,7 @@ pub fn index_map(source: &str, source_masters: &[String], patch_masters: &[Strin
         }
     };
     let mut mapping = HashMap::new();
-    mapping.insert(0, position(source)?);
+    mapping.insert(0, if !own.is_empty() && source.eq_ignore_ascii_case(own) { 0 } else { position(source)? });
     for (i, name) in source_masters.iter().enumerate() {
         mapping.insert(i as i64 + 1, position(name)?);
     }
@@ -389,6 +398,11 @@ pub fn dialogue_position_risk(carried: &[Value], sources: &Sources) -> Vec<Strin
 /// The chosen records, in the order chosen, references renumbered; a dialogue response
 /// preceded by its topic (once).
 pub fn collect(selections: &[Selection], sources: &Sources, patch_masters: &[String]) -> Res<Vec<Value>> {
+    collect_own(selections, sources, patch_masters, "")
+}
+
+/// [`collect`] for a build into the plugin `own` ([`index_map_own`]).
+pub fn collect_own(selections: &[Selection], sources: &Sources, patch_masters: &[String], own: &str) -> Res<Vec<Value>> {
     let mut maps: HashMap<String, HashMap<i64, i64>> = HashMap::new();
     let mut seen_topics: HashSet<String> = HashSet::new();
     let mut out = Vec::new();
@@ -409,7 +423,7 @@ pub fn collect(selections: &[Selection], sources: &Sources, patch_masters: &[Str
             continue;
         }
         if !maps.contains_key(&sel.plugin) {
-            maps.insert(sel.plugin.clone(), index_map(&sel.plugin, &master_names(records), patch_masters)?);
+            maps.insert(sel.plugin.clone(), index_map_own(&sel.plugin, &master_names(records), patch_masters, own)?);
         }
         out.push(remap_references(found, &maps[&sel.plugin])?);
     }
@@ -486,13 +500,18 @@ fn find_in<'a>(plugin: &str, record_type: &str, key: &str, sources: &'a Sources)
 /// One record built from a base and the fields chosen from other plugins (or typed),
 /// each field taken from a plugin renumbered against that plugin's own master list.
 pub fn merge_record(m: &Merge, sources: &Sources, patch_masters: &[String]) -> Res<Value> {
+    merge_record_own(m, sources, patch_masters, "")
+}
+
+/// [`merge_record`] for a build into the plugin `own` ([`index_map_own`]).
+pub fn merge_record_own(m: &Merge, sources: &Sources, patch_masters: &[String], own: &str) -> Res<Value> {
     let base = find_in(&m.base_plugin, &m.record_type, &m.key, sources)?;
     let mut maps: HashMap<String, HashMap<i64, i64>> = HashMap::new();
     let mut mapping_for = |plugin: &str| -> Res<HashMap<i64, i64>> {
         if let Some(found) = maps.get(plugin) {
             return Ok(found.clone());
         }
-        let built = index_map(plugin, &master_names(sources.get(plugin).map(Vec::as_slice).unwrap_or(&[])), patch_masters)?;
+        let built = index_map_own(plugin, &master_names(sources.get(plugin).map(Vec::as_slice).unwrap_or(&[])), patch_masters, own)?;
         maps.insert(plugin.to_string(), built.clone());
         Ok(built)
     };
@@ -653,8 +672,14 @@ pub fn cell_patch_record(edits: &[&RefEdit], sources: &Sources, load_order: &[St
 /// its cell (or a new one, the winning version's own fields and no other reference), as
 /// `(0, n)` numbered on from the highest the patch carries: uid -> index given.
 pub fn place_new_refs(records: &mut Vec<Value>, new_refs: &[NewRef], sources: &Sources, load_order: &[String]) -> Res<IndexMap<String, i64>> {
+    place_new_refs_from(records, new_refs, sources, load_order, 1)
+}
+
+/// [`place_new_refs`], numbering from `floor` at the least: a plugin edited in place has
+/// references of its own in cells that are not among `records`.
+pub fn place_new_refs_from(records: &mut Vec<Value>, new_refs: &[NewRef], sources: &Sources, load_order: &[String], floor: i64) -> Res<IndexMap<String, i64>> {
     let mut given = IndexMap::new();
-    for (n, new) in (next_new_index(records)..).zip(new_refs) {
+    for (n, new) in (next_new_index(records).max(floor)..).zip(new_refs) {
         let mut bad: Vec<&str> = new.fields.keys().map(String::as_str).filter(|k| !REF_FIELDS.contains(k) && *k != "id").collect();
         if !bad.is_empty() {
             bad.sort();
@@ -829,6 +854,34 @@ pub struct Plan {
 /// The patch's records (header first) and what was made of them; `say` hears each line
 /// of the report (`build_record_patch`, less the writing: [`write_patch`]).
 pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String], sizes: &HashMap<String, u64>, output_name: &str, say: &mut dyn FnMut(&str)) -> Res<(Vec<Value>, PatchResult)> {
+    let (records, result) = build_records(plan, sources, load_order, sizes, output_name, None, say)?;
+    let with_sizes: Vec<(String, u64)> = result.masters.iter().map(|n| (n.clone(), sizes[n])).collect();
+    let header = build_header(&with_sizes, records.len(), DESCRIPTION)?;
+    let mut document = vec![header];
+    document.extend(records);
+    Ok((document, result))
+}
+
+/// What a plugin edited in place keeps of itself through a build ([`build_records`]).
+pub struct Kept<'a> {
+    /// Its masters, in its own order: they stay so, and what the build needs besides goes
+    /// after them (so no record the build does not touch has to be renumbered).
+    pub masters: &'a [String],
+    /// One above the highest reference index of its own, over every cell it has.
+    pub next_ref: i64,
+}
+
+/// The records a build makes (no header) and what was made of them: [`build_record_patch`]'s
+/// work, and with `kept` the same for a plugin edited in place (`inplace`).
+pub fn build_records(
+    plan: &Plan,
+    sources: &Sources,
+    load_order: &[String],
+    sizes: &HashMap<String, u64>,
+    output_name: &str,
+    kept: Option<&Kept>,
+    say: &mut dyn FnMut(&str),
+) -> Res<(Vec<Value>, PatchResult)> {
     let mut lines: Vec<String> = Vec::new();
     let mut say = |t: String, lines: &mut Vec<String>| {
         say(&t);
@@ -849,7 +902,7 @@ pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String],
             "records: {} whole, {} merged{}",
             selections.len(),
             merges.len(),
-            if carried.is_empty() { String::new() } else { format!(", up to {} carried forward from the existing patch", carried.len()) }
+            if carried.is_empty() || kept.is_some() { String::new() } else { format!(", up to {} carried forward from the existing patch", carried.len()) }
         ),
         &mut lines,
     );
@@ -857,10 +910,18 @@ pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String],
     let mut stand = selections.clone();
     stand.extend(new_records.iter().filter(|m| !m.source.is_empty()).map(|m| Selection { plugin: m.source.clone(), record_type: m.record_type.clone(), key: m.key.clone() }));
     let mut masters = masters_for(&stand, plan, sources, load_order, own);
+    if let Some(k) = kept {
+        // Its own first, as it has them; the rest after, in load order.
+        let have: HashSet<String> = k.masters.iter().map(|n| n.to_lowercase()).collect();
+        let more: Vec<String> = masters.into_iter().filter(|n| !have.contains(&n.to_lowercase())).collect();
+        masters = k.masters.to_vec();
+        masters.extend(more);
+    }
     // A patch of only its own new records (new land and cells over the sea, say) names no
     // master. The game's base file goes in, as the Construction Set always puts it: a
     // plugin with none is one OpenMW reads, but tools and the engine's terrain expect it.
     if masters.is_empty()
+        && kept.is_none()
         && let Some(base) = load_order.iter().find(|n| {
             let l = n.to_lowercase();
             (l.ends_with(".esm") || l.ends_with(".omwgame")) && sizes.contains_key(*n) && l != own.to_lowercase()
@@ -873,15 +934,15 @@ pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String],
     decided.extend(new_records.iter().map(|m| (m.record_type.clone(), m.key.clone())));
     let mut records = if carried.is_empty() { Vec::new() } else { carry_forward(carried, &masters, &decided)? };
     let carried_count = records.len();
-    if !carried.is_empty() {
+    if !carried.is_empty() && kept.is_none() {
         say(format!("{carried_count} record(s) carried forward from the existing patch"), &mut lines);
     }
-    records.extend(collect(selections, sources, &masters)?);
+    records.extend(collect_own(selections, sources, &masters, own)?);
     for m in merges {
         for line in describe(&m.choices, &m.base_plugin) {
             say(format!("  {} {}: {line}", m.record_type, m.key), &mut lines);
         }
-        let built = merge_record(m, sources, &masters)?;
+        let built = merge_record_own(m, sources, &masters, own)?;
         place(&mut records, built, sources.get(&m.base_plugin).map(Vec::as_slice).unwrap_or(&[]));
     }
     for m in new_records {
@@ -919,7 +980,7 @@ pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String],
         }
     }
     if !new_refs.is_empty() {
-        let given = place_new_refs(&mut records, new_refs, sources, load_order)?;
+        let given = place_new_refs_from(&mut records, new_refs, sources, load_order, kept.map_or(1, |k| k.next_ref))?;
         for n in new_refs {
             let id = n.fields.get(&"id".to_string()).map(str_of).unwrap_or_else(|| "None".into());
             say(format!("  Cell {}: new {id} as (0, {})", n.cell, given[&n.uid]), &mut lines);
@@ -947,16 +1008,15 @@ pub fn build_record_patch(plan: &Plan, sources: &Sources, load_order: &[String],
     if remapped > 0 {
         say(format!("{remapped} record(s) had their references renumbered for the new master list"), &mut lines);
     }
-    let missing: Vec<&str> = masters.iter().filter(|n| !sizes.contains_key(*n)).map(String::as_str).collect();
+    // A master's size goes in the header: each one the build declares itself has to be
+    // measured (a plugin edited in place keeps the sizes it has for its own).
+    let own_masters: HashSet<String> = kept.map(|k| k.masters.iter().map(|n| n.to_lowercase()).collect()).unwrap_or_default();
+    let missing: Vec<&str> = masters.iter().filter(|n| !sizes.contains_key(*n) && !own_masters.contains(&n.to_lowercase())).map(String::as_str).collect();
     if !missing.is_empty() {
         return fail(format!("cannot measure {}. A master's size goes in the header, and a wrong one makes the plugin look corrupt.", missing.join(", ")));
     }
-    let with_sizes: Vec<(String, u64)> = masters.iter().map(|n| (n.clone(), sizes[n])).collect();
-    let header = build_header(&with_sizes, records.len(), DESCRIPTION)?;
-    let mut document = vec![header];
-    document.extend(records.iter().cloned());
-    let result = PatchResult { output: None, records: records.len(), carried: carried_count, masters, remapped, lines };
-    Ok((document, result))
+    let result = PatchResult { output: None, records: records.len(), carried: carried_count, masters, remapped, lines, backup: None };
+    Ok((records, result))
 }
 
 /// A reference's fields the crate cannot do without, given as the Python writer gives
@@ -1009,6 +1069,17 @@ pub struct Job {
     pub sizes: HashMap<String, u64>,
     /// What the queue held: finishing spends exactly this, not later edits.
     pub snapshot: crate::queue::Decisions,
+    /// The target is one of the load order's plugins, edited in place (`inplace`).
+    pub in_place: bool,
+}
+
+/// The copy a plugin edited in place keeps of itself as it was, beside it
+/// (`name.preedit.bak`): made once, so it stays the plugin as it was before the Editor
+/// first wrote to it. The Tools page's Backups lists it and puts it back.
+pub fn in_place_backup(plugin: &Path) -> PathBuf {
+    let mut name = plugin.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(".preedit.bak");
+    plugin.with_file_name(name)
 }
 
 impl Editor {
@@ -1038,6 +1109,24 @@ impl Editor {
     /// already rides along). Refused with nothing queued, or a merge whose base the
     /// Editor no longer knows.
     pub fn prepare_patch(&self, target: &Path, append: bool) -> Res<Job> {
+        self.prepare(target, append, false)
+    }
+
+    /// A build of the queue into `target`, one of the load order's own plugins, edited in
+    /// place (`inplace::build_in_place`): refused for a file that is not the plugin the load
+    /// order has under that name.
+    pub fn prepare_in_place(&self, target: &Path) -> Res<Job> {
+        let name = target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let at = self.session.order().iter().position(|n| n.eq_ignore_ascii_case(&name));
+        let same = |a: &Path, b: &Path| std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(b).ok()).is_some_and(|(a, b)| a == b);
+        match at.and_then(|i| self.session.plugin_paths().get(i).cloned()) {
+            Some(p) if same(&p, target) => self.prepare(target, false, true),
+            Some(p) => fail(format!("{name} in the load order is {}, not this file: only the load order's own plugin is edited in place", p.display())),
+            None => fail(format!("{name} is not a plugin of the load order: only one of its own is edited in place")),
+        }
+    }
+
+    fn prepare(&self, target: &Path, append: bool, in_place: bool) -> Res<Job> {
         if self.queue.is_empty() {
             return fail("Nothing is queued: there is no patch to write.");
         }
@@ -1084,7 +1173,12 @@ impl Editor {
         let order = self.session.order().to_vec();
         let sizes = order.iter().zip(self.session.plugin_paths()).filter_map(|(n, p)| std::fs::metadata(&p).ok().map(|m| (n.clone(), m.len()))).collect();
         let paths = order.iter().cloned().zip(self.session.plugin_paths()).collect();
-        Ok(Job { target: target.to_path_buf(), plan, order, names: wanted.into_iter().collect(), paths, sizes, snapshot: self.queue.snapshot() })
+        if in_place {
+            // Its own cells are read for the references it changes.
+            wanted.insert(order.iter().find(|n| target.file_name().is_some_and(|f| n.eq_ignore_ascii_case(&f.to_string_lossy()))).cloned().unwrap_or_default());
+            wanted.remove("");
+        }
+        Ok(Job { target: target.to_path_buf(), plan, order, names: wanted.into_iter().collect(), paths, sizes, snapshot: self.queue.snapshot(), in_place })
     }
 
     /// The finished build's decisions spent from the queue (an edit made since the job
@@ -1112,6 +1206,34 @@ pub fn run_patch_job(job: &Job, dry_run: bool, say: &mut dyn FnMut(&str)) -> Res
 pub fn run_patch(session: &crate::session::Session, job: &Job, dry_run: bool, say: &mut dyn FnMut(&str)) -> Res<PatchResult> {
     let sources: Sources = job.names.iter().map(|n| (n.clone(), session.read_whole(n).unwrap_or_default())).collect();
     let name = job.target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    if job.in_place {
+        let original = std::fs::read(&job.target).map_err(|e| BuildError(format!("{name} could not be read: {e}")))?;
+        let (bytes, mut result) = crate::inplace::build_in_place(&job.plan, &sources, &job.order, &job.sizes, &name, &original, say)?;
+        let mut line = |t: String, result: &mut PatchResult| {
+            say(&t);
+            result.lines.push(t);
+        };
+        if dry_run {
+            line("dry run: nothing was written".into(), &mut result);
+            return Ok(result);
+        }
+        // The plugin as it was, kept once; then the new bytes beside it and put in its place,
+        // so a write that fails half way leaves the plugin whole.
+        let backup = in_place_backup(&job.target);
+        if !backup.exists() {
+            std::fs::copy(&job.target, &backup).map_err(|e| BuildError(format!("the backup {} could not be written ({e}): {name} is not changed", backup.display())))?;
+            line(format!("kept {name} as it was: {}", backup.display()), &mut result);
+        }
+        let tmp = job.target.with_file_name(format!("{name}.wg-tmp"));
+        std::fs::write(&tmp, &bytes).and_then(|()| std::fs::rename(&tmp, &job.target)).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            BuildError(format!("{name} could not be written: {e}"))
+        })?;
+        line(format!("wrote {} ({} bytes, {} records)", job.target.display(), bytes.len(), result.records + 1), &mut result);
+        result.output = Some(job.target.clone());
+        result.backup = Some(backup);
+        return Ok(result);
+    }
     let (document, mut result) = build_record_patch(&job.plan, &sources, &job.order, &job.sizes, &name, say)?;
     if dry_run {
         let line = "dry run: nothing was written".to_string();
@@ -1129,6 +1251,15 @@ pub fn run_patch(session: &crate::session::Session, job: &Job, dry_run: bool, sa
 
 /// What a written patch is, in a sentence or two (`patch_written_note`).
 pub fn written_note(result: &PatchResult) -> String {
+    if let Some(backup) = &result.backup {
+        return format!(
+            "Edited in place:\n{}\n\n{} record(s) in it now, {} of them as they were. As it was before the Editor first wrote to it:\n{}\n(the Tools page's Backups puts it back).",
+            result.output.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+            result.records,
+            result.carried,
+            backup.display()
+        );
+    }
     let carried = if result.carried > 0 { format!(" ({} carried forward from before)", result.carried) } else { String::new() };
     format!(
         "{} record(s) written to:\n{}{carried}\n\nDeclares {} master(s). Add it to your load order LAST.",

@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Wraithguard's own backup suffixes (`BACKUP_PATTERNS`), in the order they are tried.
-pub const SUFFIXES: [&str; 5] = [".preclean.bak", ".masterfix.bak", ".precustom.bak", ".pretes3cmd.bak", ".premaster.bak"];
+pub const SUFFIXES: [&str; 6] = [".preclean.bak", ".masterfix.bak", ".precustom.bak", ".pretes3cmd.bak", ".premaster.bak", ".preedit.bak"];
 
 /// One backup: where it is, the file it was taken of (which may be gone: restoring it is then
 /// a recovery), and what made it.

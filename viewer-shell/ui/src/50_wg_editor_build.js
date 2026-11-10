@@ -364,7 +364,8 @@ Object.assign(WgEditor, {
         '<button class="btn dim sm" data-bpath="'+escHtml(path)+'" title="'+escHtml(path)+'">'+escHtml(label.length>46? '…'+label.slice(-45) : label)+'</button>').join('')+'</div>' : '')+
       '<div id="edBuildState" class="hint"></div>'+
       '<div id="edBuildMode" hidden><label title="Keep what the file already carries and add the pool on top: one patch built over several sessions"><input type="radio" name="edBuildMode" value="append" checked> Append</label> '+
-      '<label title="Throw away what the file carries and write only the pool"><input type="radio" name="edBuildMode" value="replace"> Replace</label></div>'});
+      '<label title="Throw away what the file carries and write only the pool"><input type="radio" name="edBuildMode" value="replace"> Replace</label> '+
+      '<label id="edBuildInPlace" hidden title="Write the pool into this plugin of the load order, as the Construction Set saves its active file: a record the pool changes takes its own record\'s place, a new one is added, and every other record stays byte for byte as it is. The plugin as it was is kept beside it (name.preedit.bak; the Tools page\'s Backups puts it back)"><input type="radio" name="edBuildMode" value="inplace"> Edit it in place</label></div>'});
     sec.push({key:'report', title:'Report', html:'<pre id="edBuildLog" class="edLog">Nothing written yet.</pre>'});
     h+=WgUI.sectionsHtml('BUILD', sec)+
       '<div class="hint">Your mods are not changed: the patch is one new plugin. Load it last, and back up your saves.</div>'+
@@ -382,7 +383,17 @@ Object.assign(WgEditor, {
       try{
         const c=await this.ask('editBuildCheck', {path:this._buildPath});
         mode.hidden=!c.exists;
-        st.textContent= c.exists? 'This file is there already: append the pool to it, or replace it.'+(c.inOrder? ' It is in the load order.' : '')
+        // One of the load order's own plugins can be edited in place, and that is the choice
+        // offered first for it: Append writes the whole file again through the reader.
+        const own=!!(c.exists && c.inOrder), ip=body.querySelector('#edBuildInPlace');
+        if(ip){
+          ip.hidden=!own;
+          if(own!==this._buildOwn){ const pick=body.querySelector('input[name="edBuildMode"][value="'+(own? 'inplace' : 'append')+'"]'); if(pick) pick.checked=true; }
+          else if(!own){ const cur=body.querySelector('input[name="edBuildMode"]:checked'); if(cur && cur.value==='inplace') body.querySelector('input[name="edBuildMode"][value="append"]').checked=true; }
+          this._buildOwn=own;
+        }
+        st.textContent= c.exists? (own? 'This is a plugin of the load order: edit it in place (its other records stay as they are, and a backup is kept), append the pool to it, or replace it.'
+            : 'This file is there already: append the pool to it, or replace it.')
           : 'A new file.'+(c.inOrder? ' A plugin of this name is in the load order.' : '');
         this._buildExists=!!c.exists;
         return c;
