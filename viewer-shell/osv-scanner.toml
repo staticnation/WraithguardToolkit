@@ -1,0 +1,21 @@
+# OSV-Scanner config for viewer-shell/Cargo.lock (osv-scanner reads it from the lock file's
+# own directory).
+#
+# The [patch.crates-io] forks in Cargo.toml (staticnation/gtk-0.18-patches) keep the names and
+# versions of the crates they replace, so OSV matches them by name + version and still reports
+# the advisories the forks fix. Each entry below is one of those; both IDs of the glib advisory
+# are listed because OSV groups them as aliases.
+#
+# Drop this file when the [patch.crates-io] section goes (Tauri's webview leaves gtk-rs 0.18).
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0429"
+reason = "glib 0.18.5 is the fork: VariantStrIter fixed (&mut p out-argument), backported from glib 0.20 (gtk-rs-core#1343)."
+
+[[IgnoredVulns]]
+id = "GHSA-wrw7-89jp-8q8g"
+reason = "Alias of RUSTSEC-2024-0429: same glib VariantStrIter fix in the fork."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+reason = "proc-macro-error 1.0.4 is the fork: same API re-exported from the maintained proc-macro-error3 (unmaintained advisory)."
