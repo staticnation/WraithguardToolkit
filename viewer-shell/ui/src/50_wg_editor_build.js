@@ -533,7 +533,15 @@ Object.assign(WgEditor, {
     const r=st.result;
     done.innerHTML='<div class="hint edGood">'+escHtml(r.note).replace(/\n/g,'<br>')+'</div>'+
       '<div class="orirow"><span class="v"><button class="btn sm" id="edBuildPreview" title="A new Cell Preview with the patch loaded last, on the cells it changes">Preview it in a new Cell Preview</button> '+
-      '<button class="btn sm" id="edBuildCopy" title="The patch\'s path, to the clipboard">Copy the path</button></span></div>';
+      '<button class="btn sm" id="edBuildCopy" title="The patch\'s path, to the clipboard">Copy the path</button>'+
+      (r.backup? ' <button class="btn sm" id="edBuildReload" title="The viewer still draws the plugin as it was read: read the load order again, with the plugin as it is now (as long as a first load)">Read the load order again</button>' : '')+'</span></div>';
+    const again=done.querySelector('#edBuildReload');
+    if(again) again.onclick=async()=>{
+      const cfg=String((window.__WG_VIEW__||{}).cfg||'');
+      if(!cfg || typeof openInstall!=='function') return toast('The load order is read again from Setup','warn',4000);
+      again.disabled=true;
+      try{ await openInstall('openmw', cfg, null, null); }catch(e){ toast(String(e.message||e),'err',6000); }
+    };
     done.querySelector('#edBuildPreview').onclick=async()=>{
       try{ await Engine.call('editor_preview_patch', {cfg:String((window.__WG_VIEW__||{}).cfg||''), path:r.output}); toast('Opening a Cell Preview with the patch','ok',3000); }
       catch(e){ toast(String(e.message||e),'err',5000); }

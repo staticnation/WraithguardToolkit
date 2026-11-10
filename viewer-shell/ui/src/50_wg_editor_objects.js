@@ -188,7 +188,7 @@ Object.assign(WgEditor, {
   async _loadColumns(tag){
     const gen=this._colGen|0;
     try{
-      const c=await this.ask('editColumns', {tag});
+      const c=await this.ask('editColumns', Object.assign({tag}, this.activePlugin()? {own:this.activePlugin()} : {}));
       if(gen!==(this._colGen|0)) return;
       this._cols=this._cols||{}; this._cols[tag]=c;
       if(tag===this.tag && c.columns && c.columns.length && this.el) this.drawRows();
@@ -278,9 +278,12 @@ Object.assign(WgEditor, {
       '<th data-col="'+k+'"'+(t.title? ' title="'+escHtml(t.title)+'"' : '')+'>'+escHtml(t.label)+(k===c? (dir>0?' ▲':' ▼') : '')+'</th>').join('')+'</tr></thead><tbody>';
     // The records the load order deletes (`editColumns`' `deleted`): listed, and marked D.
     const gone=new Set((((this._cols||{})[this.tag]||{}).deleted)||[]);
+    // The records the plugin being edited has itself (`editColumns`' `own`): marked.
+    const ownIds=new Set((((this._cols||{})[this.tag]||{}).own)||[]), ownOf=this.activePlugin();
     const cell=(t, r)=>{
       const v=t.get(r);
       if(t.kind==='id') return '<td>'+(icon? '<span class="edIco">'+icon+'</span>' : '')+escHtml(v)+
+        (ownIds.has(String(v).toLowerCase())? ' <span class="edOwn" title="'+escHtml(ownOf)+' has this record: the plugin being edited">●</span>' : '')+
         (gone.has(String(v).toLowerCase())? ' <span class="edGone" title="Deleted: the last plugin that has it deletes it (the Construction Set\'s D)">D</span>' : '')+
         (snd? ' <button class="btn sm dim edSndRow" title="Play it (again: stop)">▶</button>' : '')+'</td>';
       if(t.kind==='defs') return '<td title="'+escHtml(v.join(' > '))+'">'+escHtml(v[v.length-1]||'')+(v.length>1? ' <span class="from">+'+(v.length-1)+'</span>' : '')+'</td>';

@@ -120,6 +120,10 @@ pub fn keys_of(record: &Value) -> HashSet<String> {
 /// than one (a cell name several exterior cells share).
 pub fn find_record<'a>(records: &'a [Value], record_type: &str, key: &str, plugin: &str) -> Res<Option<&'a Value>> {
     let hits: Vec<&Value> = records.iter().filter(|r| rtype(r) == record_type && keys_of(r).contains(key)).collect();
+    // The same record twice in one plugin: the last is the one the game has.
+    if hits.len() > 1 && hits.iter().all(|r| record_key(r).eq_ignore_ascii_case(&record_key(hits[0]))) {
+        return Ok(hits.last().copied());
+    }
     if hits.len() > 1 {
         let wher: Vec<String> = hits.iter().map(|r| record_key(r)).collect();
         return fail(format!("{} names {} {record_type} records in {plugin} ({}). Choose the one meant by its grid.", str_repr(key), hits.len(), wher.join(", ")));
@@ -1209,6 +1213,14 @@ impl Editor {
         let name = target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let at = self.session.order().iter().position(|n| n.eq_ignore_ascii_case(&name));
         let same = |a: &Path, b: &Path| std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(b).ok()).is_some_and(|(a, b)| a == b);
+        // A pool made with another plugin chosen was made against another load order (that
+        // one last): its records' bases are not this plugin's.
+        if !self.queue.active.is_empty() && !self.queue.active.eq_ignore_ascii_case(&name) {
+            return fail(format!(
+                "The pool was made editing {}, and this is {name}. Choose {} again under Edit a plugin, or choose {name} there and say the pool goes with it.",
+                self.queue.active, self.queue.active
+            ));
+        }
         match at.and_then(|i| self.session.plugin_paths().get(i).cloned()) {
             Some(p) if same(&p, target) => self.prepare(target, false, true),
             Some(p) => fail(format!("{name} in the load order is {}, not this file: only the load order's own plugin is edited in place", p.display())),

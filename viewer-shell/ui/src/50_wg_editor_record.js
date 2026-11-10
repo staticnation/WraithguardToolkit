@@ -42,10 +42,39 @@ Object.assign(WgEditor, {
     const order=ed.plugins.slice(); const [mine]=order.splice(at, 1); order.push(mine);
     return order;
   },
+  /** The journal's pool was made editing another plugin than the one chosen here: that one
+   *  is chosen, and the Editor opens on its load order (once). With an empty pool the
+   *  journal takes this side's choice. */
+  async followPoolPlugin(){
+    if(this._followed) return; this._followed=true;
+    try{
+      const mine=this.activePlugin();
+      const r=await this.ask('editActive', {name:mine});
+      if(!r.differs) return;
+      try{ if(r.active) localStorage.setItem('wgEditorActive', r.active); else localStorage.removeItem('wgEditorActive'); }catch(_){ }
+      this._native=null; this._ownLinks=null;
+      await this.nativeLinks();
+      toast('The pool was made editing '+(r.active||'a new patch')+': that is the plugin being edited','ok',5000);
+    }catch(_){ }
+  },
+
   /** Chooses the plugin to edit ('' for a new patch): the Editor opens again on the load
    *  order with it last. The pool is kept (the journal is the same). */
   async setActivePlugin(name){
+    // The pool is made against the load order with its plugin last: one that holds changes
+    // goes to another plugin only when asked.
+    if(this.links().editActive){
+      try{
+        let r=await this.ask('editActive', {name});
+        if(r.differs){
+          const ok=await wgConfirm('The pool holds '+r.records+' change'+(r.records===1?'':'s')+' made editing '+(r.active||'a new patch')+'.\n\nKeep them and write them into '+(name||'a new patch')+' instead? Each was made from the record as '+(r.active||'the load order')+' had it.\n\nCancel leaves the choice as it was.', 'Edit a plugin');
+          if(!ok){ if(this.bld && !this.bld.hidden) await this.showBuild(); return; }
+          await this.ask('editActive', {name, force:true});
+        }
+      }catch(e){ toast(String(e.message||e),'err',5000); return; }
+    }
     try{ if(name) localStorage.setItem('wgEditorActive', name); else localStorage.removeItem('wgEditorActive'); }catch(_){ }
+    if(this._cols) this._cols={};
     this._native=null; this._ownLinks=null;
     await this.nativeLinks();
     this._buildPath='';
@@ -155,6 +184,9 @@ Object.assign(WgEditor, {
             if(own && names.size){ this._ownLinks={}; names.forEach(n=>{ this._ownLinks[n]='native:'+n; }); }
             // Land the patch already changes (a journal from an earlier run) drawn as it will be.
             if(names.has('editLandPending') && typeof WgLand==='object') setTimeout(()=>WgLand.sync(), 0);
+            // The pool's own plugin (the journal names it) is the one edited: a pool left from
+            // a run with another chosen opens on that one again.
+            if(names.has('editActive')) setTimeout(()=>this.followPoolPlugin(), 0);
             return names;
           }))
           .catch(e=>{

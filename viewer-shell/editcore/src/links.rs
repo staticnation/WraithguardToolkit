@@ -52,6 +52,7 @@ pub const ANSWERS: &[&str] = &[
     "editSearchAll",
     "editReplaceAll",
     "editColumns",
+    "editActive",
     "editFilterChoices",
     "editUndo",
     "editRedo",
@@ -1149,7 +1150,34 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
         "editColumns" => {
             let req = body_of(body)?;
             let tag = need_words(&req, "tag", "tag")?;
-            Json(ed.columns(&tag.trim().to_uppercase()))
+            let mut out = ed.columns(&tag.trim().to_uppercase());
+            // The records the plugin being edited has itself (`own`: its name), to mark.
+            if let Some(own) = req.get("own").and_then(Value::as_str).filter(|o| !o.is_empty())
+                && ed.session.order().iter().any(|n| n.eq_ignore_ascii_case(own))
+            {
+                let keys: Vec<String> = ed.session.records(own, &tag.trim().to_uppercase()).keys().cloned().collect();
+                out["own"] = json!(keys);
+            }
+            Json(out)
+        }
+        // The plugin the pool is for (`queue.active`): `{}` asks; `{name}` names it - at once
+        // with an empty pool or `force`, else only told (`differs`), for the page to ask
+        // first. `{active, records, differs}`.
+        "editActive" => {
+            let req = body_of(body)?;
+            let mut differs = false;
+            if let Some(name) = req.get("name").and_then(Value::as_str) {
+                let name = name.trim();
+                if !name.eq_ignore_ascii_case(&ed.queue.active) {
+                    if ed.queue.is_empty() || req.get("force").is_some_and(crate::session::truthy) {
+                        ed.queue.active = name.to_string();
+                        ed.save_journal();
+                    } else {
+                        differs = true;
+                    }
+                }
+            }
+            Json(json!({"active": ed.queue.active, "records": ed.queue.len(), "differs": differs}))
         }
         "editFilterChoices" => Json(crate::fields::filter_choices()),
         "editUndo" => Json(ed.undo()),

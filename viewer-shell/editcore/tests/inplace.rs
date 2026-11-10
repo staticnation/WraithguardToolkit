@@ -359,3 +359,41 @@ fn a_landscape_from_another_plugin_is_numbered_for_this_ones_textures() {
     assert_eq!(worn, [1, 3], "rock as Mod.esp's 0 (1), sand as its 2 (3)");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_pool_made_editing_one_plugin_is_not_written_into_another() {
+    let mut s = setup("active");
+    s.ed.queue.active = "Other.esp".into();
+    let plate = s.ed.find("MISC", "misc_plate", None).unwrap();
+    s.ed.set_field(&plate, "name", &json!("x")).unwrap();
+    let e = s.ed.prepare_in_place(&s.target).unwrap_err().0;
+    assert!(e.starts_with("The pool was made editing Other.esp, and this is Mod.esp."), "{e}");
+    // The journal carries the name, and a queue read from it has it.
+    let doc = s.ed.queue.journal();
+    assert_eq!(doc["active"], json!("Other.esp"));
+    let mut again = PatchQueue::new();
+    again.restore_doc(&doc);
+    assert_eq!(again.active, "Other.esp");
+    s.ed.queue.active = "mod.esp".into();
+    assert!(s.ed.prepare_in_place(&s.target).is_ok(), "its own, in any case");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+#[test]
+fn a_record_it_has_twice_goes_whole_when_taken_out() {
+    let mut s = setup("twice");
+    // The plate a second time, at the end of the file (the header's count with it).
+    let frames_now = frames(&s.original);
+    let mut bytes = s.original.clone();
+    bytes.extend_from_slice(frames_now[2]);
+    let at = bytes.windows(4).position(|w| w == b"HEDR").unwrap() + 8 + 296;
+    let n = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) + 1;
+    bytes[at..at + 4].copy_from_slice(&n.to_le_bytes());
+    std::fs::write(&s.target, &bytes).unwrap();
+    s.ed.session.forget_file(&s.target);
+    let plate = s.ed.find("MISC", "misc_plate", None).unwrap();
+    s.ed.set_field(&plate, "flags", &json!("DELETED")).unwrap();
+    build(&mut s);
+    assert!(!read(&s.target).iter().any(|r| r["id"] == json!("misc_plate")), "both copies are out");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}

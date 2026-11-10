@@ -191,6 +191,10 @@ pub struct Decisions {
 #[derive(Clone, Debug, Default)]
 pub struct PatchQueue {
     d: Decisions,
+    /// The plugin the pool is made for (the one being edited, read last); `""`: a new patch.
+    /// In the journal (`active`) when it names one, so a pool is not written into another
+    /// plugin than the one it was made against.
+    pub active: String,
     /// Counts the changes: the Editor's page polls it (`editRevision`).
     pub revision: u64,
 }
@@ -450,7 +454,7 @@ impl PatchQueue {
             Choice::Value { path, value } => json!({"path": path, "value": value}),
             Choice::Plugin { path, plugin } => json!({"path": path, "plugin": plugin}),
         };
-        json!({
+        let mut doc = json!({
             "version": JOURNAL_VERSION,
             "whole": self.d.whole.iter().map(|s| json!({"type": s.record_type, "key": s.key, "plugin": s.plugin})).collect::<Vec<_>>(),
             "fields": self.d.fields.iter().map(|((t, k), cs)| json!({
@@ -465,7 +469,11 @@ impl PatchQueue {
             "new": self.d.new.values().map(|n| json!({
                 "cell": n.cell, "uid": n.uid, "fields": n.fields.to_object(), "base": n.base_plugin, "plugins": n.plugins, "tag": n.tag,
             })).collect::<Vec<_>>(),
-        })
+        });
+        if !self.active.is_empty() {
+            doc["active"] = json!(self.active);
+        }
+        doc
     }
 
     /// Writes the whole queue to a journal file (atomically), or removes the file when the
@@ -498,6 +506,9 @@ impl PatchQueue {
         }
         let mut n = 0;
         let _ = self.restore_parts(doc, &mut n);
+        if let Some(a) = doc.get("active").and_then(Value::as_str) {
+            self.active = a.to_string();
+        }
         n
     }
 

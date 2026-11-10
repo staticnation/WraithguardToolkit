@@ -35,6 +35,13 @@
   `remap_textures`): its texture numbers were the source plugin's, and pointed at whatever
   the written plugin numbered so. A texture the written plugin has takes that number; one
   it has not comes along as a copy of the source's `LTEX`, numbered next.
+- **The pool remembers the plugin it is for.** The journal names it (`active`): a pool made
+  editing one plugin is not written into another (refused, with which), choosing another
+  with changes in the pool asks first, and a pool left from an earlier run opens on its own
+  plugin again. The Object Window marks with a dot the records the plugin being edited has
+  itself. A record a plugin has twice is taken as the last (the one the game has; it was
+  refused as two records) and, taken out, every copy goes. After an in-place write, "Read
+  the load order again" reads the install anew, so the viewer draws the plugin as written.
 
 - **Merge Lands on the command line**: `wraithguard --cfg openmw.cfg --merge-lands [FOLDER]`
   runs the Tools page's merge (`landcore::service`) over the cfg's load order and data

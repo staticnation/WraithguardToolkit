@@ -16,6 +16,8 @@
 //! - a record marked deleted that no other plugin has is taken out of the file (a DELETED
 //!   record of something only this file ever had deletes nothing); one a master or another
 //!   plugin has is written as its DELETED record;
+//! - a record the file has twice: the last is the one the game has, and the one replaced;
+//!   taken out, every copy goes;
 //! - the header keeps its author, description and masters; the record count is set, and a
 //!   master the build needs besides is added after its own (so the file's references keep
 //!   their numbers).
@@ -158,9 +160,13 @@ pub fn build_in_place(
     let own_masters = master_names(std::slice::from_ref(&header));
     // The last record of a key is the one the game has, and the one replaced.
     let mut at_of: HashMap<(String, String), usize> = HashMap::new();
+    // A plugin can have a record twice (the game has the last): every one of them, for the
+    // record taken out - the earlier would otherwise stand in its place.
+    let mut all_of: HashMap<(String, String), Vec<usize>> = HashMap::new();
     for (i, r) in raws.iter().enumerate() {
         if let Some(k) = &r.key {
             at_of.insert(k.clone(), i);
+            all_of.entry(k.clone()).or_default().push(i);
         }
     }
 
@@ -225,9 +231,8 @@ pub fn build_in_place(
                     } else {
                         current = None;
                     }
-                    let there = keys_of(record).iter().find_map(|k| at_of.get(&(rtype.clone(), k.to_lowercase())).copied()).or_else(|| at_of.get(&(rtype.clone(), key.clone())).copied());
-                    if let Some(i) = there {
-                        gone.insert(i);
+                    for k in keys_of(record).iter().map(|k| k.to_lowercase()).chain(std::iter::once(key.clone())) {
+                        gone.extend(all_of.get(&(rtype.clone(), k)).into_iter().flatten().copied());
                     }
                 }
             }
