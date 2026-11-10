@@ -389,9 +389,25 @@ pub(super) fn loadorder_plain_write(
     } else {
         let ini = c.files.first().cloned().ok_or("the install has no Morrowind.ini")?;
         let profile = if kind == "mo2" { ini.parent().map(Path::to_path_buf) } else { None };
-        viewcore::ordercore::plain::write(&ini, &order, &off, profile.as_deref(), &find, dry_run, &stamp)?
+        let mut lines = viewcore::ordercore::plain::write(&ini, &order, &off, profile.as_deref(), &find, dry_run, &stamp)?;
+        // An MO2 install that feeds OpenMW: the cfg it exports to as well, so OpenMW has it now.
+        if let Some(omw) = viewcore::ordercore::install::feeds_openmw(&cfg) {
+            lines.extend(viewcore::ordercore::plain::write_exported_cfg(&omw, &order, &off, dry_run, &stamp)?);
+        }
+        lines
     };
     Ok(serde_json::json!({"lines": lines}).to_string())
+}
+
+/// Wraithguard: what engine a setup runs on (`cfg`: its name): `{kind, openmw, cfg}` -
+/// `openmw` true for an openmw.cfg, and for an MO2 install that feeds one (MO2's Export to
+/// OpenMW; `cfg` the one it exports to). The pages show what is OpenMW's by it.
+#[tauri::command(async)]
+pub(super) fn setup_runs(cfg: String) -> Result<String, String> {
+    let (kind, _, _) = setup_spec(&cfg);
+    let feeds = viewcore::ordercore::install::feeds_openmw(&cfg);
+    let openmw = kind == "openmw" || feeds.is_some();
+    Ok(serde_json::json!({"kind": kind, "openmw": openmw, "cfg": feeds.map(|p| p.to_string_lossy().into_owned())}).to_string())
 }
 
 /// Wraithguard: puts back the plugin dates the last Export set on a Morrowind.ini install

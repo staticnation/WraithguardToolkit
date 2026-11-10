@@ -15,6 +15,7 @@ module.exports = async (t) => {
       if (c === 'loadorder_plain_sort') return sorted(String(a.cfg).endsWith('.cfg') ? 'openmw' : String(a.cfg).startsWith('mo2:') ? 'mo2' : 'vanilla');
       if (c === 'loadorder_plain_write') return { lines: ['written'] };
       if (c === 'loadorder_rule_ages') return [];
+      if (c === 'setup_runs') return String(a.cfg).includes('Omw') ? { kind: 'mo2', openmw: true, cfg: 'C:/Docs/openmw.cfg' } : { kind: 'mo2', openmw: false, cfg: null };
       return {};
     },
   });
@@ -39,6 +40,12 @@ module.exports = async (t) => {
 
   set('mo2:C:/MO2|Main');
   t.ok(L.mode() === 'install' && $('#loRestore').hidden, 'MO2: no Restore dates (MO2 orders by loadorder.txt)');
+  await new Promise(r => setTimeout(r, 0));
+  t.ok(!/feeds OpenMW/.test($('#loMode').textContent), 'an MO2 install for the game: said so');
+  set('mo2:C:/MO2Omw|Main');
+  await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
+  t.ok(/feeds OpenMW/.test($('#loMode').textContent) && /C:\/Docs\/openmw.cfg/.test($('#loMode').textContent), 'an MO2 install that feeds OpenMW: Export writes its cfg too: ' + $('#loMode').textContent);
+  t.ok(p.w.wgSetupOpenmw('mo2:C:/MO2Omw|Main') && !p.w.wgSetupOpenmw('mo2:C:/MO2|Main'), 'wgSetupOpenmw answers by the probe');
 
   set('C:/Users/me/Documents/My Games/OpenMW/openmw.cfg');
   t.ok(L.mode() === 'momw' && shown('pluginOrderYml') && shown('groundcover') && $('#loMode').hidden, 'an openmw.cfg: every field, as before');

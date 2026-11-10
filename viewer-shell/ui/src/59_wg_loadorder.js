@@ -320,10 +320,14 @@ const WgLoadOrder={
     for(const el of document.querySelectorAll('#wgLO [data-f]')) el.hidden=!!uses && !uses.includes(el.dataset.f);
     for(const id of ['#loUpYml','#loUpData']){ const b=$(id); if(b) b.hidden=mode!=='momw'; }
     const b=$('#loRestore'); if(b) b.hidden=this.kind()!=='vanilla';
+    const cfg=this.val('cfg'), feeds=this.kind()==='mo2' && typeof wgSetupOpenmw==='function' && wgSetupOpenmw(cfg);
+    if(this.kind()==='mo2' && typeof wgSetupProbe==='function' && !WgRuns[cfg]) wgSetupProbe(cfg).then(()=>this.plainShow());
     const n=$('#loMode');
     if(n){
       n.hidden=mode==='momw';
-      n.textContent= mode==='install'
+      n.textContent= mode==='install' && feeds
+        ? 'This is an MO2 install that feeds OpenMW: Sort places every plugin by the mlox rules alone, and Export writes the order into MO2 (loadorder.txt, plugins.txt, the profile\'s Morrowind.ini) and into the openmw.cfg MO2 exports to ('+((WgRuns[cfg]||{}).cfg||'')+'), so OpenMW has it without exporting again. MOMW\'s fields are hidden.'
+        : mode==='install'
         ? 'This is '+wgSetupWords(this.kind())+': Sort places every plugin by the mlox rules alone, and Export writes the order into it. What is OpenMW\'s or MOMW\'s (the customizations TOML, plugin-order.yml, the list, grass, data= lines) is hidden.'
         : mode==='plaincfg'
         ? 'Plain mlox: Sort places every content= plugin by the mlox rules alone (no MOMW list); Export writes openmw.cfg (Write openmw.cfg) and, with a customizations TOML named, the customizations that make MOMW\'s configurator build the same order. Sort data paths: the data= folders that hold plugins follow them.'

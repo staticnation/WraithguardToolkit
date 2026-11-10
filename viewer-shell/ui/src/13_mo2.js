@@ -35,6 +35,26 @@ function wgSetupKind(spec){
   const s=spec!=null? String(spec) : String((window.__WG_VIEW__||{}).cfg||'');
   return s.trim()? setupSpec(s).kind : 'openmw';
 }
+/** Whether the setup runs on OpenMW (`spec`; by default the install the viewer opened): an
+ *  openmw.cfg, or an MO2 install that feeds one through MO2's Export to OpenMW - as far as
+ *  `wgSetupProbe` has asked the engine (an MO2 install not asked yet: no). */
+const WgRuns={};
+function wgSetupOpenmw(spec){
+  const s=(spec!=null? String(spec) : String((window.__WG_VIEW__||{}).cfg||'')).trim();
+  const k=wgSetupKind(s);
+  return k==='openmw' || (k==='mo2' && !!(WgRuns[s]||{}).openmw);
+}
+/** `wgSetupOpenmw`, asking the engine first for an MO2 install (`setup_runs`, once a setup):
+ *  `{openmw, cfg}`, `cfg` the openmw.cfg MO2 exports to. */
+async function wgSetupProbe(spec){
+  const s=(spec!=null? String(spec) : String((window.__WG_VIEW__||{}).cfg||'')).trim();
+  if(wgSetupKind(s)!=='mo2') return {openmw:wgSetupOpenmw(s), cfg:null};
+  if(!WgRuns[s]){
+    try{ const r=await Engine.call('setup_runs',{cfg:s}); WgRuns[s]={openmw:!!(r&&r.openmw), cfg:(r&&r.cfg)||null}; }
+    catch(_){ WgRuns[s]={openmw:false, cfg:null}; }
+  }
+  return WgRuns[s];
+}
 /** What an install that is not OpenMW's is, in words (`kind` as `wgSetupKind` answers). */
 function wgSetupWords(kind){ return kind==='mo2'? 'an MO2 install' : kind==='vanilla'? "the game's own install" : 'an OpenMW install'; }
 /** The setup's name for an install opened (`setupSpec` the other way). */

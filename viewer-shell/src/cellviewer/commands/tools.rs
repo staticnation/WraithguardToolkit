@@ -27,7 +27,7 @@ pub(super) fn tools_lint(cfg: String, subset: Vec<String>) -> Result<String, Str
     let (mut warnings, st) = toolscore::lint::lint_order(&order, &find, &subset, &origins, threads);
     // A plugin's .omwscripts twin is OpenMW's: on an MO2 or Morrowind.ini install the game's
     // engine runs no Lua, so a twin left out is nothing to say.
-    if setup_spec(&cfg).0 != "openmw" {
+    if !viewcore::ordercore::install::runs_openmw(&cfg) {
         warnings.retain(|w| !w.starts_with("[TWIN]"));
     }
     Ok(serde_json::json!({

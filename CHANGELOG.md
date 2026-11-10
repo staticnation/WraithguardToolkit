@@ -29,7 +29,14 @@
   rules alone, print what moves, write with `--write-cfg` (each file copied first), and run
   the scans and `--merge-lands` over the install. The setup reader every page and the
   command line use is `ordercore::install` now (it was the viewer's own).
-- **What is OpenMW's alone is hidden on an MO2 or Morrowind.ini install.** The Setup and Load
+- **An MO2 install that feeds OpenMW counts as OpenMW's.** MO2's "Export to OpenMW" plugin
+  writes the profile into one `openmw.cfg`; Wraithguard finds that cfg (the plugin's own
+  setting in `ModOrganizer.ini`, or its default when the plugin is installed), keeps the
+  OpenMW parts on (Lua, Save Check, the `.omwscripts` twins, the OpenMW folder), takes the
+  grass from the cfg, says when the cfg no longer has the profile's plugins, and Export (and
+  the command line's `--write-cfg`) writes the order into MO2 and into that cfg, so OpenMW
+  has it without exporting again (Static, 2026-11-10: "openmw can use mo2").
+- **What is OpenMW's alone is hidden on an MO2 or Morrowind.ini install** that runs the game itself. The Setup and Load
   order pages hide the customizations TOML, plugin-order.yml, the list, grass, the data=
   lines and the OpenMW folder, and say why; the Tools page drops Save Check (OpenMW's saves);
   the Lua panel and the Preview's Lua say the game's engine runs no Lua; Lint leaves out the

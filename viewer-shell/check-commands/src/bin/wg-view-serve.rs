@@ -234,6 +234,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "loadorder_export" => Reply::Json(t::loadorder_export(s(a, "args"))?),
         "loadorder_plain_sort" => Reply::Json(t::loadorder_plain_sort(s(a, "cfg"), strs(a, "rules"), b(a, "sortData"))?),
         "loadorder_plain_write" => Reply::Json(t::loadorder_plain_write(s(a, "cfg"), strs(a, "order"), strs(a, "off"), a.get("data").filter(|v| !v.is_null()).map(|_| strs(a, "data")), a.get("dataOff").filter(|v| !v.is_null()).map(|_| strs(a, "dataOff")), opt(a, "tomlFrom"), opt(a, "tomlTo"), opt(a, "listName"), a.get("writeCfg").and_then(|v| v.as_bool()), b(a, "dryRun"), s(a, "stamp"))?),
+        "setup_runs" => Reply::Json(t::setup_runs(s(a, "cfg"))?),
         "loadorder_plain_restore_dates" => Reply::Json(t::loadorder_plain_restore_dates(s(a, "cfg"), b(a, "dryRun"))?),
         "loadorder_rule_ages" => Reply::Json(t::loadorder_rule_ages(strs(a, "rules"))?),
         "loadorder_scan" => Reply::Json(t::loadorder_scan(s(a, "dir"))?),

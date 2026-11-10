@@ -536,6 +536,23 @@ pub fn write_toml(from: Option<&Path>, to: &Path, was: &[String], order: &[Strin
     Ok(said)
 }
 
+/// For an MO2 install that feeds OpenMW: `order` written into the `openmw.cfg` MO2 exports to
+/// as well (its `content=` lines; `off` as `#content=`), so OpenMW loads it without exporting
+/// again. The profile's plugins the cfg does not have are said, not added (MO2's export adds them).
+///
+/// # Errors
+/// The cfg cannot be read, copied or written.
+pub fn write_exported_cfg(cfg: &Path, order: &[String], off: &[String], dry: bool, stamp: &str) -> Result<Written, String> {
+    let text = latin1(&std::fs::read(cfg).map_err(|e| format!("{} could not be read: {e}", cfg.display()))?);
+    let have: HashSet<String> = text.lines().filter_map(cfg_content).map(|n| n.to_lowercase()).collect();
+    let mut said = write_cfg(cfg, order, off, None, dry, stamp)?;
+    let gone: Vec<&String> = order.iter().filter(|n| !have.contains(&n.to_lowercase())).collect();
+    if !gone.is_empty() {
+        said.push(format!("{}: {} plugin(s) of the profile are not in it (run Export to OpenMW in MO2): {}", cfg.display(), gone.len(), gone.iter().take(8).map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+    }
+    Ok(said)
+}
+
 /// Which of `files` (the cfgs read) holds the `content=` lines: the one to write.
 /// An error when none does, or more than one (which file takes which line is OpenMW's to say).
 pub fn cfg_holding_content(files: &[PathBuf]) -> Result<PathBuf, String> {

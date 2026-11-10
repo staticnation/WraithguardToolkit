@@ -289,7 +289,12 @@ const WgToolsPage={
 
   show(tool){
     // Save Check reads OpenMW's saves: not offered for an MO2 or Morrowind.ini install.
-    const omw=typeof wgSetupKind!=='function' || wgSetupKind(this.cfg())==='openmw';
+    // (an MO2 install that feeds OpenMW keeps it: wgSetupProbe asks, then this runs again)
+    const omw=typeof wgSetupOpenmw!=='function' || wgSetupOpenmw(this.cfg());
+    if(!omw && typeof wgSetupProbe==='function' && !this._probing){
+      this._probing=true;
+      wgSetupProbe(this.cfg()).then(r=>{ this._probing=false; if(r.openmw && this.on) this.show(tool); });
+    }
     const sv=document.querySelector('#tlNav [data-t="save"]');
     if(sv){ sv.hidden=!omw; sv.style.display=omw? '' : 'none'; }
     if(tool==='save' && !omw) tool='lint';

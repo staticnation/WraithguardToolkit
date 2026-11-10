@@ -615,7 +615,12 @@ fn plain_run(args: &Args, log: &Log, trace: &Trace) -> Result<(), String> {
         _ => {
             let ini = setup.files.first().cloned().ok_or("the install has no Morrowind.ini")?;
             let profile = if spec.kind == Kind::Mo2 { ini.parent().map(std::path::Path::to_path_buf) } else { None };
-            ordercore::plain::write(&ini, &got.order, &[], profile.as_deref(), &find, dry, &stamp)?
+            let mut lines = ordercore::plain::write(&ini, &got.order, &[], profile.as_deref(), &find, dry, &stamp)?;
+            // An MO2 install that feeds OpenMW: the cfg it exports to as well.
+            if let Some(omw) = ordercore::install::feeds_openmw(&args.setup) {
+                lines.extend(ordercore::plain::write_exported_cfg(&omw, &got.order, &[], dry, &stamp)?);
+            }
+            lines
         }
     };
     // --emit-toml (a cfg): the customizations that make MOMW's configurator build this order.

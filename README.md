@@ -406,8 +406,9 @@ wraithguard --cfg openmw.cfg --plain-mlox --rules mlox_base.txt --sort-data-path
 ```
 
 It prints what moves; `--write-cfg` writes the order into the install (the profile's
-`Morrowind.ini`, `loadorder.txt` and `plugins.txt`; the game's `Morrowind.ini` and its plugins'
-dates; the cfg's `content=` lines), each file copied first. With `--plain-mlox`,
+`Morrowind.ini`, `loadorder.txt` and `plugins.txt`, and the `openmw.cfg` MO2's Export to
+OpenMW writes, when it feeds OpenMW; the game's `Morrowind.ini` and its plugins' dates; the
+cfg's `content=` lines), each file copied first. With `--plain-mlox`,
 `--emit-toml` writes the customizations that make MOMW's configurator build the same order.
 The scans and `--merge-lands` read these installs too.
 

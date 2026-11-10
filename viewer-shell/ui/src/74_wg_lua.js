@@ -32,7 +32,7 @@ const WgLua={
   async start(){
     await this.stop();
     // OpenMW's alone: the game's engine (an MO2 or Morrowind.ini install) runs no Lua.
-    if(typeof wgSetupKind==='function' && wgSetupKind()!=='openmw'){
+    if(typeof wgSetupProbe==='function' && !(await wgSetupProbe()).openmw){
       this.say('', 'skip', 'OpenMW Lua is not run: this is '+wgSetupWords(wgSetupKind())+', and the game\'s engine runs no Lua scripts');
       return;
     }

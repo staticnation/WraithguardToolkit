@@ -57,12 +57,21 @@ const WgSetup={
   kindShow(){
     const v=$('#su_cfg') && $('#su_cfg').value.trim();
     const kind=v && typeof wgSetupKind==='function'? wgSetupKind(v) : 'openmw';
-    for(const r of document.querySelectorAll('#wgSetup .su-row[data-omw]')) r.hidden=kind!=='openmw';
+    // An MO2 install that feeds OpenMW (MO2's Export to OpenMW): its OpenMW folder still counts.
+    const feeds=kind==='mo2' && typeof wgSetupOpenmw==='function' && wgSetupOpenmw(v);
+    for(const r of document.querySelectorAll('#wgSetup .su-row[data-omw]')){
+      const k=(r.querySelector('[id^="su_"]')||{}).id||'';
+      r.hidden=kind!=='openmw' && !(feeds && k==='su_openmwInstall');
+    }
     const n=$('#suKind');
     if(n){
       n.hidden=kind==='openmw';
-      n.textContent=kind==='openmw'? '' : 'This is '+wgSetupWords(kind)+': the Load order page sorts it by the mlox rules alone, and the fields that are OpenMW\'s or MOMW\'s (the customizations TOML, plugin-order.yml, the list, grass, the OpenMW folder) are hidden.';
+      const cfg=feeds? ((WgRuns[v]||{}).cfg||'openmw.cfg') : '';
+      n.textContent=kind==='openmw'? '' : feeds
+        ? 'This is an MO2 install that feeds OpenMW ('+cfg+', through MO2\'s Export to OpenMW): the Load order page sorts it by the mlox rules alone and writes both MO2\'s order and that cfg. MOMW\'s fields (the customizations TOML, plugin-order.yml, the list, grass) are hidden.'
+        : 'This is '+wgSetupWords(kind)+': the Load order page sorts it by the mlox rules alone, and the fields that are OpenMW\'s or MOMW\'s (the customizations TOML, plugin-order.yml, the list, grass, the OpenMW folder) are hidden.';
     }
+    if(kind==='mo2' && typeof wgSetupProbe==='function' && !WgRuns[v]) wgSetupProbe(v).then(()=>this.kindShow());
   },
 
   view(){ return window.__WG_VIEW__||{}; },
