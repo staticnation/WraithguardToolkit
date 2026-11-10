@@ -274,14 +274,10 @@ const WgEditor={
     CLAS:'Class', BSGN:'Birthsign', REGN:'Region', SOUN:'Sound', SNDG:'Sound generator', BODY:'Body part',
     GMST:'Game setting', GLOB:'Global', DIAL:'Dialogue', LTEX:'Land texture', SKIL:'Skill', MGEF:'Magic effect'},
 
-  /** The Editor's links: the ones a host handed over in the launch's extra file, else
-   *  (the program on its own, 4.6) the viewer's own Editor's, once `nativeLinks` has
-   *  opened it - each named `native:<link>`, answered by editcore. */
-  links(){
-    const given=(((window.__WG_VIEW__||{}).extra)||{}).links||{};
-    if(given.editRecord || !this._ownLinks) return given;
-    return Object.assign({}, given, this._ownLinks);
-  },
+  /** The Editor's links: the viewer's own Editor's, once `nativeLinks` has opened it -
+   *  each named `native:<link>`, answered by editcore (`editor_link`). No host hands any
+   *  over since 5.0: the Python app's loopback links went with it (2026-11-10). */
+  links(){ return this._ownLinks||{}; },
   canEdit(){ return !!this.links().editRecord; },
 
   /** Part of the preview's scene key: the pending changes, and what the layers hide. */

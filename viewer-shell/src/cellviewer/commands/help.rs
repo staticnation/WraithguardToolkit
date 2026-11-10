@@ -1,4 +1,4 @@
-// The Help page's commands, the program's own path, and the Editor's patch preview window.
+// The Help page's commands and the program's own path.
 // Part of the command layer (`../commands.rs`, which registers every command and says why
 // each is `#[tauri::command(async)]`); split out by page, 2026-11-09.
 
@@ -75,33 +75,4 @@ pub(super) fn help_open_link(url: String) -> Result<(), String> {
         return Ok(());
     }
     viewcore::profiles::show_folder(std::path::Path::new(&url))
-}
-
-/// The Editor's "Preview it in a new Cell Preview" (`editPreviewPatch`, which Wraithguard
-/// used to answer; port step 4.1): a new viewer window on the setup with `path` loaded last,
-/// on the plugin's cells. The setup is written beside `cfg` (so its relative paths still
-/// read), as `wraithguard_preview_setup.cfg`; the window keeps this one's profile and theme.
-#[tauri::command(async)]
-pub(super) fn editor_preview_patch(cfg: String, path: String) -> Result<(), String> {
-    let target = editcore::buildjob::preview_target(&serde_json::json!({"path": path}))?;
-    let cfg_path = PathBuf::from(&cfg);
-    let text = std::fs::read_to_string(&cfg_path).map_err(|e| format!("{cfg}: {e}"))?;
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let lines = editcore::buildjob::with_extra_plugins(&lines, std::slice::from_ref(&target));
-    let setup = cfg_path.with_file_name("wraithguard_preview_setup.cfg");
-    write_path_whole(&setup.to_string_lossy(), (lines.join("\n") + "\n").as_bytes())?;
-    let exe = self_exe()?;
-    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let mut args: Vec<String> = vec!["--cell-viewer".into(), "--openmw-cfg".into(), setup.to_string_lossy().into_owned()];
-    let mine: Vec<String> = std::env::args().collect();
-    for keep in ["--prefs", "--theme"] {
-        if let Some(v) = mine.iter().position(|a| a == keep).and_then(|i| mine.get(i + 1)) {
-            args.extend([keep.to_string(), v.clone()]);
-        }
-    }
-    if !name.is_empty() && !name.contains(['\r', '\n', '\0']) {
-        args.extend(["--cell".to_string(), format!("plugin:{name}")]);
-    }
-    args.extend(["--title".to_string(), "Cell Preview".to_string()]);
-    std::process::Command::new(exe).args(&args).spawn().map(|_| ()).map_err(|e| format!("a new Cell Preview could not be started: {e}"))
 }

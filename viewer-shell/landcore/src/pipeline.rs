@@ -420,7 +420,24 @@ fn digest_reference(l: &LandscapeLayers) -> CellDigest {
 /// ([`clean_against_loaded`]); otherwise what the masters or a single mod already give
 /// ([`clean_landmass`]).
 pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>) -> Result<(), String> {
+    finish_timed(outcome, reference, loaded).map(|_| ())
+}
+
+/// The steps of [`finish`], each with the time it took (for the merge's log: on a real load
+/// order the finish took longer than the merge, 2026-11-10).
+pub type FinishTimes = Vec<(&'static str, std::time::Duration)>;
+
+/// [`finish`], answering how long each of its steps took.
+pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>) -> Result<FinishTimes, String> {
+    let mut times: FinishTimes = Vec::new();
+    let mut at = std::time::Instant::now();
+    let mut lap = |name: &'static str| {
+        let now = std::time::Instant::now();
+        times.push((name, now - at));
+        at = now;
+    };
     let borrowed = add_reference_neighbours(outcome, reference);
+    lap("neighbours");
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
     if !heights.is_empty() {
@@ -428,13 +445,17 @@ pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&
         // merge, nothing unpacked.
         let anchor = |c: Coords, i: usize| reference.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i));
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
+        lap("seams");
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
+        lap("slopes");
     }
     for (c, h) in heights {
         outcome.cells.get_mut(&c).unwrap().heights = Some(h);
     }
     resolve_normals(outcome, reference);
+    lap("normals");
     check_borders(outcome, reference, &borrowed);
+    lap("borders");
     let merged: BTreeMap<Coords, CellDigest> = par_each(outcome.cells.iter().collect(), |(c, cell)| (*c, digest_cell(cell))).into_iter().collect();
     let refs: BTreeMap<Coords, CellDigest> =
         par_each(outcome.cells.keys().filter_map(|c| reference.get(*c).map(|l| (*c, l))).collect(), |(c, l)| (c, digest_reference(l))).into_iter().collect();
@@ -450,5 +471,6 @@ pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&
     };
     outcome.cleaning = report;
     outcome.cells.retain(|c, _| keep.contains(c));
-    Ok(())
+    lap("cleaning");
+    Ok(times)
 }

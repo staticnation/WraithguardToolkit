@@ -140,6 +140,14 @@
 
 ### Changed
 
+- **Merge Lands with Verbose says how long each finish step took** (neighbours, seams, slopes,
+  normals, borders, cleaning), the Tools page's Verbose box and the command line's `-v`.
+- **What was left of the Python app's loopback links is gone:** `wg_post`, the mesh viewer's
+  `wg_save_edited` and the loopback POST behind them. The Editor's links are the viewer's own
+  (`editor_link`, named by `editor_open`); the page tests' stand-ins answer through it. The boot
+  test now runs a Sort (MOMW's and plain mlox, with a dry-run Export), a conflict scan and a
+  Lint on its fixture setup. `loadorder_drop_probe` moved to the Load order commands and
+  `editor_preview_patch` to the Editor's.
 - **Merge Lands' finish step is faster** (seams, slopes, normals, cleaning: 0.42 s to 0.30 s
   on `big_order`, 2 cores, the same `Merged Lands.esp` byte for byte). Normals are worked out
   only where the reference's are not kept; the reference's heights and normals are read in

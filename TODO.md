@@ -8,35 +8,6 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 `viewer-shell/DROP-TK.md`). Design notes that still guide open work: `viewer-shell/SOUND.md`,
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
-## Next: edit a plugin in place; MO2 and Morrowind.ini installs (Static, 2026-11-09)
-
-Two features, in this order (Static: the Editor first).
-
-### 1. The Editor edits an existing plugin: in (2026-11-10), to be tried in the game
-
-In (`CHANGELOG.md` 5.0.4): Build patch's "Edit a plugin" (the Editor opens with it last) and
-"Edit it in place" (`inplace::build_in_place`): the pool written into a plugin of the load
-order, what it does not decide copied as its bytes, a deleted record only it had taken out,
-a landscape's textures renumbered, a backup kept. Tried on the test plugins and on copies of
-the game's masters, not in the game or on screen. Left:
-
-- Nothing left but trying it: on screen and in the game.
-
-### 2. One setup type for every page: in (2026-11-10), to be tried on an MO2 and a game install
-
-In (`CHANGELOG.md` 5.0.4): the Setup page and the command line (`--mo2`, `--data-files`)
-take an MO2 install or the game's own beside an `openmw.cfg`, read by `ordercore::install`
-for every page; what is OpenMW's alone is hidden or said. Nothing left but trying it.
-
-### 3. Sorting them: the mlox engine without MOMW: in (2026-11-10), to be tried
-
-In (`CHANGELOG.md` 5.0.4): on an MO2 or Morrowind.ini setup, or an `openmw.cfg` with "Plain
-mlox" (`--plain-mlox`), Sort is plain mlox over the whole load order (`ordercore::plain`);
-Export writes it (a box ticked off switched off; a cfg's `data=` lines with Sort data paths;
-the customizations TOML when named), a dry run first if ticked, every file copied before;
-Restore dates puts a Morrowind.ini install's dates back. Two plugins with one date: the later
-in the order goes a minute on (tested; not yet on a real install). Nothing left but trying it.
-
 ## Tools page
 
 - Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
@@ -51,8 +22,12 @@ in the order goes a minute on (tested; not yet on a real install). Nothing left 
   (2026-11-10, 0.42 s to 0.30 s on 2 cores here): the normals worked out only where the
   reference's are not kept, the reference read in place (no unpacked copies for the anchor,
   the normals or the digests), each border's grids looked up once, the cell digests a fast
-  hash instead of SipHash. Left: Static's run to measure it, then the 621-plugin order on the
-  Tools page. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
+  hash instead of SipHash. Static's runs after it (2026-11-10): `big_order` finish 0.42 s
+  (from 0.92 s; the same SHA); the real order (619 plugins, 4,640 modified cells) merge 2.9 s
+  and finish 4.5 s - the finish is the larger part there, not on `big_order`. Verbose now
+  says each finish step's time ("finished in neighbours ..., seams ..., slopes ..., normals
+  ..., borders ..., cleaning ..."): a Verbose Merge Lands of the real order says which to
+  take next (the slope limiter's 24 passes and the cleaning of 4,869 cells are the likely ones). Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
   (Linux only) and the output's SHA-256 (`4d2e6cee...`, unchanged since 2026-11-02):
 
       cargo test --release -p landcore --test merge_cases -- --ignored --nocapture big_order
@@ -110,7 +85,6 @@ for code: it is GPL-3.
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
-- The MO2 and Morrowind.ini load orders into ordercore: now step 2 of "Next" (top of this file).
 - Why `editor_records` came back unreadable on Static's setup (Messages has the first 120
   characters of the answer).
 
@@ -179,17 +153,29 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
 ## Release and CI
 
-- Versions (sorted 2026-11-09 against GitHub): tags v5.0.0-v5.0.3 are pushed, and v5.0.3 is
-  the only 5.x release published; `CHANGELOG.md` now has 5.0.1, 5.0.2, 5.0.3 and 5.0.4 (the
-  work since v5.0.3). The version is 5.0.4 in
-  `viewer-shell/Cargo.toml`, `viewer-shell/cli/Cargo.toml`, `viewer-shell/tauri.conf.json` and
-  `viewer-shell/Cargo.lock` (2026-11-09; the v5.0.2 and v5.0.3 programs called themselves 5.0.1).
-- The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`; `get_wraithguard`
-  in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in the Linux pack and the
-  macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet sent upstream). Move it to
-  the release that is current when the merge request goes in (5.0.3 now: its four archives'
-  and the AppImage's sha256s from its release page), then open the merge request.
+Checked 2026-11-10 against GitHub: CI, SAST, Audit and Deny pass on `main` (the last push's
+CI and SAST still running then); the five workflows in `.github/workflows` match
+`subset sort\workflows`; only `viewer-shell\gardenfell\target` is left of the per-crate
+`target` folders (Gardenfell keeps its own workspace, so that one is used).
 
+- Release 5.0.4 (v5.0.3 is the last published; `CHANGELOG.md` 5.0.4 is everything since; the
+  version is 5.0.4 in `viewer-shell/Cargo.toml`, `cli/Cargo.toml`, `tauri.conf.json` and
+  `Cargo.lock`):
+  1. `build-app.yml` has not run since the workspace (its last run, 2026-11-09 04:50 UTC,
+     was before it): run it by hand (Actions, "Build the app", Run workflow; or push a
+     `build/...` branch) and check each platform's archive, the AppImage and the
+     bundled-WebView2 Windows package, and that the command line comes from
+     `viewer-shell/target/release/wraithguard`.
+  2. Then tag `v5.0.4` (the tag's push builds the release) and publish it.
+  3. The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`;
+     `get_wraithguard` in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in
+     the Linux pack and the macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet
+     sent upstream). Move it to the release that is current when the merge request goes in
+     (its four archives' and the AppImage's sha256s from the release page), then open the
+     merge request.
+- OSV-Scanner has never run on a push: `osv-scanner.yml` listened to `master`, and the branch
+  is `main`. Fixed in `subset sort\workflows\osv-scanner.yml` (2026-11-10): copy it into
+  `.github\workflows`. It also runs on Mondays and by hand.
 - The dependency audit (`audit.yml`) is clean as of 2026-11-09: SQLite through `rusqlite` 0.41,
   `paste` gone with merge_to_master's `lending-iterator`, `glib` and `proc-macro-error` patched
   (below), `tokio` 1.54.1 and `yoke-derive` 0.8.4 taken earlier. It runs weekly: a new advisory
@@ -202,28 +188,6 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   changes, then re-pin.
 - Tauri pins gtk 0.18 (glib patched, above), string_cache 0.9 and jsonptr 0.7 (Aikido: waiting
   on upstream); recheck each Tauri release.
-
-- From the audit of 2026-11-09, not done:
-  - `wg_post` and the `url` branch of the mesh viewer's save (`wg_save_edited`,
-    `41_wg_meshview.js`) posted to the Python app's loopback server. No host serves them
-    since 5.0, but the page tests' stand-in host answers the Editor's links over them
-    (`ui/tests/boot.js`): move those tests onto `editor_link`, then remove both and the
-    page's `links`. (`wg_open_record` had no caller left and is gone.)
-  - `wg-view-serve` dispatches every command now but the three that start a program or end
-    this one. The boot test still opens only the cell viewer, the mesh viewer and Setup: a
-    boot of the Load order, Conflicts and Tools pages against the fixture setup would use
-    the new arms.
-  - The workspace (2026-11-09): copy `subset sort\workflows\` (`ci.yml`, `build-app.yml`,
-    `audit.yml`, `osv-scanner.yml`, `deny.yml`) into `.github\workflows\` in the same commit as the
-    workspace, or CI looks for the command line and the test engine where they no longer
-    are; `deny.yml` there too (cargo-deny, `viewer-shell/deny.toml`). Then delete the old per-crate `target` folders (`viewer-shell\*\target`): only
-    `viewer-shell\target` is used. First run on GitHub to watch: `build-app.yml` (the
-    command line is `viewer-shell/target/release/wraithguard` now) and the AppImage.
-  - `src/cellviewer/commands.rs` is split by page (`commands/`: conflicts, editor, help,
-    land, loadorder, sound, tools) and is 4,200 lines: what is left is the viewer's own
-    (the install, cells, meshes, textures, the distant view, Lua, settings). `loadorder_drop_probe`
-    went with the Conflicts file and `editor_preview_patch` with Help, by where they stood:
-    move each to its page's file.
 
 ## Forks: LUAL, Clippy
 

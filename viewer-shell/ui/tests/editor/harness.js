@@ -110,9 +110,12 @@ function page(opts = {}) {
     var Engine={
       has(){ return true; },
       async call(c,a){
-        if(c==='wg_post'){
-          const b=JSON.parse(a.body||'{}'); __posts.push([a.url,b]);
-          const r=await __answer(a.url,b);
+        if(c==='editor_setup' || c==='editor_open') return __editorBoot(c,a||{});
+        if(c==='editor_link' && __hosted(a.name)){
+          // A link the test stands in for (its \`links\`, answered by URL as Wraithguard's
+          // loopback links once were): what the page sent kept in \`posts\`.
+          const url=__hostLinks[a.name], b=JSON.parse(a.body||'{}'); __posts.push([url,b]);
+          const r=await __answer(url,b);
           return typeof r==='string'? r : JSON.stringify(r==null? {} : r);
         }
         if(c==='editor_link'){
@@ -173,8 +176,30 @@ function page(opts = {}) {
       },
       async pick(){ return null; },
     };`);
-  w.__WG_VIEW__ = { extra: Object.assign({ links: opts.links || {} }, opts.editor ? { editor: opts.editor } : {}) };
+  /* The Editor's links are the engine's own (editor_open names them, editor_link answers):
+     the links a test stands in for (`links`, {name: url}) are named by editor_open beside
+     the engine's, and answered by `answer` (url, body) - unless the test's engine names them
+     itself. With no setup of the test's (`editor`, or an answer to editor_setup), a one-plugin
+     one opens. An engine whose editor_open fails opens none (editing off). */
+  const hosted = new Set(Object.keys(opts.links || {}));
+  let fromEngine = new Set();
+  w.__hostLinks = opts.links || {};
+  w.__hosted = name => hosted.has(name) && !fromEngine.has(name);
+  w.__editorBoot = async (c, a) => {
+    const read = r => { if (typeof r === 'string') { try { return JSON.parse(r); } catch (_) { return r; } } return r; };
+    if (c === 'editor_setup') {
+      const r = read(await w.__engine(c, a));
+      return r && Array.isArray(r.plugins) ? r : { plugins: [['Test.esm', '/test/Test.esm']], journal: '', folders: [] };
+    }
+    const r = read(await w.__engine(c, a));
+    fromEngine = new Set(Array.isArray(r) ? r : []);
+    return JSON.stringify([...new Set([...fromEngine, ...hosted])]);
+  };
+  w.__WG_VIEW__ = { extra: opts.editor ? { editor: opts.editor } : {} };
   for (const m of opts.modules || []) w.eval(source(m));
+  // The links a test stands in for are there from the start, as an Editor already opened
+  // has them (`nativeLinks` names the engine's beside them when it runs).
+  if (hosted.size && w.WgEditor) w.WgEditor._ownLinks = Object.fromEntries([...hosted].map(n => [n, 'native:' + n]));
   return { w, d, posts, toasts, native, wait: ms => new Promise(r => setTimeout(r, ms || 0)) };
 }
 

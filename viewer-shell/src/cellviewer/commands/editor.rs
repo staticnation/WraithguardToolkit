@@ -652,24 +652,13 @@ pub(super) fn lua_chart(path: String, text: String, kind: String, line: Option<u
     }
 }
 
-/// A POST to a host's loopback server, at a URL the launch's extra file handed the viewer
-/// (`links`); the answer's text. No host has done so since 5.0 (the Python app was the one,
-/// and the Editor's links are the viewer's own, `editor_link`): what is left of it is the
-/// page tests' seam, whose stand-in host answers the Editor's links over it
-/// (`ui/tests/boot.js`), as `wg_save_edited` is for the mesh viewer's. `TODO.md`.
-#[tauri::command(async)]
-pub(super) fn wg_post(url: String, body: String) -> Result<String, String> {
-    let bytes = loopback_post(&url, body.as_bytes())?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
-}
-
 /* ---- the Editor, answered here (Wraithguard; port step 4.1, slice 7) ------------------
 
    The Editor's links answered by the viewer's own engine (`editcore::links`), the same JSON
-   in and out as Wraithguard's loopback handlers (gui/editorlink.py): the page asks
-   `editor_link` for the links `editor_open` names and Wraithguard for the rest. The patch
-   queue is shared with Wraithguard's conflict window and Patch Builder through the journal
-   both write. One Editor, for the load order the launch named (`extra.editor`). */
+   in and out as the Python app's loopback handlers were (gui/editorlink.py): the page asks
+   `editor_link` for the links `editor_open` names, and only those (the loopback links went
+   with the Python app; 2026-11-10). One Editor, for the load order the launch named
+   (`extra.editor`) or the install the viewer has open (`editor_setup`). */
 
 pub(super) static EDITOR: Mutex<Option<std::sync::Arc<editcore::links::Links>>> = Mutex::new(None);
 
@@ -766,4 +755,33 @@ pub(super) fn editor_link(state: State, name: String, body: String) -> Result<St
     };
     let sound_problem: Option<editcore::verify::SoundProblem> = if vfs.is_some() { Some(&sound) } else { None };
     links.call_with(&name, &body, &editcore::links::Ctx { file_exists, sound_problem })
+}
+
+/// The Editor's "Preview it in a new Cell Preview" (`editPreviewPatch`, which Wraithguard
+/// used to answer; port step 4.1): a new viewer window on the setup with `path` loaded last,
+/// on the plugin's cells. The setup is written beside `cfg` (so its relative paths still
+/// read), as `wraithguard_preview_setup.cfg`; the window keeps this one's profile and theme.
+#[tauri::command(async)]
+pub(super) fn editor_preview_patch(cfg: String, path: String) -> Result<(), String> {
+    let target = editcore::buildjob::preview_target(&serde_json::json!({"path": path}))?;
+    let cfg_path = PathBuf::from(&cfg);
+    let text = std::fs::read_to_string(&cfg_path).map_err(|e| format!("{cfg}: {e}"))?;
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let lines = editcore::buildjob::with_extra_plugins(&lines, std::slice::from_ref(&target));
+    let setup = cfg_path.with_file_name("wraithguard_preview_setup.cfg");
+    write_path_whole(&setup.to_string_lossy(), (lines.join("\n") + "\n").as_bytes())?;
+    let exe = self_exe()?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut args: Vec<String> = vec!["--cell-viewer".into(), "--openmw-cfg".into(), setup.to_string_lossy().into_owned()];
+    let mine: Vec<String> = std::env::args().collect();
+    for keep in ["--prefs", "--theme"] {
+        if let Some(v) = mine.iter().position(|a| a == keep).and_then(|i| mine.get(i + 1)) {
+            args.extend([keep.to_string(), v.clone()]);
+        }
+    }
+    if !name.is_empty() && !name.contains(['\r', '\n', '\0']) {
+        args.extend(["--cell".to_string(), format!("plugin:{name}")]);
+    }
+    args.extend(["--title".to_string(), "Cell Preview".to_string()]);
+    std::process::Command::new(exe).args(&args).spawn().map(|_| ()).map_err(|e| format!("a new Cell Preview could not be started: {e}"))
 }

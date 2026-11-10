@@ -189,7 +189,10 @@ fn a_whole_merge_gives_the_recorded_plugin_and_report() {
         let mut said = Vec::new();
         let got = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| said.push(l.to_string()));
         let rootstr = root.display().to_string();
-        let un = |lines: &[String]| -> Vec<String> { lines.iter().map(|l| l.replace(&rootstr, "<root>").replace('\\', "/")).collect() };
+        // The finish step's times (Verbose's, for the merge's own log) are not the Python's.
+        let un = |lines: &[String]| -> Vec<String> {
+            lines.iter().filter(|l| !l.starts_with("  finished in ")).map(|l| l.replace(&rootstr, "<root>").replace('\\', "/")).collect()
+        };
         let want_lines: Vec<String> = expect["lines"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
         // The read progress ("  read n/m plugin(s)") is said for the page only, not the Python's.
         said.retain(|l| !(l.starts_with("  read ") && l.ends_with(" plugin(s)")));
@@ -349,7 +352,8 @@ fn big_order() {
     for model in models {
         let t = std::time::Instant::now();
         let order: Vec<String> = order_refs.iter().map(|s| s.to_string()).collect();
-        let opts = MergeOptions { output: Some(data.parent().unwrap().join("out").join(DEFAULT_NAME)), model, ..Default::default() };
+        // Verbose: the finish step's times in the log.
+        let opts = MergeOptions { output: Some(data.parent().unwrap().join("out").join(DEFAULT_NAME)), model, verbose: true, ..Default::default() };
         let r = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| eprintln!("[{:>6.2}s] {l}", t.elapsed().as_secs_f32()));
         let hwm = std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines().find(|l| l.starts_with("VmHWM")).unwrap_or("").to_string();
         let sha = {

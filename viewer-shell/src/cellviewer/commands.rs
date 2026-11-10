@@ -3898,49 +3898,6 @@ fn window_set(x: i32, y: i32, w: u32, h: u32, max: bool) -> Result<String, Strin
     Ok("{\"saved\":true}".to_string())
 }
 
-/// The mesh viewer's Save: posts the block edits to Wraithguard's loopback handler
-/// (`url`, which Wraithguard gave in the extra file) and writes the edited file it
-/// answers with to `out`, the path the user picked. Only `http://127.0.0.1:<port>/`
-/// is accepted: this reaches Wraithguard, never the network.
-#[tauri::command(async)]
-fn wg_save_edited(url: String, body: String, out: String) -> Result<String, String> {
-    let bytes = loopback_post(&url, body.as_bytes())?;
-    let tmp = std::path::PathBuf::from(format!("{out}.tmp"));
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("{}: {}", tmp.display(), e))?;
-    std::fs::rename(&tmp, &out).map_err(|e| format!("{out}: {e}"))?;
-    Ok(out)
-}
-
-/// A minimal HTTP/1.0 POST to a loopback URL; the response body on 200.
-pub(crate) fn loopback_post(url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
-    use std::io::{Read, Write};
-    let rest = url.strip_prefix("http://127.0.0.1:").ok_or("not a loopback URL")?;
-    let (port, path) = rest.split_once('/').ok_or("bad URL")?;
-    let port: u16 = port.parse().map_err(|_| "bad port")?;
-    // The path goes into the request line as it is: no space or line end may come with it.
-    if path.bytes().any(|b| b <= 0x20 || b == 0x7f) {
-        return Err("bad URL".into());
-    }
-    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
-    s.set_read_timeout(Some(std::time::Duration::from_secs(60))).ok();
-    let head = format!(
-        "POST /{path} HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    s.write_all(head.as_bytes()).and_then(|_| s.write_all(body)).map_err(|e| e.to_string())?;
-    let mut resp = Vec::new();
-    s.read_to_end(&mut resp).map_err(|e| e.to_string())?;
-    let split = resp.windows(4).position(|w| w == b"\r\n\r\n").ok_or("no response")?;
-    let status = String::from_utf8_lossy(&resp[..split]);
-    let code = status.split_whitespace().nth(1).unwrap_or("");
-    let payload = resp[split + 4..].to_vec();
-    if code != "200" {
-        let msg = String::from_utf8_lossy(&payload);
-        return Err(format!("Wraithguard answered {code}: {}", msg.trim()));
-    }
-    Ok(payload)
-}
-
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod wgor_tests {
@@ -4043,42 +4000,6 @@ mod wgtb_tests {
     }
 }
 
-#[cfg(test)]
-// Before `builder()` on purpose: check-commands' build.rs keeps this file up to
-// `pub fn builder()`, so a test module after it would leave that build.
-#[allow(clippy::items_after_test_module)]
-mod loopback_tests {
-    use super::loopback_post;
-    use std::io::{Read, Write};
-
-    #[test]
-    fn posts_and_returns_the_body_on_200_only() {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = l.local_addr().unwrap().port();
-        let t = std::thread::spawn(move || {
-            for code in ["200 OK", "400 Bad Request"] {
-                let (mut c, _) = l.accept().unwrap();
-                // The whole request, body included, as a real server reads it.
-                let mut req = Vec::new();
-                let mut buf = [0u8; 4096];
-                while !req.ends_with(b"\r\n\r\n{}") {
-                    let n = c.read(&mut buf).unwrap();
-                    assert!(n > 0, "request cut short");
-                    req.extend_from_slice(&buf[..n]);
-                }
-                assert!(String::from_utf8_lossy(&req).starts_with("POST /s/apply?t=x "));
-                write!(c, "HTTP/1.0 {code}\r\nContent-Length: 3\r\n\r\nNIF").unwrap();
-            }
-        });
-        let url = format!("http://127.0.0.1:{port}/s/apply?t=x");
-        assert_eq!(loopback_post(&url, b"{}").unwrap(), b"NIF");
-        assert!(loopback_post(&url, b"{}").unwrap_err().contains("400"));
-        t.join().unwrap();
-        assert!(loopback_post("http://example.com/x", b"").is_err());
-        assert!(loopback_post(&format!("http://127.0.0.1:{port}/x HTTP/1.0\r\nX: y"), b"").is_err());
-    }
-}
-
 pub fn builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -4110,8 +4031,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             phys_drop,
             lua_ui_font,
             write_b64,
-            wg_save_edited,
-            wg_post,
             editor_open,
             editor_link,
             editor_setup,

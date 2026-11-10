@@ -155,17 +155,11 @@ Object.assign(WgEditor, {
   },
 
   async _ask(link, body){
-    const url=this.links()[link];
-    if(!url) throw new Error('Editing needs the Editor open on an OpenMW setup (see Messages)');
-    /* The links the viewer's own Editor answers (editcore::links) go to the engine, the same
-       JSON in and out; the rest to Wraithguard. Both write the patch queue's journal, so
-       either sees what the other changed. Wraithguard hands the viewer's links over as
-       `native:<key>`: it no longer serves them. */
-    const own=String(url).startsWith('native:'), native=(await this.nativeLinks()).has(link);
-    if(own && !native) throw new Error('This viewer cannot answer '+link+' itself: it is older than Wraithguard - update the viewer');
-    const t=native
-      ? await Engine.call('editor_link',{name:link, body:JSON.stringify(body)})
-      : await Engine.call('wg_post',{url, body:JSON.stringify(body)});
+    /* The links the viewer's own Editor answers (editcore::links), asked of the engine, the
+       same JSON in and out; the Editor opened first (`nativeLinks`), which names them. */
+    const names=await this.nativeLinks();
+    if(!names.has(link)) throw new Error(names.size? 'This Editor does not answer '+link : 'Editing needs the Editor open on the install (see Messages)');
+    const t=await Engine.call('editor_link',{name:link, body:JSON.stringify(body)});
     if(typeof t!=='string' || !t.length) return t;
     try{ return JSON.parse(t); }catch(_){ return t; }      // `ok` and the like
   },
@@ -178,17 +172,16 @@ Object.assign(WgEditor, {
   nativeLinks(){
     if(!this._native){
       const extra=(window.__WG_VIEW__||{}).extra||{};
-      // No host (the program on its own): the setup comes from the install the viewer has
-      // open (editor_setup), and the links are the Editor's own.
-      const own=!(extra.links && extra.links.editRecord);
+      // The setup the launch named (`extra.editor`), else the install the viewer has open
+      // (editor_setup); the links are the Editor's own.
       const setup=(extra.editor && Array.isArray(extra.editor.plugins))? Promise.resolve(extra.editor)
-        : own? Engine.call('editor_setup',{}).then(t=>typeof t==='string'? JSON.parse(t) : t) : Promise.resolve(null);
+        : Engine.call('editor_setup',{}).then(t=>typeof t==='string'? JSON.parse(t) : t);
       this._native=setup.then(ed=>(!ed || !Array.isArray(ed.plugins))? new Set()
         : Engine.call('editor_open',{plugins:this.withActiveLast(ed), journal:String(ed.journal||''), folders:ed.folders||[],
             last:String(ed.last||''), testSettings:String(ed.testSettings||'')})
           .then(t=>new Set(typeof t==='string'? JSON.parse(t) : t))
           .then(names=>{
-            if(own && names.size){ this._ownLinks={}; names.forEach(n=>{ this._ownLinks[n]='native:'+n; }); }
+            if(names.size){ this._ownLinks={}; names.forEach(n=>{ this._ownLinks[n]='native:'+n; }); }
             // Land the patch already changes (a journal from an earlier run) drawn as it will be.
             if(names.has('editLandPending') && typeof WgLand==='object') setTimeout(()=>WgLand.sync(), 0);
             // The pool's own plugin (the journal names it) is the one edited: a pool left from
@@ -197,7 +190,7 @@ Object.assign(WgEditor, {
             return names;
           }))
           .catch(e=>{
-            if(typeof WgLog==='object' && WgLog.add) WgLog.add('The Editor did not open on this install ('+String(e && e.message || e)+')'+(own? ': editing is off' : ': Wraithguard answers every link'), 'warn');
+            if(typeof WgLog==='object' && WgLog.add) WgLog.add('The Editor did not open on this install ('+String(e && e.message || e)+')'+': editing is off', 'warn');
             return new Set();
           });
     }

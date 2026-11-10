@@ -39,10 +39,13 @@ function assemble(){
 }
 const html=process.argv[2]? fs.readFileSync(process.argv[2],'utf8') : assemble();
 
-/* A stand-in for Wraithguard's editor endpoints (gui/editorlink.py, tested in pytest):
-   one record, its changes kept, so the Editor mode's dialog and pool can be driven here.
-   Reached the way the real one is - the engine's loopback POST (`wg_post`). */
-const http=require('http');
+/* A stand-in for the Editor's links (once Wraithguard's endpoints, gui/editorlink.py): one
+   record, its changes kept, so the Editor mode's dialog and pool can be driven here. Asked
+   the way the real ones are, `editor_link`: the test's engine bridge answers the links of
+   FAKE_LINKS from here while `fakeOn` (the Editor's part of the run), the rest from the
+   engine (2026-11-10: the loopback POST, `wg_post`, went with the Python app). */
+const FAKE_LINKS=new Set(['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending']);
+let fakeOn=false;
 /* Keyed by what the requests name (a field path, a record id, a new reference's uid): Maps, not
    plain objects, so no request can write `__proto__` (CodeQL js/remote-property-injection). */
 const fakeWg={posts:[], queued:new Map(), reviewed:false, ref:null, refQueued:new Map(), refBase:{id:'', pos:[0,0,0]}, news:new Map()};
@@ -69,9 +72,12 @@ const fakeView=()=>({tag:'LIGH', type:'Light', id:'lamp_lit', winner:'Lamp.esm',
     {path:'filters', value:[{slot:'Slot0', function:'PcLevel', comparison:'Greater', value:{Integer:5}}], editable:true, kind:'list', options:[], count:1},
   ].map(f=> fakeWg.queued.has(f.path)? Object.assign(f,{queued:fakeWg.queued.get(f.path), source:'typed'}) : f)});
 fakeWg.made=new Map();
-const fakeServer=http.createServer((req,res)=>{
-  let body=''; req.on('data',c=>body+=c); req.on('end',()=>{
-    const name=req.url.split('?')[0].slice(1), b=body? JSON.parse(body) : {};
+/** One link answered: `{code, text}`, as the endpoint answered (200 and its JSON, or a
+ *  refusal's code and words). */
+function fakeLink(name, body){
+  const res={code:200, text:'', writeHead(c){ this.code=c; }, end(t){ this.text=t||''; }};
+  {
+    const b=body? JSON.parse(body) : {};
     fakeWg.posts.push([name,b]);
     let out;
     // The record asked for, as the real one answers (the page drops an answer for another record).
@@ -89,7 +95,7 @@ const fakeServer=http.createServer((req,res)=>{
       {id:'101', text:'First.', speaker:'race: Dark Elf', disposition:0, plugins:['Lamp.esm'], winner:'Lamp.esm', orphan:false},
       {id:'102', text:'Orphaned.', speaker:'', disposition:0, plugins:['Mod.esp'], winner:'Mod.esp', orphan:true}]};
     else if(name==='editCopyTopic'){
-      if(b.newId.toLowerCase()==='greeting 0'){ res.writeHead(400); res.end('Greeting 0 is already a topic in this load order'); return; }
+      if(b.newId.toLowerCase()==='greeting 0'){ res.writeHead(400); res.end('Greeting 0 is already a topic in this load order'); return res; }
       fakeWg.copied=b;
       out={id:b.newId, type:'Topic', responses:[{id:'901', text:'First.', speaker:'', disposition:0, plugins:['(this patch)'], winner:'(this patch)', orphan:false, quest:''}]};
     }
@@ -103,22 +109,22 @@ const fakeServer=http.createServer((req,res)=>{
            findings:/oops/.test(text)? [{line:2, level:'error', message:"'if' is never closed"}] : []};
     }
     else if(name==='editReplace'){
-      if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return; }
+      if(b.newId==='nothing'){ res.writeHead(400); res.end('nothing is not a Light of this load order'); return res; }
       out={changed:3, refs:2, scripts:0};
     }
     else if(name==='editInsert'){
-      if(fakeWg.made.has(b.newId.toLowerCase()) || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      if(fakeWg.made.has(b.newId.toLowerCase()) || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return res; }
       fakeWg.made.set(b.newId.toLowerCase(), {tag:b.tag, id:b.newId});
       out=Object.assign(fakeView(), {tag:b.tag, id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
     }
     else if(name==='editDuplicate'){
-      if(fakeWg.made.has(b.newId.toLowerCase()) || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return; }
+      if(fakeWg.made.has(b.newId.toLowerCase()) || b.newId.toLowerCase()==='lamp_lit'){ res.writeHead(400); res.end(b.newId+' is already a Light id in this load order'); return res; }
       fakeWg.made.set(b.newId.toLowerCase(), {tag:'LIGH', id:b.newId});
       out=Object.assign(fakeView(), {id:b.newId, new:true, winner:'(this patch)', plugins:['(this patch)']});
     }
     else if(name==='editRevert' && fakeWg.made.has(String(b.id).toLowerCase()) && !b.path){ fakeWg.made.delete(String(b.id).toLowerCase()); out=fakeView(); }
     else if(name==='editSet'){
-      if(b.path==='id'){ res.writeHead(400); res.end('id cannot be changed here'); return; }
+      if(b.path==='id'){ res.writeHead(400); res.end('id cannot be changed here'); return res; }
       fakeWg.queued.set(b.path, b.value); out=fakeView();
     } else if(name==='editRevert'){ if(b.path) fakeWg.queued.delete(b.path); else fakeWg.queued.clear(); out=fakeView(); }
     else if(name==='editRef'){ fakeWg.ref=b; out=fakeRefView(); }
@@ -127,11 +133,11 @@ const fakeServer=http.createServer((req,res)=>{
       const n={cell:b.cell, uid, tag:b.tag, plugins:b.plugins, fields:new Map([['id',b.id], ['translation',b.translation], ['rotation',b.rotation||[0,0,0]]])};
       fakeWg.news.set(uid, n); out=fakeNewView(n);
     }
-    else if(name==='editNew'){ const n=fakeWg.news.get(b.uid); if(!n){ res.writeHead(400); res.end('That new reference is no longer in the patch'); return; } out=fakeNewView(n); }
+    else if(name==='editNew'){ const n=fakeWg.news.get(b.uid); if(!n){ res.writeHead(400); res.end('That new reference is no longer in the patch'); return res; } out=fakeNewView(n); }
     else if(name==='editNewSet'){ const n=fakeWg.news.get(b.uid); n.fields.set(b.path, b.value); out=fakeNewView(n); }
-    else if(name==='editNewRemove'){ fakeWg.news.delete(b.uid); res.writeHead(200); res.end('ok'); return; }
+    else if(name==='editNewRemove'){ fakeWg.news.delete(b.uid); res.writeHead(200); res.end('ok'); return res; }
     else if(name==='editRefSet'){
-      if(b.path==='scale' && b.value>2){ res.writeHead(400); res.end('scale is 0.5 to 2.0'); return; }
+      if(b.path==='scale' && b.value>2){ res.writeHead(400); res.end('scale is 0.5 to 2.0'); return res; }
       fakeWg.ref=Object.assign({}, b); fakeWg.refQueued.set(b.path, b.value); out=fakeRefView();
     } else if(name==='editRefRevert'){ if(b.path) fakeWg.refQueued.delete(b.path); else fakeWg.refQueued.clear(); out=fakeRefView(); }
     else if(name==='editPending'){
@@ -148,11 +154,11 @@ const fakeServer=http.createServer((req,res)=>{
                   new:{cell:n.cell, uid:n.uid, id:n.fields.get('id'), tag:n.tag, plugins:n.plugins||[]},
                   changes:[...n.fields].map(([path,value])=>({path,value}))});
     }
-    else { res.writeHead(404); res.end(); return; }
-    res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(out));
-  });
-});
-fakeServer.listen(0,'127.0.0.1');
+    else { res.writeHead(404); res.end('no link '+name); return res; }
+    res.writeHead(200); res.end(JSON.stringify(out));
+  }
+  return res;
+}
 const {spawn}=require('child_process');
 const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../../target/serve/wg-view-serve'+(process.platform==='win32'?'.exe':'')),[],{stdio:['pipe','pipe','inherit']});
 let nextId=1; const waiting=new Map(); let buf='';
@@ -175,7 +181,7 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
     const taint=v=>typeof v==='string'? v+TAINT : Array.isArray(v)? v.map(taint)
       : v && typeof v==='object'? Object.fromEntries(Object.entries(v).map(([k,x])=>[k,taint(x)])) : v;
     const taintOf=(cmd,r)=>{
-      if(!process.env.WG_TAINT || r instanceof ArrayBuffer || /^(viewer_profile_read|wg_post)$/.test(cmd) && !(process.env.WG_TAINT==='2' && cmd==='open_install')) return r;
+      if(!process.env.WG_TAINT || r instanceof ArrayBuffer || /^(viewer_profile_read)$/.test(cmd) && !(process.env.WG_TAINT==='2' && cmd==='open_install')) return r;
       if(cmd==='open_install' && process.env.WG_TAINT!=='2') return r;
       try{ return JSON.stringify(taint(typeof r==='string'? JSON.parse(r) : r)); }catch(_){ return r; }
     };
@@ -184,12 +190,19 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
       for(const h of hits){ let p=h.parentElement; while(p && !p.id && !p.className) p=p.parentElement;
         tainted.add((p? (p.id? '#'+p.id : '.'+String(p.className).split(/\s+/)[0]) : '?')+': '+String((h.parentElement||h).textContent||'').replace(/\s+/g,' ').slice(0,80)); } } })
       .observe(w.document,{childList:true, subtree:true});
-    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd); return engineCall(cmd,args).then(r=>{ if(!(r instanceof ArrayBuffer)) replies[cmd]=typeof r==='string'? r : JSON.stringify(r); return taintOf(cmd,r); });}},
+    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd);
+      // The Editor's part of the run: the stand-in's links named beside the engine's, and answered.
+      if(fakeOn && cmd==='editor_link' && FAKE_LINKS.has(args.name)){
+        const r=fakeLink(args.name, args.body);
+        return r.code===200? Promise.resolve(r.text) : Promise.reject(r.text||('the link answered '+r.code));
+      }
+      if(fakeOn && cmd==='editor_open') return engineCall(cmd,args).then(r=>JSON.stringify([...new Set([...(typeof r==='string'? JSON.parse(r) : r||[]), ...FAKE_LINKS])]));
+      return engineCall(cmd,args).then(r=>{ if(!(r instanceof ArrayBuffer)) replies[cmd]=typeof r==='string'? r : JSON.stringify(r); return taintOf(cmd,r); });}},
                  dialog:{open:async()=>null,save:async()=>null}};
     w.__WG_VIEW__= SETUP ? {cfg:null, app:true, setup:false, extra:{settingsFile:SETTINGS}} : MESH ? {cfg:CFG, meshView:true, extra:{meshes:[
         {path:'meshes/x/anim.nif', label:'Load order'},
         {path:path.join(__dirname,'fixture','Data Files','meshes','x','anim.nif'), label:'On disk'}]}}
-      : {cfg:CFG, cell:CELL, extra:{links:{}}};
+      : {cfg:CFG, cell:CELL, extra:{}};
     // No WebGL in jsdom (the viewport reports no context); 2D canvases get a no-op
     // context so map and swatch drawing run.
     const noop2d=()=>new Proxy({canvas:null},{get(t,k){ if(k in t) return t[k]; if(k==='getImageData'||k==='createImageData') return (x,y,wd,ht)=>({data:new Uint8ClampedArray(4*(wd||1)*(ht||1)),width:wd||1,height:ht||1}); if(k==='measureText') return ()=>({width:0}); if(/^create/.test(k)) return ()=>({addColorStop(){}}); return ()=>{}; }, set(t,k,v){ t[k]=v; return true; }});
@@ -573,11 +586,54 @@ async function placing(w, E, R, fail, sleep){
   }
 }
 
+/* The Load order, Conflicts and Tools pages run on the fixture setup (5 plugins): what each
+   answers is checked enough to know the command ran and the page drew it. Writes nothing:
+   the Export is a dry run, and the rule file is a temporary one. */
+async function pageWork(w){
+  const d=w.document, sleep=ms=>new Promise(r=>setTimeout(r,ms)), fail=m=>errors.push('page work: '+m);
+  const rules=path.join(require('os').tmpdir(), 'wg_boot_rules_'+process.pid+'.txt');
+  fs.writeFileSync(rules, '[Order]\nWater.esm\nLamp.esm\n');
+  try{
+    const L=w.eval('WgLoadOrder');
+    L.enter();
+    for(let i=0;i<200 && d.getElementById('loSort').disabled;i++) await sleep(20);   // the first open's own sort
+    d.getElementById('lo_cfg').value=CFG; d.getElementById('lo_rules').value=rules;
+    for(const [k,v] of [['plainMlox',false],['dryRun',true],['writeCfg',false],['sortDataPaths',false]]) d.getElementById('lo_'+k).checked=v;
+    L.plainShow();
+    await L.sort();
+    if(!L.plan && !(L.report||[]).length) fail('Sort gave no plan and no report');
+    else console.log('load order: MOMW sort, '+L.content.length+' plugin(s), '+(L.report||[]).length+' report item(s)');
+    d.getElementById('lo_plainMlox').checked=true; L.plainShow();
+    if(L.mode()!=='plaincfg') fail('Plain mlox did not change the mode: '+L.mode());
+    await L.sort();
+    const order=L.content.map(r=>r.name);
+    if(!L.plan || L.plan.plain!=='openmw' || order.length!==5) fail('the plain sort gave '+JSON.stringify(order));
+    else if(order.indexOf('Water.esm')>order.indexOf('Lamp.esm')) fail('the plain sort did not follow the rule: '+order.join(', '));
+    const before=fs.readFileSync(CFG,'utf8');
+    await L.exportPlan();
+    const said=(L.report||[]).map(i=>i.text).join('\n');
+    if(fs.readFileSync(CFG,'utf8')!==before) fail('the dry-run Export changed the fixture cfg');
+    else if(!/would be written|already as sorted/.test(said)) fail('the dry-run Export said nothing of the cfg: '+said.slice(-300));
+    else console.log('load order: plain mlox, '+order.join(', ')+'; Export (dry run) answered');
+    d.getElementById('lo_plainMlox').checked=false; L.save(true);
+    L.leave();
+    const C=w.eval('WgConflicts');
+    C.enter(); await C.scan();
+    if(!C.stats || C.stats.scanned!==5) fail('the conflict scan read '+JSON.stringify(C.stats));
+    else console.log('conflicts: '+C.stats.scanned+' plugin(s), '+C.stats.records+' record(s), '+C.stats.found+' conflicting');
+    C.leave();
+    const T=w.eval('WgToolsPage');
+    T.enter(); T.show('lint'); await T.runLint();
+    if(!T.lint.stats || !(T.lint.stats.scanned>=1)) fail('Lint read '+JSON.stringify(T.lint.stats));
+    else console.log('lint: '+T.lint.stats.scanned+' plugin(s), '+T.lint.warnings.length+' warning(s)');
+    T.leave();
+  }finally{ try{ fs.unlinkSync(rules); }catch(_){ } }
+}
+
 /* The Editor mode (50_wg_editor.js): the Object Window and Cell View from the engine, the
    record dialog and the pool from the stand-in Wraithguard above. */
 async function editor(w, R, fail, done, sleep){
   const E=w.eval('WgEditor'), d=w.document;
-  const port=fakeServer.address().port;
   // The program on its own (4.6): the Editor's setup from the install the viewer has open.
   {
     let st=await w.eval("Engine.call('editor_setup',{})");
@@ -586,8 +642,9 @@ async function editor(w, R, fail, done, sleep){
     else if(!String(st.journal||'').endsWith('wraithguard_patch_journal.json')) fail('editor_setup journal: '+st.journal);
     else console.log('editor setup: '+st.plugins.length+' plugin(s), '+(st.folders||[]).length+' folder(s)');
   }
-  const links=w.__WG_VIEW__.extra.links;
-  for(const k of ['editRecord','editSet','editRevert','editRef','editRefSet','editRefRevert','editDuplicate','editInsert','editUses','editReplace','editScript','editTopics','editTopic','editNewResponse','editCopyTopic','editPlace','editNew','editNewSet','editNewRemove','editPending']) links[k]='http://127.0.0.1:'+port+'/'+k+'?t=x';
+  // The stand-in's links from here on: the Editor opened again, naming them beside its own.
+  fakeOn=true; E._native=null; E._ownLinks=null;
+  await E.nativeLinks();
   if(!d.getElementById('btnEditor')) fail('no Editor switch in the topbar');
   await E.enter();
   if(!d.body.classList.contains('wgEditMode')) fail('the Editor mode did not take over the page');
@@ -1039,6 +1096,9 @@ setTimeout(async ()=>{
       return out.join('; '); })()`);
     if(open) errors.push('pages: '+open);
   }catch(e){ errors.push('pages: '+short(e)); }
+  // And their work against the fixture setup: a Sort (MOMW's, then plain mlox, and a dry-run
+  // Export of it), a conflict scan and a Lint, through wg-view-serve's arms for them.
+  try{ await pageWork(w); }catch(e){ errors.push('page work: '+short(e)); }
   for(const c of ['preview_cell','interior_scatter','cull_field','avoid_verdict','set_config','config_toml','parse_profile'])
     if(calls.includes(c)) errors.push('the page still asks for grass generation: '+c);
   const ori=(d.getElementById('oriBody')||{}).textContent||'';

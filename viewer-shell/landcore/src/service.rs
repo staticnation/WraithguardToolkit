@@ -13,7 +13,7 @@ use tes3::esp::TES3Object;
 use crate::emit::{attach_texture_indices, build_landscape_record, build_texture_records, plugin_bytes};
 use crate::landmass::{build_reference, Landmass, PluginRecords};
 use crate::meta::{self, PluginMeta, Strategy, LAYER_NAMES};
-use crate::pipeline::{finish, merge_landmass, DiffModel, MergeOutcome};
+use crate::pipeline::{finish_timed, merge_landmass, DiffModel, MergeOutcome};
 use crate::read::{read_terrain_records, Record};
 use crate::textures::{compact_textures, KnownTextures};
 use crate::grid::Value;
@@ -459,10 +459,16 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         say!("  skipped {name}: {why}");
     }
     say!("  {} modified cell(s)", outcome.cells.len());
-    if let Err(e) = finish(&mut outcome, &reference, opts.clean_against_load_order.then_some(&loaded)) {
-        fail!("{e}");
-    }
+    let times = match finish_timed(&mut outcome, &reference, opts.clean_against_load_order.then_some(&loaded)) {
+        Ok(t) => t,
+        Err(e) => fail!("{e}"),
+    };
     stop!();
+    // The steps' times with Verbose (the Tools page's box, the command line's -v): the log
+    // is otherwise the Python's, line for line.
+    if opts.verbose {
+        say!("  finished in {}", times.iter().map(|(n, d)| format!("{n} {:.2} s", d.as_secs_f64())).collect::<Vec<_>>().join(", "));
+    }
     say!("  seam repair moved {} vertex/vertices (widest gap {} units)", outcome.seams.total(), outcome.seams.largest_gap);
     if outcome.borrowed > 0 {
         say!("  brought in {} untouched cell(s) to reconcile their borders", outcome.borrowed);

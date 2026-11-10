@@ -125,8 +125,6 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "connect_stage" => Reply::Json(t::connect_stage()),
         "viewer_profile_read" => Reply::Text(t::viewer_profile_read()?),
         "viewer_profile_write" => Reply::Text(t::viewer_profile_write(s(a, "text"))?),
-        "wg_save_edited" => Reply::Text(t::wg_save_edited(s(a, "url"), s(a, "body"), s(a, "out"))?),
-        "wg_post" => Reply::Text(t::wg_post(s(a, "url"), s(a, "body"))?),
         "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
         "editor_tags" => Reply::Json(t::editor_tags(st())?),
         "editor_records" => Reply::Json(t::editor_records(s(a, "tag"), st())?),
