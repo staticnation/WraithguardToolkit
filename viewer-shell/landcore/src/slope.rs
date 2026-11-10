@@ -223,6 +223,14 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
     };
     let none = BTreeSet::new();
     let grids: Vec<Mutex<Vec<Value>>> = keys.iter().map(|c| Mutex::new(std::mem::take(cells.get_mut(c).expect("a key")))).collect();
+    /* A cell whose grid has not changed since it was last gone over does what it did then:
+       nothing moved (else its grid would have changed), the same steps too steep, the same
+       refused. So it is gone over again only when changed (by itself, or by a neighbour's
+       move into a shared vertex), and otherwise counts what it counted then - the same
+       report, pass for pass (2026-11-10: on a real order every pass went over every cell,
+       24 times, for the few steps that touch terrain outside the merge and never settle). */
+    let dirty: Vec<std::sync::atomic::AtomicBool> = keys.iter().map(|_| std::sync::atomic::AtomicBool::new(true)).collect();
+    let seen: Vec<Mutex<(usize, usize, Value)>> = keys.iter().map(|_| Mutex::new((0, 0, 0))).collect();
     let flat = vec![0.0; LAND_SIZE * LAND_SIZE];
     let all = pairs();
     let widest = levels.iter().map(Vec::len).max().unwrap_or(0);
@@ -237,6 +245,16 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
         let mut moves: Vec<(usize, usize, Value)> = Vec::new();
         for lvl in &levels {
             for &i in lvl.iter().skip(w).step_by(workers) {
+                use std::sync::atomic::Ordering::Relaxed;
+                if !dirty[i].swap(false, Relaxed) {
+                    let (p, e, worst) = *seen[i].lock().unwrap_or_else(|p| p.into_inner());
+                    r.pinned += p;
+                    excessive += e;
+                    r.worst_excess = r.worst_excess.max(worst);
+                    continue;
+                }
+                let (pinned0, excessive0, adjusted0) = (r.pinned, excessive, r.adjusted);
+                let mut worst = 0;
                 let coords = keys[i];
                 let shape = structure.get(i).unwrap_or(&flat);
                 let mut grid = lock(&grids[i]);
@@ -267,6 +285,7 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
                     excessive += 1;
                     let excess = step.abs() - limit;
                     r.worst_excess = r.worst_excess.max(excess);
+                    worst = worst.max(excess);
                     let ma = may_move(coords, ax, ay, authoritative);
                     let mb = may_move(coords, bx, by, authoritative);
                     let (share_a, share_b) = if ma && mb {
@@ -283,10 +302,16 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
                     shift(&mut grid, ax, ay, direction * share_a, &mut r);
                     shift(&mut grid, bx, by, -direction * share_b, &mut r);
                 }
+                // What it counted, for a pass that finds it unchanged; moved: changed itself.
+                *seen[i].lock().unwrap_or_else(|p| p.into_inner()) = (r.pinned - pinned0, excessive - excessive0, worst);
+                if r.adjusted != adjusted0 {
+                    dirty[i].store(true, Relaxed);
+                }
             }
             barrier.wait();
             for (j, v, d) in moves.drain(..) {
                 lock(&grids[j])[v] += d;
+                dirty[j].store(true, std::sync::atomic::Ordering::Relaxed);
             }
             barrier.wait();
         }
@@ -420,5 +445,38 @@ mod tests {
             assert_eq!(a, b);
             assert!(ra.0.adjusted > 0);
         }
+    }
+
+    /// A field that settles but for steps no pass can fix (an end on a cell that may not
+    /// move): the cells gone over again only when changed give the report and the terrain
+    /// the passes over every cell give, all 24 passes counted.
+    #[test]
+    fn unchanged_cells_count_what_they_counted() {
+        let mut cells = BTreeMap::new();
+        for x in 0..6 {
+            for y in 0..5 {
+                let mut g = vec![0; LAND_SIZE * LAND_SIZE];
+                if (x + y) % 3 == 0 {
+                    // a cliff in the middle, which settles in a few passes
+                    for i in 0..LAND_SIZE {
+                        g[i * LAND_SIZE + 30] = 4000;
+                    }
+                }
+                cells.insert((x, y), g);
+            }
+        }
+        // A cliff along the edge a cell that may not move shares: never fixed.
+        let mut pinned = vec![0; LAND_SIZE * LAND_SIZE];
+        for i in 0..LAND_SIZE {
+            pinned[i * LAND_SIZE + 1] = 9000;
+        }
+        cells.insert((6, 0), pinned);
+        let auth: BTreeSet<Coords> = [(6, 0)].into();
+        let (mut a, mut b) = (cells.clone(), cells.clone());
+        let ra = limit_slopes_passes(&mut a, MAX_STEP - SAFETY, MAX_PASSES, false, &auth);
+        let rb = limit_slopes_passes_in_order(&mut b, MAX_STEP - SAFETY, MAX_PASSES, false, &auth);
+        assert_eq!(ra, rb);
+        assert_eq!(a, b);
+        assert!(!ra.1 && ra.0.passes == MAX_PASSES && ra.0.adjusted > 0 && ra.0.pinned > 0, "{:?}", ra.0);
     }
 }

@@ -140,6 +140,11 @@
 
 ### Changed
 
+- **Merge Lands' slope limiter goes over a cell again only when it changed.** A cell left
+  as it was does what it did the pass before (nothing moved, the same steps refused), so its
+  counts are taken again instead: the same terrain and report, pass for pass. Before, all 24
+  passes went over every cell whenever one step could not be fixed (a vertex shared with
+  terrain outside the merge), which on a real order is always.
 - **Merge Lands with Verbose says how long each finish step took** (neighbours, seams, slopes,
   normals, borders, cleaning), the Tools page's Verbose box and the command line's `-v`.
 - **What was left of the Python app's loopback links is gone:** `wg_post`, the mesh viewer's

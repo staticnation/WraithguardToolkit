@@ -27,7 +27,9 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
   and finish 4.5 s - the finish is the larger part there, not on `big_order`. Verbose now
   says each finish step's time ("finished in neighbours ..., seams ..., slopes ..., normals
   ..., borders ..., cleaning ..."): a Verbose Merge Lands of the real order says which to
-  take next (the slope limiter's 24 passes and the cleaning of 4,869 cells are the likely ones). Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
+  take next. Since then: the slope limiter goes over only the cells that changed (its 24
+  passes went over every cell each time, a step it can never fix keeping it from stopping);
+  the cleaning of 4,869 cells is the other likely one. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
   (Linux only) and the output's SHA-256 (`4d2e6cee...`, unchanged since 2026-11-02):
 
       cargo test --release -p landcore --test merge_cases -- --ignored --nocapture big_order
