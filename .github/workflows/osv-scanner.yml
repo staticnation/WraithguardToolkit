@@ -20,7 +20,7 @@ permissions:
 jobs:
   scan:
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
-      permissions:
+    permissions:
       actions: read
       contents: read
       security-events: write   # uploads the SARIF
