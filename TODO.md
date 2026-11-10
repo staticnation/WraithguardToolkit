@@ -20,9 +20,7 @@ order, what it does not decide copied as its bytes, a deleted record only it had
 a landscape's textures renumbered, a backup kept. Tried on the test plugins and on copies of
 the game's masters, not in the game or on screen. Left:
 
-- The viewer draws the load order as the game has it (the edited plugin where it stands),
-  where the Editor reads it last: a record a later plugin overrides shows the later one in
-  the render window.
+- Nothing left but trying it: on screen and in the game.
 
 ### 2. One setup type for every page (reading only)
 

@@ -81,6 +81,13 @@ Object.assign(WgEditor, {
     await this.refreshPending();
     if(this.bld && !this.bld.hidden) await this.showBuild();
     toast(name? name+' is the plugin being edited: it is read last, and Build patch writes into it' : 'A new patch: the load order as it is','ok',4000);
+    // The render window draws the load order as it was read: read again, with this plugin
+    // last (or in its place again), it draws what the Editor edits. A big order is a minute.
+    const cfg=String((window.__WG_VIEW__||{}).cfg||'');
+    if(cfg && typeof openInstall==='function'
+       && await wgConfirm('Read the load order again so the render window draws '+(name? name+' last, as the Editor reads it' : 'it as the game loads it')+'?\n\nOn a big load order this takes as long as a first load.', 'Edit a plugin')){
+      try{ await openInstall('openmw', cfg, null, null); }catch(e){ toast(String(e.message||e),'err',6000); }
+    }
   },
 
   /** After the scene is drawn again: the selection follows its references to the new

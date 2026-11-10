@@ -125,8 +125,11 @@ async function openInstallRun(kind, path, profile, plugins){
     }catch(_){ clearInterval(stepPoll); }
     finally{ asking=false; }
   },400);
+  // The plugin the Editor edits (its active file) is drawn last, as the Editor reads it.
+  let last='';
+  try{ if(typeof WgEditor==='object' && typeof WgEditor.activePlugin==='function') last=WgEditor.activePlugin(); }catch(_){ }
   try{ r=await Engine.call('open_install',{kind, path, profile:profile||null,
-                                          ...(plugins? {plugins} : {})}); }
+                                          ...(plugins? {plugins} : {}), ...(last? {last} : {})}); }
   catch(e){ clearInterval(stepPoll); card.done(); toast(Text.word(String(e.message||e)),'err',12000); return null; }
   finally{ clearInterval(stepPoll); }
   ct.open=performance.now()-ct.tOpen;

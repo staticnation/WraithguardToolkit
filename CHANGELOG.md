@@ -42,6 +42,10 @@
   itself. A record a plugin has twice is taken as the last (the one the game has; it was
   refused as two records) and, taken out, every copy goes. After an in-place write, "Read
   the load order again" reads the install anew, so the viewer draws the plugin as written.
+- **The render window draws the plugin being edited last**, as the Editor reads it: a
+  record a later plugin overrides shows as the edited plugin has it (`open_install`'s
+  `last`; the connect log says so). Choosing a plugin under "Edit a plugin" offers to read
+  the load order again so the drawing follows; "(none)" puts it back in its place.
 
 - **Merge Lands on the command line**: `wraithguard --cfg openmw.cfg --merge-lands [FOLDER]`
   runs the Tools page's merge (`landcore::service`) over the cfg's load order and data

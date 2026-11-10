@@ -117,6 +117,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             a.get("plugins").and_then(|v| v.as_arr()).map(|xs| {
                 xs.iter().filter_map(|x| x.as_str()).map(String::from).collect::<Vec<String>>()
             }),
+            opt(a, "last"),
             st(),
         )?),
         "cell_coverage" => Reply::Json(t::cell_coverage(st())?),

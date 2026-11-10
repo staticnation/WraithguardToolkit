@@ -351,6 +351,7 @@ fn open_install(
     path: String,
     profile: Option<String>,
     plugins: Option<Vec<String>>,
+    last: Option<String>,
     state: State,
 ) -> Result<String, String> {
     /* The overlay the chooser already built, when this is the connect it was built for.
@@ -394,6 +395,19 @@ fn open_install(
     };
     if plugins.is_some() {
         warnings.push(format!("loading {} of the load order's plugins, as chosen", order.len()));
+    }
+    /* Wraithguard: the plugin the Editor edits (its active file), drawn last, as the Editor
+       reads it: a record a later plugin overrides shows as the plugin being edited has it,
+       not as the game would (Static, 2026-11-10). A plugin's references name their masters
+       by name, so its place in the order changes which version of a record wins and nothing
+       else. */
+    let mut order = order;
+    // (No `let` chains: check-commands compiles this file as edition 2021.)
+    let last = last.as_deref().map(str::trim).filter(|l| !l.is_empty()).and_then(|l| order.iter().position(|n| n.eq_ignore_ascii_case(l)));
+    if let Some(at) = last.filter(|at| at + 1 < order.len()) {
+        let mine = order.remove(at);
+        warnings.push(format!("{mine} is drawn last: it is the plugin the Editor edits"));
+        order.push(mine);
     }
 
     let paths: Vec<PathBuf> = order
