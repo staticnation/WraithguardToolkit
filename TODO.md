@@ -8,6 +8,64 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 `viewer-shell/DROP-TK.md`). Design notes that still guide open work: `viewer-shell/SOUND.md`,
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
+## Next: edit a plugin in place; MO2 and Morrowind.ini installs (Static, 2026-11-09)
+
+Two features, in this order (Static: the Editor first).
+
+### 1. The Editor edits an existing plugin (an "active plugin")
+
+Today the pool is a list of decisions (a record taken whole, a field set, a reference placed)
+that a build turns into a new plugin; a rebuild of a patch it made carries the earlier
+build's records forward (`build::carry_forward`). There is no way to say "this plugin is the
+file I am editing", as the Construction Set's active file is.
+
+- An active plugin, chosen in the Editor (any plugin of the load order; none: a new patch,
+  as now). The pool starts from its records and the edits lie over them; the record lists
+  mark what is the active plugin's own.
+- Build writes it back under its own name, a backup beside it first (as the Tools page's
+  backups), its masters and the order of its records kept, a reference renumbered only where
+  it must be. The patch build stays as it is: the same build, another start and target.
+- A record of the active plugin removed: taken out of the file when no master has it, a
+  DELETED record when one does (as the Construction Set).
+- Hard parts, each with a test before the code: a plugin read and written back with nothing
+  changed is the same bytes (or the differences listed and explained); a script not edited is
+  never compiled again; reference indices stay, so saves and plugins that name them still do;
+  the journal names its active plugin, so a pool is not applied to another file.
+
+### 2. One setup type for every page (reading only)
+
+The viewer opens a `Data Files` folder, an MO2 profile or an `openmw.cfg`
+(`viewcore::layout`, Robin's `gardenfell-install`: `ModOrganizer.ini`, the profile,
+`modlist.txt`, `loadorder.txt`; the right `Morrowind.ini`, `[Game Files]`, the unticked
+plugins by file date; the code page). `grassforge-main(2).zip` is that same code (its
+`layout.rs` is ours byte for byte) and writes nothing. The Load order, Conflicts, Tools and
+Editor pages take an `openmw.cfg` alone (`cf_setup`).
+
+- A setup the pages read in place of the cfg: the plugins in order, the data folders by
+  priority, the archives, what kind it is; made from a `Layout` or from the cfg. In
+  `ordercore`, beside the cfg reader (the MO2 and Morrowind.ini load orders move there; the
+  vendored crate stays Robin's, unmodified).
+- Every page on an MO2 or Morrowind.ini install, read-only: Conflicts, Tools (lint, masters,
+  the save check), the Editor, the command line (`--mo2 BASE [--profile NAME]`,
+  `--data-files DIR` beside `--cfg`).
+- What is OpenMW's alone hides or says so there: groundcover, Lua, `.omwaddon` and
+  `.omwscripts`, the customizations TOML.
+
+### 3. Sorting them: the mlox engine without MOMW
+
+The engine takes plugins and rule files and gives an order; only what is around it is
+OpenMW's (the curated list, `plugin-order.yml`, the customizations TOML, the cfg export).
+
+- A mode where the whole load order is the user's to sort (plain mlox), the MOMW parts
+  optional and off for these installs.
+- Writers, in `ordercore` beside the cfg's, each with a dry run and a backup first:
+  - MO2: the profile's `loadorder.txt` and `plugins.txt`.
+  - Morrowind.ini: the `[Game Files]` list, and the plugins' modified dates (the game loads
+    by date, masters first: what mlox and Wrye Mash set). Last, as it changes the user's
+    plugin files: the dates before are kept, to put back.
+- Hard parts: MO2's winner of a file is the mod's priority, not a `data=` line; a date set
+  on a plugin MO2 manages lands in its mod folder; two plugins with one date.
+
 ## Tools page
 
 - Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
@@ -78,8 +136,7 @@ for code: it is GPL-3.
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
-- The MO2 and Morrowind.ini load orders (`layout::mo2_profile`, `GameFileN=`, `[Archives]`)
-  into ordercore.
+- The MO2 and Morrowind.ini load orders into ordercore: now step 2 of "Next" (top of this file).
 - Why `editor_records` came back unreadable on Static's setup (Messages has the first 120
   characters of the answer).
 
@@ -132,11 +189,9 @@ index were the ones lost, and are back (`CHANGELOG.md`, 5.0.4).
 
 - If the cache grows too big (the `uses` table is most of it): keep only the strings of
   fields that can name a record.
-- Search all from the use index (`use_text`, 2026-11-09): on the big order, read the hover
-  on its count (the time, the records looked at, the index's size). Over the use index's
-  1 GiB (`cache::MAX_BYTES`) the text goes first and is left out from then on (`text_off`;
-  Search all reads the records again): if that happens on the big order, raise the cap or
-  keep only text the `uses` table lacks (strings over 64 characters).
+- Search all over a big order (2026-11-09): the hover on its count has the time. The
+  matches' text is held until the answer is made (a common word over 621 plugins is tens of
+  megabytes): if that shows, count past the first 2,000 fields without keeping them.
 
 ## Opening a big install (the viewer engine)
 

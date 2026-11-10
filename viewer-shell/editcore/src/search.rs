@@ -203,17 +203,73 @@ fn strings(v: &Value, path: &str, out: &mut Vec<(String, String)>) {
     }
 }
 
-/// The text Search all looks through in a record, its text fields one line each, for the
-/// use index's full-text part (`Cache::put_uses_with_text`); empty for a type it does not
-/// search.
-pub fn record_text(rec: &Value) -> String {
-    let tag = crate::key::tag_of(type_name(rec)).unwrap_or("");
-    if tag.is_empty() || SKIPPED.contains(&tag) {
-        return String::new();
+/// A record's id as Search all shows it: its id, else its name, else its key.
+fn shown_id(rec: &Value, key: &str) -> String {
+    ["id", "name"].iter().filter_map(|f| rec.get(*f)).find(|v| crate::columns::truthy(v)).map(pyval::str_of).unwrap_or_else(|| key.to_string())
+}
+
+/// One record of a plugin the text was found in.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Match {
+    pub tag: String,
+    pub record_type: String,
+    /// Its key, lower case.
+    pub key: String,
+    /// What it is called in the list (`shown_id`).
+    pub id: String,
+    /// Each field the text is in: `(path, value)`.
+    pub fields: Vec<(String, String)>,
+}
+
+/// The text as a plugin's bytes hold it, any case: what a record must contain before it is
+/// worth parsing. A plugin's text is one byte a character (Windows-1252 here; a character
+/// with no byte there cannot be in one, and no record is looked at).
+pub fn needle(text: &str) -> Option<regex::bytes::Regex> {
+    let (bytes, _, lost) = encoding_rs::WINDOWS_1252.encode(text);
+    if lost || bytes.is_empty() {
+        return None;
     }
-    let mut found = Vec::new();
-    strings(rec, "", &mut found);
-    found.into_iter().map(|(_, v)| v).filter(|v| !v.is_empty()).collect::<Vec<_>>().join("\n")
+    let pattern: String = bytes.iter().map(|b| format!("\\x{b:02x}")).collect();
+    regex::bytes::Regex::new(&format!("(?i-u){pattern}")).ok()
+}
+
+/// Search all over one plugin's bytes, as they lie in the file: each record of a type the
+/// search covers whose bytes hold the text is parsed, alone, and its text fields looked at
+/// (`strings`, `Finder`: the same test as [`Editor::search_all`]'s). Nothing is kept but the
+/// matches (whether a later plugin's record of the same key stands in its place is the
+/// caller's to find out), so a load order is searched without its records ever being in
+/// memory together:
+/// reading every record of every type into the Editor's session took all the memory a
+/// machine had (Static, 2026-11-09: a 621-plugin order, the PC frozen after three minutes).
+///
+/// A record whose text is only in a name the reader makes up (a flag, a book's type) is not
+/// found: the text has to be in the file.
+pub fn scan_plugin(bytes: &[u8], needle: &regex::bytes::Regex, finder: &Finder) -> Vec<Match> {
+    let mut out = Vec::new();
+    let mut at = 0usize;
+    while at + 16 <= bytes.len() {
+        let size = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().expect("4 bytes")) as usize;
+        let Some(end) = at.checked_add(16 + size).filter(|e| *e <= bytes.len()) else { break };
+        let span = &bytes[at..end];
+        at = end;
+        let Ok(tag) = std::str::from_utf8(&span[..4]) else { continue };
+        if SKIPPED.contains(&tag) || type_of(tag).is_none() || !needle.is_match(&span[16..]) {
+            continue;
+        }
+        let Ok(rec) = crate::plugin::record_value(span) else { continue };
+        let key = crate::key::record_key(&rec);
+        if key.is_empty() {
+            continue;
+        }
+        let mut all = Vec::new();
+        strings(&rec, "", &mut all);
+        let fields: Vec<(String, String)> = all.into_iter().filter(|(_, v)| finder.found(v)).collect();
+        if fields.is_empty() {
+            continue;
+        }
+        out.push(Match { tag: tag.to_string(), record_type: type_name(&rec).to_string(), id: shown_id(&rec, &key), key: key.to_lowercase(), fields });
+    }
+    out
 }
 
 /// The types Search all leaves out.
@@ -400,72 +456,37 @@ impl Editor {
     }
 
     /// The records the queue changes for Search all (a typed value, a record it makes), as
-    /// `(record type, lower-case key)`: looked at whatever the index says, as their text is
-    /// the patch's.
-    pub fn search_all_touched(&self) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = Vec::new();
+    /// `(tag, record type, lower-case key)`: looked at as the patch leaves them, whatever the
+    /// plugins' own bytes say.
+    pub fn search_all_touched(&self) -> Vec<(String, String, String)> {
+        let mut out: Vec<(String, String, String)> = Vec::new();
+        let mut put = |t: &str, key: &str| {
+            if let Some(tag) = crate::key::tag_of(t).filter(|g| !SKIPPED.contains(g)) {
+                out.push((tag.to_string(), t.to_string(), key.to_lowercase()));
+            }
+        };
         for ((t, key), choices) in self.queue.fields().iter() {
             if choices.iter().any(|c| matches!(c, Choice::Value { .. })) {
-                out.push((t.clone(), key.to_lowercase()));
+                put(t, key);
             }
         }
-        out.extend(self.queue.new_records().map(|m| (m.record_type.clone(), m.key.to_lowercase())));
+        for m in self.queue.new_records() {
+            put(&m.record_type, &m.key);
+        }
+        out.sort();
+        out.dedup();
         out
     }
 
-    /// [`Editor::search_all`] over the records the use index found the text in, and those the
-    /// queue changes: `winners` names each one's winning plugin (an index into the load
-    /// order, `None` for one the patch makes). The same answer as the scan of every record,
-    /// from those records alone.
-    pub fn search_all_in(&self, text: &str, whole: bool, limit: usize, winners: &[((String, String), Option<usize>)]) -> Value {
-        let t = text.trim();
-        if t.is_empty() {
-            return json!({"hits": [], "count": 0, "capped": false});
-        }
-        let finder = Finder::new(t, whole);
-        // In the scan's order: by tag, then type, then key.
-        let mut wanted: std::collections::BTreeMap<(&str, &str, &str), Option<usize>> = std::collections::BTreeMap::new();
-        for ((rtype, key), at) in winners {
-            let Some(tag) = crate::key::tag_of(rtype).filter(|g| !SKIPPED.contains(g)) else { continue };
-            wanted.insert((tag, rtype.as_str(), key.as_str()), *at);
-        }
-        let order = self.session.order();
-        let mut hits = Vec::new();
-        let mut count = 0usize;
-        for ((tag, rtype, key), at) in wanted {
-            let made = self.queue.new_records().find(|m| m.record_type == rtype && m.key.to_lowercase() == key);
-            let mut rec = match (made, at.and_then(|i| order.get(i))) {
-                (Some(m), _) => m.record.clone(),
-                (None, Some(name)) => match self.session.records(name, tag).get(key).filter(|r| type_name(r) == rtype) {
-                    Some(r) => r.clone(),
-                    None => continue,
-                },
-                (None, None) => continue,
-            };
-            if made.is_none() {
-                for ((qt, qk), choices) in self.queue.fields().iter() {
-                    if qt == rtype && qk.to_lowercase() == key {
-                        for c in choices {
-                            if let Choice::Value { path, value } = c {
-                                let _ = set_at(&mut rec, path, value.clone());
-                            }
-                        }
-                    }
-                }
-            }
-            let mut found = Vec::new();
-            strings(&rec, "", &mut found);
-            for (path, value) in found {
-                if finder.found(&value) {
-                    count += 1;
-                    if hits.len() < limit {
-                        let id = ["id", "name"].iter().filter_map(|f| rec.get(*f)).find(|v| crate::columns::truthy(v)).map(pyval::str_of).unwrap_or_else(|| key.to_string());
-                        hits.push(json!({"tag": tag, "id": id, "path": path, "value": value}));
-                    }
-                }
-            }
-        }
-        json!({"hits": hits, "count": count, "capped": count > limit, "indexed": true})
+    /// What Search all finds in one record the queue changes, as the patch leaves it:
+    /// `(id, [(path, value)])`; `None` when no plugin has it and the patch does not make it.
+    pub fn search_all_one(&self, tag: &str, key: &str, finder: &Finder) -> Option<(String, Vec<(String, String)>)> {
+        let found = self.find(tag, key, None)?;
+        let rec = self.as_written(&found);
+        let mut all = Vec::new();
+        strings(&rec, "", &mut all);
+        let id = shown_id(&rec, key);
+        Some((id, all.into_iter().filter(|(_, v)| finder.found(v)).collect()))
     }
 
     /// A record as the patch would write it: its base (the whole record queued, else the

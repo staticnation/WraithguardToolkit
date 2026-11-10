@@ -388,52 +388,120 @@ impl Links {
         }
     }
 
-    /// `editSearchAll` from the use index: the records whose text holds the words, found in
-    /// its full-text part, and only those read (the scan reads every record of every type: the
-    /// whole load order the first time). `None` when the index cannot answer - a plugin not in
-    /// it as it now is (it is indexed behind this answer, for the next), text under three
-    /// characters, or text other than ASCII (the index folds case its own way) - and the scan
-    /// answers.
+    /// `editSearchAll` over the plugins' own bytes (`search::scan_plugin`): each plugin is
+    /// mapped and searched on its own, on a few threads, and only the records the text is in
+    /// are parsed. The link's other way, [`Editor::search_all`], reads every record of every
+    /// type of every plugin into the session and keeps them: on a big load order that is all
+    /// the memory there is (Static, 2026-11-09: the PC frozen, a hard reboot), so the program
+    /// never takes it - it stays for the tests' sessions, which have no files (`None` here).
+    ///
+    /// A match counts when its plugin is the last that has the record: asked of the use index
+    /// when it has every plugin, else of the key index for the types a file's framing keys
+    /// (a response or a topic then counts from the last plugin the text is in). The records
+    /// the patch changes are looked at as it leaves them.
     fn search_all_link(&self, body: &str) -> Option<Res<String>> {
-        let cache = self.use_index.clone()?;
-        let req = body_of(body).ok()?;
-        let text = req.get("text").and_then(Value::as_str)?.trim().to_string();
-        if !text.is_ascii() || !self.session.scans_files() {
+        if !self.session.scans_files() {
             return None;
         }
-        let paths = self.session.plugin_paths();
         let started = std::time::Instant::now();
-        let Some(found) = cache.text_records(&paths, &text) else {
-            if text.chars().count() >= 3 {
-                self.index_in_background(paths);
-            }
-            return None;
+        let req = match body_of(body) {
+            Ok(r) => r,
+            Err(e) => return Some(Err(e)),
         };
+        let text = req.get("text").and_then(Value::as_str).unwrap_or("").trim().to_string();
         let whole = req.get("whole").is_some_and(crate::session::truthy);
+        if text.is_empty() {
+            return Some(Ok(json!({"hits": [], "count": 0, "capped": false}).to_string()));
+        }
+        let finder = crate::search::Finder::new(&text, whole);
+        let paths = self.session.plugin_paths();
+        // Each plugin searched alone; the biggest first, so one of them is not left for last.
+        let mut found: Vec<Vec<crate::search::Match>> = (0..paths.len()).map(|_| Vec::new()).collect();
+        if let Some(needle) = crate::search::needle(&text) {
+            let mut by_size: Vec<usize> = (0..paths.len()).collect();
+            by_size.sort_by_key(|&i| std::cmp::Reverse(std::fs::metadata(&paths[i]).map(|m| m.len()).unwrap_or(0)));
+            let threads = std::thread::available_parallelism().map_or(2, |n| n.get().saturating_sub(2)).clamp(1, 6).min(paths.len().max(1));
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::scope(|scope| {
+                for _ in 0..threads {
+                    let tx = tx.clone();
+                    let (next, by_size, paths, needle, finder) = (&next, &by_size, &paths, &needle, &finder);
+                    scope.spawn(move || {
+                        while let Some(&i) = by_size.get(next.fetch_add(1, std::sync::atomic::Ordering::SeqCst)) {
+                            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                crate::session::with_file_bytes(&paths[i], |bytes| Ok(crate::search::scan_plugin(bytes, needle, finder))).unwrap_or_default()
+                            }))
+                            .unwrap_or_default();
+                            if tx.send((i, got)).is_err() {
+                                break;
+                            }
+                        }
+                    });
+                }
+                drop(tx);
+                for (i, got) in rx {
+                    found[i] = got;
+                }
+            });
+        }
+        // The last plugin the text is in, for each record.
+        let mut last: std::collections::BTreeMap<(String, String, String), (usize, crate::search::Match)> = std::collections::BTreeMap::new();
+        for (i, matches) in found.into_iter().enumerate() {
+            for m in matches {
+                last.insert((m.tag.clone(), m.record_type.clone(), m.key.clone()), (i, m));
+            }
+        }
+        // And whether that plugin is the last that has the record at all.
+        let keys: Vec<(String, String)> = last.keys().map(|(_, t, k)| (t.clone(), k.clone())).collect();
+        let definers = self.use_index.as_ref().and_then(|c| c.definers(&paths, &keys));
+        if definers.is_none() {
+            let mut tags: Vec<&str> = last.keys().map(|(g, _, _)| g.as_str()).filter(|g| Session::key_only(g)).collect();
+            tags.sort_unstable();
+            tags.dedup();
+            self.session.warm_ids(&tags);
+        }
+        let order = self.session.order().to_vec();
+        last.retain(|(tag, rtype, key), (at, _)| match &definers {
+            Some(d) => d.get(&(rtype.clone(), key.clone())).and_then(|v| v.last()).is_none_or(|w| w == at),
+            None if Session::key_only(tag) => self.session.id_holders(tag, key).last().is_none_or(|w| order.get(*at).is_some_and(|n| n == w)),
+            None => true,
+        });
+        // What the patch changes, as it leaves it.
         let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
         self.sync(&mut ed);
-        let mut keys: Vec<(String, String)> = found.into_iter().map(|(_, t, k)| (t, k.to_lowercase())).collect();
-        keys.extend(ed.search_all_touched());
-        keys.sort();
-        keys.dedup();
-        // Each one's winner: the last plugin that defines it (a deleting one too, as the scan's).
-        let definers = cache.definers(&paths, &keys)?;
-        let winners: Vec<((String, String), Option<usize>)> = keys
-            .into_iter()
-            .map(|k| {
-                let at = definers.get(&k).and_then(|v| v.last().copied());
-                (k, at)
-            })
-            .collect();
-        let looked = winners.len();
-        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ed.search_all_in(&text, whole, SEARCH_ALL_LIMIT, &winners)))
-            .map_err(|_| "the viewer's Editor failed on editSearchAll".to_string());
-        // What it cost, to be measured on a big load order: the records looked at, the time, and
-        // the index's size on disk.
-        Some(out.map(|mut v| {
-            v["took"] = json!({"ms": started.elapsed().as_millis() as u64, "records": looked, "index_mb": cache.size_bytes() / (1 << 20)});
-            v.to_string()
-        }))
+        let overlaid = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut out = Vec::new();
+            for (tag, rtype, key) in ed.search_all_touched() {
+                out.push(((tag.clone(), rtype, key.clone()), ed.search_all_one(&tag, &key, &finder)));
+            }
+            out
+        }));
+        drop(ed);
+        let Ok(overlaid) = overlaid else { return Some(Err("the viewer's Editor failed on editSearchAll".into())) };
+        for (k, got) in overlaid {
+            last.remove(&k);
+            if let Some((id, fields)) = got.filter(|(_, f)| !f.is_empty()) {
+                let m = crate::search::Match { tag: k.0.clone(), record_type: k.1.clone(), key: k.2.clone(), id, fields };
+                last.insert(k, (usize::MAX, m));
+            }
+        }
+        let mut hits = Vec::new();
+        let mut count = 0usize;
+        let records = last.len();
+        for (_, (_, m)) in last {
+            for (path, value) in m.fields {
+                count += 1;
+                if hits.len() < SEARCH_ALL_LIMIT {
+                    hits.push(json!({"tag": m.tag, "id": m.id, "path": path, "value": value}));
+                }
+            }
+        }
+        Some(Ok(json!({
+            "hits": hits, "count": count, "capped": count > SEARCH_ALL_LIMIT,
+            "took": {"ms": started.elapsed().as_millis() as u64, "records": records, "plugins": paths.len()},
+        })
+        .to_string()))
     }
 
     /// `editUses`: the Use Report scans every plugin file (seconds on a big load order), so

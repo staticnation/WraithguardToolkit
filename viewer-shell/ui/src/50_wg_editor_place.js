@@ -215,7 +215,13 @@ Object.assign(WgEditor, {
     this.live=live; this.liveNew=liveNew; this._liveSig=sig;
     this.modelsFor(liveNew);
     if(App.R && App.R.cam) App._camAfter=Object.assign({}, App.R.cam);
-    if(this.refRec) App._findOri=this.refKeyOf(this.refRec);
+    // The object's panel opens on it again once the scene is drawn - only while it is the
+    // one being worked on (its dialog open, or it alone selected). Asked for every change, it
+    // took the selection after an undo or a move of several: whichever reference was sent
+    // last was picked, as if at random (gonzo, 2026-11-09).
+    const dlgOpen=this.dlg && !this.dlg.hidden;
+    const alone=!this._group.length && this._sel && this._sel.ref && this.refRec && this.refKeyOf(this._sel.ref)===this.refKeyOf(this.refRec);
+    if(this.refRec && (dlgOpen || alone)) App._findOri=this.refKeyOf(this.refRec);
     if(typeof schedulePreview==='function' && App.cellSel) schedulePreview();
     return true;
   },

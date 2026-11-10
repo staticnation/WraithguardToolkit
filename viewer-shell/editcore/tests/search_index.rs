@@ -1,6 +1,9 @@
-//! Search all from the use index's full-text part gives what the scan of every record gives:
-//! the same hits, in the same order, with the same count - the patch's edits, the records it
-//! makes, a deletion and an override included - and only the records the text is in are read.
+//! Search all over the plugins' own bytes (the program's way, `Links::search_all_link`:
+//! `search::scan_plugin`, a record parsed only when its bytes hold the text) gives what the
+//! scan of every record gives (`Editor::search_all`, the tests' sessions' way, which holds
+//! every record in memory): the same hits, in the same order, with the same count - the
+//! patch's edits, the records it makes, a deletion and an override included - with the use
+//! index and without it.
 
 use editcore::cache::Cache;
 use editcore::links::Links;
@@ -29,7 +32,7 @@ fn hits(v: &Value) -> (Value, Value) {
 }
 
 #[test]
-fn the_index_answers_as_the_scan() {
+fn the_plugins_bytes_answer_as_the_scan() {
     let dir = std::env::temp_dir().join(format!("wg-search-index-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -76,21 +79,44 @@ fn the_index_answers_as_the_scan() {
     let ask = |text: &str, whole: bool| -> Value {
         serde_json::from_str(&links.call("editSearchAll", &json!({"text": text, "whole": whole}).to_string()).unwrap()).unwrap()
     };
-    // Not indexed yet: the scan answers (and the plugins are indexed behind it).
-    assert!(ask("iron", false).get("indexed").is_none());
-    editcore::uses::index_missing(&cache, &paths, 1);
-    assert!(cache.missing_uses(&paths).is_empty());
-    for (text, whole) in [("iron", false), ("IRON", false), ("iron", true), ("sword of balmora", false), ("cup.nif", false), ("Clay", false), ("nothing at all", false)] {
-        let indexed = ask(text, whole);
-        assert_eq!(indexed["indexed"], json!(true), "{text}: the index answered");
-        let scanned = links.editor.lock().unwrap().search_all(text, whole, 2000);
-        assert_eq!(hits(&indexed), hits(&scanned), "{text} (whole: {whole})");
+    let queries = [("iron", false), ("IRON", false), ("iron", true), ("sword of balmora", false), ("cup.nif", false), ("Clay", false), ("ir", false), ("nothing at all", false)];
+    // Without the use index (who has a record last is asked of the files' framing), then with it.
+    for indexed in [false, true] {
+        if indexed {
+            editcore::uses::index_missing(&cache, &paths, 1);
+            assert!(cache.missing_uses(&paths).is_empty());
+        }
+        for (text, whole) in queries {
+            let streamed = ask(text, whole);
+            assert!(streamed.get("took").is_some(), "{text}: the plugins' bytes were searched");
+            let scanned = links.editor.lock().unwrap().search_all(text, whole, 2000);
+            assert_eq!(hits(&streamed), hits(&scanned), "{text} (whole: {whole}, use index: {indexed})");
+        }
     }
     let iron = ask("iron", false);
     let found: Vec<(&str, &str)> = iron["hits"].as_array().unwrap().iter().map(|h| (h["id"].as_str().unwrap(), h["path"].as_str().unwrap())).collect();
     assert!(found.contains(&("misc_plate", "name")) && found.contains(&("misc_new", "name")), "the patch's text: {found:?}");
     assert!(!found.iter().any(|(id, _)| *id == "misc_cup"), "the override's text, not the master's: {found:?}");
-    // Two letters: under the trigram index's least, so the scan answers.
-    assert!(ask("ir", false).get("indexed").is_none());
+    // A session the search alone has used holds no records: none was read into it.
+    let fresh = Links::open(paths.iter().map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), p.clone())).collect(), None);
+    let got: Value = serde_json::from_str(&fresh.call("editSearchAll", &json!({"text": "tale"}).to_string()).unwrap()).unwrap();
+    assert_eq!(got["count"], json!(3), "{got}");
+    assert_eq!(fresh.editor.lock().unwrap().session.has_read("BOOK", "bk_tale"), None, "the books were never read into the session");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// On real plugins (`WG_SEARCH_PLUGINS=<file>;<file>...`, `WG_SEARCH_TEXT`): how long Search all
+/// takes over them and the most memory the process held (Linux), to see it stays flat.
+#[test]
+#[ignore]
+fn search_given() {
+    let files = std::env::var("WG_SEARCH_PLUGINS").expect("WG_SEARCH_PLUGINS");
+    let plugins: Vec<(String, PathBuf)> = files.split(';').filter(|f| !f.is_empty()).map(|f| (PathBuf::from(f).file_name().unwrap().to_string_lossy().into_owned(), PathBuf::from(f))).collect();
+    let links = Links::open(plugins, None);
+    for text in std::env::var("WG_SEARCH_TEXT").unwrap_or_else(|_| "the;Caius;netch".into()).split(';') {
+        let t = std::time::Instant::now();
+        let got: Value = serde_json::from_str(&links.call("editSearchAll", &json!({"text": text}).to_string()).unwrap()).unwrap();
+        let peak = std::fs::read_to_string("/proc/self/status").ok().and_then(|s| s.lines().find(|l| l.starts_with("VmHWM")).map(str::to_string)).unwrap_or_default();
+        println!("{text:?}: {} field(s) in {} record(s), {:.2} s; {peak}", got["count"], got["took"]["records"], t.elapsed().as_secs_f32());
+    }
 }

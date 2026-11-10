@@ -15,19 +15,29 @@
   the merge follows the sort. The 4.x command line never had one (asked on Discord,
   2026-11-09). `cli/tests/merge_lands.rs` holds the command line's file to the one
   `build_merged_lands` writes, byte for byte.
-- **Search all from an index.** The Editor's Search all (Ctrl+Shift+F) read every record of
-  every type, the whole load order the first time, to look for the text. The use index now
-  keeps each record's text fields too (`use_text`, SQLite FTS5 with the trigram tokenizer,
-  so any part of a word is found, in any case), and a search reads only the records it names
-  and the ones the patch changes: each one's winning version, the patch's edits applied,
-  then checked as before. The same hits, in the same order (`editcore/tests/search_index.rs`
-  holds it to the scan, edits, new records, an override and a deletion included). Until the
-  index has every plugin as it now is, or for text under three letters or not ASCII, the
-  scan answers as before and the plugins are indexed behind it. The use index's schema is
-  6: a cache at 5 keeps its records, keys and spans, and only the use index is built again
-  (the first build of this dropped every cache, the record and scan caches with it, and all
-  of them were read again from the plugins). The count's hover says the time, the records
-  looked at and the index's size.
+- **Search all reads the plugins' own bytes, and no longer takes the machine down.** The
+  Editor's Search all (Ctrl+Shift+F) read every record of every type of every plugin into
+  the session and kept them: on a 621-plugin order that is all the memory a PC has (Static,
+  2026-11-09: frozen after three minutes, a hard reboot). Each plugin is now mapped and
+  searched on its own, on a few threads; a record is parsed only when its bytes hold the
+  text, and nothing is kept but the matches (`search::scan_plugin`). Morrowind, Tribunal and
+  Bloodmoon together: "the" in 3.2 s (25,411 fields), "Caius" in 0.03 s, the process at
+  240 MB throughout. The same hits in the same order as the old scan
+  (`editcore/tests/search_index.rs`: the patch's edits, new records, an override and a
+  deletion included), but for text that is only in a name the reader makes up (a flag, a
+  book's type). The full-text index of a day ago (`use_text`) is gone, dropped where it is
+  found; a cache at schema 5 keeps everything it has (the first build of this dropped every
+  cache). The count's hover says the time and the plugins searched.
+- **A box selection is named in one answer.** Selecting an interior's objects with a box
+  asked the engine about each one in turn (`ori`: a look through the whole world for it and
+  a read of its plugin files, for a help text the selection does not use), seconds for a few
+  hundred. `editor_ref_names` names them all in one pass. The limit is 5,000 objects, where
+  it was 500 (gonzo, 2026-11-09).
+- **Undo no longer picks an object of its own.** After any change the viewer opened the
+  object panel on the reference last sent to the pool once the scene was drawn again - after
+  an undo, or a move of several, that was some other object than the selection, picked as
+  if at random. It does so now only for the object being worked on (its dialog open, or it
+  alone selected) (gonzo, 2026-11-09).
 - **A Use Report or Search all no longer waits behind the use index being built.** Each
   cache's lookups have a connection of their own beside the writer's (SQLite's WAL lets them
   read while it writes): asking whether the index was ready waited for the writer's lock,
@@ -95,9 +105,6 @@
     with `lock().unwrap()`, which fails for good once a thread has panicked holding one, and
     the Editor's links catch such a panic and carry on. They take the lock as the rest of
     the code does now (`unwrap_or_else(|p| p.into_inner())`).
-  - The use index over its size dropped itself whole, search text included, and would have
-    been built again to the same size, never finishing. The text goes first now and stays
-    out (`text_off`), and Search all reads the records as it did before the index.
   - `check-commands`' own tests were never run (CI and `build_and_check_rust.ps1` only built
     the crate), and one had been failing unseen: 54 commands `wg-view-serve` does not
     dispatch. They are listed as such (`NOT_SERVED`), a new command not served fails, and CI

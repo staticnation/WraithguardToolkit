@@ -138,6 +138,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "assets_bytes" => Reply::Bytes(t::assets_bytes(st())?.0),
         "editor_cell_refs_bytes" => Reply::Bytes(t::editor_cell_refs_bytes(s(a, "cell"), st())?.0),
         "editor_cell_refs" => Reply::Json(t::editor_cell_refs(s(a, "cell"), st())?),
+        "editor_ref_names" => Reply::Json(t::editor_ref_names(strs(a, "keys"), st())?),
         "editor_actors" => Reply::Json(t::editor_actors(strs(a, "ids"), st())?),
         "lua_scan" => Reply::Json(t::lua_scan(st())?),
         "editor_record_tag" => Reply::Json(t::editor_record_tag(s(a, "id"), st())?),

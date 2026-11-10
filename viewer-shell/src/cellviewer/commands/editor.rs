@@ -400,6 +400,55 @@ pub(super) fn editor_cell_refs(cell: String, state: State) -> Result<String, Str
     Ok(o.done())
 }
 
+/// Wraithguard: what names each of `keys` (the viewport's reference keys) to the Editor, in
+/// one pass over the loaded world: `[{cell, origin, refr, plugins} | null]`, in the order
+/// asked (`null`: no such reference). `cell` is the cell's key as a plugin's records key it,
+/// `origin` the plugin that created the reference, `plugins` those with a record for the
+/// cell. A box selection asked `ori` for each object, which looks through the world for it
+/// and reads its plugin files for the help text: seconds for an interior's few hundred
+/// (gonzo, 2026-11-09).
+#[tauri::command(async)]
+pub(super) fn editor_ref_names(keys: Vec<String>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let want: HashMap<String, usize> = keys.iter().enumerate().map(|(i, k)| (k.to_ascii_lowercase(), i)).collect();
+    let mut out: Vec<Option<String>> = vec![None; keys.len()];
+    let name = |i: u32| w.plugins.get(i as usize).cloned().unwrap_or_default();
+    let left = std::cell::Cell::new(want.len());
+    let mut look = |num: &viewcore::esp::RefNum, ref_cell: &str, cell_by: &[u32]| {
+        let Some(k) = viewcore::refkey::RefKey::of(*num, &w.plugins) else { return };
+        let Some(&i) = want.get(&viewcore::refkey::key_text(&k).to_ascii_lowercase()) else { return };
+        if out[i].is_some() {
+            return;
+        }
+        let origin = w.plugins.iter().find(|p| p.eq_ignore_ascii_case(&k.plugin)).cloned().unwrap_or(k.plugin);
+        let mut o = J::obj();
+        o.str("cell", ref_cell).str("origin", &origin).num("refr", num.index as f64);
+        o.raw("plugins", &string_array(&cell_by.iter().map(|&p| name(p)).collect::<Vec<_>>()));
+        out[i] = Some(o.done());
+        left.set(left.get() - 1);
+    };
+    'cells: {
+        for (g, c) in &w.cells {
+            let grid = format!("({}, {})", g.0, g.1);
+            for n in c.refs.keys() {
+                look(n, &grid, &w.history.exterior(*g).touched_by);
+            }
+            if left.get() == 0 {
+                break 'cells;
+            }
+        }
+        for (k, room) in &w.interiors {
+            for n in room.refs.keys() {
+                look(n, &room.name, &w.history.interior(k).touched_by);
+            }
+            if left.get() == 0 {
+                break 'cells;
+            }
+        }
+    }
+    Ok(format!("[{}]", out.into_iter().map(|o| o.unwrap_or_else(|| "null".into())).collect::<Vec<_>>().join(",")))
+}
+
 /// Wraithguard: `editor_cell_refs` as bytes (`WGTB`): `meta` (`ss`: name, refCell, one
 /// row), `plugins` (`s`) and `rows` (`sssdddss`: key, id, tag, x, y, z, plugin, owner;
 /// the position to a tenth, as the JSON gives it).

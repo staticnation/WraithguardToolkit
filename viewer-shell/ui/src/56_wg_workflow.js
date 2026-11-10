@@ -368,8 +368,8 @@ const WgFlow={
     catch(e){ out.innerHTML='<div class="hint edBad">'+escHtml(this.err(e))+'</div>'; return null; }
     this._saText=text; this._saWhole=whole;
     const r=this._sa;
-    // From the use index (`took`): how long, and how many records it looked at, on hover.
-    const took=r.took? ' title="'+escHtml('From the index: '+(+r.took.ms)+' ms, '+(+r.took.records)+' record(s) looked at (index '+(+r.took.index_mb)+' MB)')+'"' : '';
+    // How long it took over how many plugins (`took`), on hover.
+    const took=r.took? ' title="'+escHtml((+r.took.ms)+' ms over '+(+r.took.plugins)+' plugin(s); the text is in '+(+r.took.records)+' record(s)')+'"' : '';
     out.innerHTML='<div class="hint"'+took+'>'+r.count+' field'+(r.count===1?'':'s')+(r.capped? ' (the first '+r.hits.length+' shown)' : '')+'</div>'+
       '<table class="edT edSaT"><thead><tr><th><input type="checkbox" id="edSaAll" checked title="All of them"></th><th>Type</th><th>Record</th><th>Field</th><th>Text</th></tr></thead><tbody>'+
       r.hits.map((h,i)=>'<tr data-i="'+i+'"><td><input type="checkbox" data-c="'+i+'" checked></td><td>'+escHtml(WgEditor.NAMES[h.tag]||h.tag)+'</td><td>'+escHtml(h.id)+'</td><td>'+escHtml(h.path)+'</td><td>'+escHtml(h.value.length>120? h.value.slice(0,120)+'…' : h.value)+'</td></tr>').join('')+

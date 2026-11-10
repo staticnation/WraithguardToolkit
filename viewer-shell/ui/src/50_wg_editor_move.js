@@ -251,21 +251,46 @@ Object.assign(WgEditor, {
     return null;
   },
 
+  /** `refOfHit` for many at once, in their order (null: one that cannot be edited). */
+  async refsOfHits(hits){
+    const out=new Array(hits.length).fill(null), ask=[];
+    hits.forEach((h, i)=>{
+      const key=String(h.refKey||'').toLowerCase();
+      if(key.startsWith('new:')){
+        const uid=key.slice(4);
+        for(const [c, list] of this.liveNew) if(list.some(a=>a.uid===uid)) out[i]={cell:c, uid};
+      }else ask.push(i);
+    });
+    if(!ask.length) return out;
+    let named=null;
+    try{ named=await Engine.call('editor_ref_names', {keys:ask.map(i=>String(hits[i].refKey))}); }catch(_){ }
+    if(Array.isArray(named) && named.length===ask.length){
+      ask.forEach((i, j)=>{ const r=named[j]; if(r && r.cell && r.origin && r.refr!=null) out[i]={cell:r.cell, origin:r.origin, refr:r.refr|0, plugins:r.plugins||null}; });
+      return out;
+    }
+    // An engine without it: one at a time, eight together.
+    for(let k=0;k<ask.length;k+=8){
+      const part=ask.slice(k, k+8);
+      const got=await Promise.all(part.map(i=>this.refOfHit(hits[i])));
+      part.forEach((i, j)=>{ out[i]=got[j]; });
+    }
+    return out;
+  },
+
   /** Selects several objects at once (a box): in place of the selection, or added to it. */
   async selectHits(hits, add){
     const R=App.R;
-    const CAP=500;
+    const CAP=5000;
     if(!add){ this._group=[]; this._sel=null; if(typeof Ori==='object' && Ori.el) Ori.el.hidden=true; }
     else if(!this._group.length && this._sel && this._sel.hit) this._group.push({hit:this._sel.hit, ref:this._sel.ref});
     const have=new Set(this._group.map(g=>String(g.hit.refKey).toLowerCase()));
     const want=hits.filter(h=>!have.has(String(h.refKey).toLowerCase())).slice(0, CAP);
     if(hits.length>CAP) toast('Only the first '+CAP+' objects in the box are selected','warn',3000);
-    // Asked of the engine eight at a time: a box over a town is hundreds of objects.
+    // Named by the engine in one answer (`editor_ref_names`): a box over an interior is
+    // hundreds of objects, and asking `ori` about each took seconds.
     let skipped=0;
-    for(let i=0;i<want.length;i+=8){
-      const refs=await Promise.all(want.slice(i, i+8).map(h=>this.refOfHit(h)));
-      refs.forEach((ref, j)=>{ if(ref) this._group.push({hit:want[i+j], ref}); else skipped++; });
-    }
+    const refs=await this.refsOfHits(want);
+    refs.forEach((ref, j)=>{ if(ref) this._group.push({hit:want[j], ref}); else skipped++; });
     this.syncSel();
     if(R) R.setStaticHighlight(null);
     const n=this._group.length;

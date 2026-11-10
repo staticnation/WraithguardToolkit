@@ -160,7 +160,7 @@ names a command that is not defined, or one is left unregistered.
 - **cpu**: `cpu_threads`
 - **ori**: `ori`, `ori_dialogue`
 - **find**: `find_record`
-- **editor**: `editor_tags`, `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs`, `editor_cell_refs_bytes`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`
+- **editor**: `editor_tags`, `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs`, `editor_cell_refs_bytes`, `editor_ref_names`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`
 - **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`
 - **wg**: `wg_post`, `wg_save_edited` (the page tests' seam to a stand-in host; nothing serves them since 5.0)
 - **scan**: `scan_cache_warm`

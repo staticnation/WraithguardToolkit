@@ -216,7 +216,7 @@ fn the_use_index_answers_by_string_in_load_and_file_order() {
 }
 
 #[test]
-fn a_file_at_schema_5_keeps_its_records_and_builds_only_the_use_index_again() {
+fn a_file_at_schema_5_keeps_everything_it_has() {
     let d = Dir::new("schema5");
     let a = d.plugin("a.esm", b"a");
     let row: UseRow = ("iron_sword".into(), "Npc".into(), "guard".into(), "[\"inventory\"]".into(), 1);
@@ -226,16 +226,18 @@ fn a_file_at_schema_5_keeps_its_records_and_builds_only_the_use_index_again() {
         c.put_uses(&a, std::slice::from_ref(&row));
         c.close();
     }
-    // As 5.0.3 left it: schema 5, no text.
+    // As 5.0.3 left it (schema 5), and as a day of 5.0.4 did (a `use_text` table beside it).
     let conn = rusqlite::Connection::open(d.db()).unwrap();
-    conn.execute_batch("UPDATE meta SET v=5 WHERE k='schema'; DROP TABLE use_text;").unwrap();
+    conn.execute_batch("UPDATE meta SET v=5 WHERE k='schema'; CREATE VIRTUAL TABLE use_text USING fts5(text, tokenize='trigram', content='', contentless_delete=1);").unwrap();
     drop(conn);
     let c = cache(&d.db());
     assert_eq!(c.get(&a, "NPC_").as_deref(), Some(&b"the npcs"[..]), "the records stand");
     assert!(c.keys_current(&a, "NPC_"), "and the key index");
-    assert_eq!(c.missing_uses(std::slice::from_ref(&a)), vec![0], "the use index is built again, with the text");
-    c.put_uses(&a, &[row]);
-    assert!(c.missing_uses(std::slice::from_ref(&a)).is_empty());
+    assert!(c.missing_uses(std::slice::from_ref(&a)).is_empty(), "and the use index");
+    c.close();
+    let conn = rusqlite::Connection::open(d.db()).unwrap();
+    let left: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='use_text'", [], |r| r.get(0)).unwrap();
+    assert_eq!(left, 0, "the search text's table is gone");
 }
 
 #[test]
@@ -259,22 +261,4 @@ fn a_lookup_does_not_wait_for_the_writer() {
     assert!(c.missing_uses(std::slice::from_ref(&a)).is_empty());
     assert!(t.elapsed() < std::time::Duration::from_millis(1000), "waited {:?}", t.elapsed());
     writer.join().unwrap();
-}
-
-#[test]
-fn over_its_size_the_search_text_goes_first_and_stays_out() {
-    let d = Dir::new("textcap");
-    let (a, b) = (d.plugin("a.esm", b"a"), d.plugin("b.esp", b"b"));
-    let both = [a.clone(), b.clone()];
-    let c = Cache::new(d.db(), "", 600_000);
-    let row = |k: &str| -> UseRow { (k.to_string(), "Book".into(), k.to_string(), "[\"id\"]".into(), 0) };
-    // Text that does not compress into nothing: every line its own.
-    let text: String = (0..40_000).map(|i| format!("line {i} of the tale {}\n", i * 7919 % 10007)).collect();
-    c.put_uses_with_text(&a, &[row("bk_a")], &[("Book".into(), "bk_a".into(), text.clone())]);
-    assert!(c.missing_uses(&both[..1]).is_empty(), "the index itself stands");
-    assert!(c.text_records(&both[..1], "the tale").is_none(), "the text went, so the search reads the records");
-    // And is not written again: the next plugin's index stays whole.
-    c.put_uses_with_text(&b, &[row("bk_b")], &[("Book".into(), "bk_b".into(), text)]);
-    assert!(c.missing_uses(&both).is_empty());
-    assert!(c.uses_for(&both, "bk_b").is_some());
 }

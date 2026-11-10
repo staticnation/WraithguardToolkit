@@ -380,34 +380,21 @@ pub fn index_rows(records: &[Value]) -> Vec<UseRow> {
     rows
 }
 
-/// Each record's text for Search all (`search::record_text`): `(record type, key, text)`,
-/// the records with none left out.
-pub fn index_texts(records: &[Value]) -> Vec<(String, String, String)> {
-    records
-        .iter()
-        .filter_map(|rec| {
-            let text = crate::search::record_text(rec);
-            (!text.is_empty()).then(|| (type_name(rec).to_string(), record_key(rec), text))
-        })
-        .collect()
-}
-
-/// Indexes one plugin's strings in the use-report index (`Cache::put_uses_with_text`): the
-/// plugin read whole, as the scan reads it, and every record's strings stored under the file's
-/// stamp, with its text fields for Search all.
+/// Indexes one plugin's strings in the use-report index (`Cache::put_uses`): the plugin read
+/// whole, as the scan reads it, and every record's strings stored under the file's stamp.
 pub fn index_plugin(cache: &Cache, path: &std::path::Path) -> io::Result<()> {
     // Mapped, not copied; and a plugin that does not parse has no uses - the scan skips it
     // too - so it is indexed as that, or the index would never have every plugin and never answer.
-    let (rows, texts) = crate::session::with_file_bytes(path, |bytes| {
+    let rows = crate::session::with_file_bytes(path, |bytes| {
         Ok(match crate::plugin::read(bytes) {
             Ok(parsed) => {
                 let records: Vec<Value> = parsed.objects.iter().filter(|o| o.tag() != b"TES3").filter_map(|o| serde_json::to_value(o).ok()).collect();
-                (index_rows(&records), index_texts(&records))
+                index_rows(&records)
             }
-            Err(_) => (Vec::new(), Vec::new()),
+            Err(_) => Vec::new(),
         })
     })?;
-    cache.put_uses_with_text(path, &rows, &texts);
+    cache.put_uses(path, &rows);
     Ok(())
 }
 

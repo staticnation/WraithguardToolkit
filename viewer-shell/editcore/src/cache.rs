@@ -12,9 +12,7 @@
 //! Beside the records is a key index: which record keys (a cell's name or `(x, y)`, an
 //! id) each plugin has of a tag, with the same size-and-time stamp, so "is this cell name
 //! free?" and "which plugins have this cell?" are one indexed query over the whole load
-//! order. And the use-report index: every string each plugin's records hold, by record,
-//! with each record's text fields in a full-text index beside it (`use_text`, SQLite's FTS5
-//! with the trigram tokenizer), so Search all finds a word without reading every record.
+//! order. And the use-report index: every string each plugin's records hold, by record.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -26,10 +24,11 @@ use rusqlite::{params, params_from_iter, Connection, ErrorCode, OptionalExtensio
 /// Bumped when what is stored changes shape; an older database is emptied, not read.
 /// 4: bodies are zstd'd bytes of the caller's (tagged JSON from Python), not pickles.
 /// 5: the use index has the words of dialogue responses' results too.
-/// 6: the use index has each record's text fields in `use_text`, for Search all. A file at 5
-/// keeps what it has but the use index, which is built again with the text (the records,
-/// keys and spans are as they were: 5.0.4's first build dropped them all, every cache read
-/// again from the plugins - Static, 2026-11-09).
+/// 6: for a day the use index had each record's text in `use_text` (FTS5), for Search all;
+/// the search reads the plugins' own bytes now (`search::scan_plugin`) and the table is
+/// dropped where it is found. Nothing else differs from 5, so a file at 5 keeps all it has
+/// (5.0.4's first build dropped every cache at the change of number, all of them read again
+/// from the plugins - Static, 2026-11-09).
 pub const SCHEMA: i64 = 6;
 
 /// How much of the file the record bodies may take before the largest tag's go.
@@ -48,7 +47,7 @@ pub const REPORTS_KEPT: i64 = 2000;
 pub const USES_TAG: &str = "~USE";
 
 /// The tables that hold what was read from the plugins (emptied together).
-const DERIVED: [&str; 10] = ["records", "keys", "key_stamps", "reports", "uses", "use_records", "use_plugins", "use_text", "spans2", "span_stamps2"];
+const DERIVED: [&str; 9] = ["records", "keys", "key_stamps", "reports", "uses", "use_records", "use_plugins", "spans2", "span_stamps2"];
 
 /// Times to open the file again when another connection is setting it up.
 const OPEN_TRIES: u32 = 12;
@@ -206,13 +205,7 @@ impl Cache {
             });
         let want = format!("p:{}", self.parser);
         if schema == Some(5) && made.as_deref() == Some(want.as_str()) {
-            // 5 to 6: only the use index goes (it lacks the text); the rest stands.
-            for t in ["uses", "use_records", "use_plugins"] {
-                tx.execute(&format!("DROP TABLE IF EXISTS {t}"), [])?;
-            }
-            if tx.query_row("SELECT 1 FROM sqlite_master WHERE name='key_stamps'", [], |_| Ok(())).optional()?.is_some() {
-                tx.execute("DELETE FROM key_stamps WHERE tag=?", [USES_TAG])?;
-            }
+            // 5 to 6: the same tables; only the number moves.
             tx.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", [SCHEMA])?;
         } else if schema != Some(SCHEMA) || made.as_deref() != Some(want.as_str()) {
             // Another shape, or made by another build of the reader: none of it is to be
@@ -222,7 +215,6 @@ impl Cache {
             }
             tx.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", [SCHEMA])?;
             tx.execute("INSERT OR REPLACE INTO meta VALUES ('parser', ?)", [&want])?;
-            tx.execute("DELETE FROM meta WHERE k='text_off'", [])?;
         }
         tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS records (plugin TEXT NOT NULL, tag TEXT NOT NULL,
@@ -239,7 +231,8 @@ impl Cache {
              CREATE INDEX IF NOT EXISTS use_records_key ON use_records (lower(key));
              CREATE TABLE IF NOT EXISTS uses (value TEXT NOT NULL, rid INTEGER NOT NULL,
                paths TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (value, rid)) WITHOUT ROWID;
-             CREATE VIRTUAL TABLE IF NOT EXISTS use_text USING fts5(text, tokenize='trigram', content='', contentless_delete=1);
+             DROP TABLE IF EXISTS use_text;
+             DELETE FROM meta WHERE k='text_off';
              CREATE TABLE IF NOT EXISTS reports (sig TEXT NOT NULL, kind TEXT NOT NULL,
                key TEXT NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sig, kind, key));
              DROP TABLE IF EXISTS spans;
@@ -278,10 +271,6 @@ impl Cache {
 
     /// Removes what the use index holds of one plugin (the caller commits).
     fn drop_uses(conn: &Connection, plugin: &str) -> rusqlite::Result<()> {
-        conn.execute(
-            "DELETE FROM use_text WHERE rowid IN (SELECT r.rid FROM use_records r JOIN use_plugins p ON p.pid = r.pid WHERE p.plugin=?)",
-            [plugin],
-        )?;
         conn.execute(
             "DELETE FROM uses WHERE rid IN (SELECT r.rid FROM use_records r JOIN use_plugins p ON p.pid = r.pid WHERE p.plugin=?)",
             [plugin],
@@ -364,14 +353,6 @@ impl Cache {
             }
             dropped += 1;
             (self.warn)(&format!("editor: record cache over {} bytes: dropped the {next} records", self.max_bytes));
-        }
-        // The use index's text for Search all goes before the index itself, and stays out
-        // (`text_off`): dropped with the index it would be written again, put the file over
-        // again, and the index would never be whole. Search all reads the records without it.
-        if over(c) && c.query_row("SELECT 1 FROM use_text LIMIT 1", [], |_| Ok(())).optional().ok().flatten().is_some() {
-            let _ = c.execute_batch("INSERT INTO use_text(use_text) VALUES ('delete-all'); INSERT OR REPLACE INTO meta VALUES ('text_off', 1);");
-            (self.warn)(&format!("editor: record cache over {} bytes: dropped the search text, and it is left out from now on", self.max_bytes));
-            dropped += 1;
         }
         if over(c) {
             let _ = c.execute_batch("DELETE FROM uses; DELETE FROM use_records; DELETE FROM use_plugins;");
@@ -588,20 +569,8 @@ impl Cache {
         (records, strings)
     }
 
-    /// Whether the search text is left out of this file (it put it over its size once).
-    fn text_off(c: &Connection) -> bool {
-        c.query_row("SELECT 1 FROM meta WHERE k='text_off'", [], |_| Ok(())).optional().ok().flatten().is_some()
-    }
-
     /// Indexes every string a plugin's records hold (the use-report index).
     pub fn put_uses(&self, plugin: &Path, rows: &[UseRow]) {
-        self.put_uses_with_text(plugin, rows, &[]);
-    }
-
-    /// [`Cache::put_uses`], with each record's text fields for Search all: `(record type,
-    /// key, text)`, a record's fields one line each (`search::record_text`). A record whose key
-    /// the rows do not define is left out.
-    pub fn put_uses_with_text(&self, plugin: &Path, rows: &[UseRow], texts: &[(String, String, String)]) {
         let Some(s) = stamp(plugin) else { return };
         self.with(|c| {
             let r = (|| -> rusqlite::Result<()> {
@@ -619,25 +588,6 @@ impl Cache {
                     let mut ins = tx.prepare("INSERT INTO uses VALUES (?, ?, ?, ?)")?;
                     for (v, rid, p, n) in &strings {
                         ins.execute(params![v, rid, p, n])?;
-                    }
-                    if !texts.is_empty() && !Cache::text_off(&tx) {
-                        // A record's text under its row id; a key two records of the plugin share
-                        // (one record's run of rows each) goes under the last, both texts together.
-                        let rid_of: HashMap<(&str, &str), i64> = records.iter().map(|(rid, t, k)| ((t.as_str(), k.as_str()), *rid)).collect();
-                        let mut joined: BTreeMap<i64, String> = BTreeMap::new();
-                        for (t, k, text) in texts {
-                            if let Some(&rid) = rid_of.get(&(t.as_str(), k.as_str())).filter(|_| !text.is_empty()) {
-                                let e = joined.entry(rid).or_default();
-                                if !e.is_empty() {
-                                    e.push('\n');
-                                }
-                                e.push_str(text);
-                            }
-                        }
-                        let mut ins = tx.prepare("INSERT INTO use_text (rowid, text) VALUES (?, ?)")?;
-                        for (rid, text) in &joined {
-                            ins.execute(params![rid, text])?;
-                        }
                     }
                 }
                 tx.execute("INSERT OR REPLACE INTO key_stamps VALUES (?, ?, ?, ?)", params![s.key, USES_TAG, s.size, s.mtime_ns])?;
@@ -692,42 +642,6 @@ impl Cache {
         })?;
         out.sort_by_key(|(i, rid, _)| (*i, *rid));
         Some(out.into_iter().map(|(_, _, h)| h).collect())
-    }
-
-    /// Every record whose text fields hold `text` (any case), from the use index's full-text
-    /// part: `(plugin index, record type, key)`, in load order. Candidates, not hits: the
-    /// caller looks at the record (a word split across two fields matches here). `None` when
-    /// the index cannot answer: a plugin not in it as it now is, or `text` under three
-    /// characters (the trigram tokenizer's least).
-    pub fn text_records(&self, plugins: &[PathBuf], text: &str) -> Option<Vec<(usize, String, String)>> {
-        if text.chars().count() < 3 || !self.stale_of(plugins, USES_TAG)?.is_empty() {
-            return None;
-        }
-        let order: HashMap<String, usize> = Cache::stamped(plugins).into_iter().map(|(i, s)| (s.key, i)).collect();
-        // One phrase: the text as it is, its quotes doubled.
-        let phrase = format!("\"{}\"", text.replace('"', "\"\""));
-        let mut out = self.read(|c| {
-            if Cache::text_off(c) {
-                return None;
-            }
-            let mut st = c
-                .prepare(
-                    "SELECT p.plugin, r.rtype, r.key, r.rid FROM use_text t
-                     JOIN use_records r ON r.rid = t.rowid JOIN use_plugins p ON p.pid = r.pid WHERE use_text MATCH ?",
-                )
-                .ok()?;
-            let rows = st.query_map([&phrase], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?))).ok()?;
-            let mut out = Vec::new();
-            for row in rows {
-                let (plug, rtype, key, rid) = row.ok()?;
-                if let Some(&i) = order.get(&plug) {
-                    out.push((i, rid, rtype, key));
-                }
-            }
-            Some(out)
-        })?;
-        out.sort_by_key(|(i, rid, _, _)| (*i, *rid));
-        Some(out.into_iter().map(|(i, _, t, k)| (i, t, k)).collect())
     }
 
     /// Which plugins (indices, load order) define each `(record type, lower-case key)`,

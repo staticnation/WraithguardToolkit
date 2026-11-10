@@ -4161,6 +4161,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             editor_records,
             editor_rows,
             editor_cell_refs,
+            editor_ref_names,
             editor_actors,
             lua_scan,
             lua_chart,
