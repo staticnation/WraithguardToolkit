@@ -292,7 +292,7 @@ dependencies = [
 [[package]]
 name = "bsa"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "bstr",
  "memmap2",
@@ -352,7 +352,7 @@ dependencies = [
 [[package]]
 name = "bytes_io"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -369,7 +369,7 @@ dependencies = [
 [[package]]
 name = "bytes_io_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -1085,7 +1085,7 @@ dependencies = [
 [[package]]
 name = "esp"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "base64-simd",
  "bitflags 2.13.2",
@@ -1107,7 +1107,7 @@ dependencies = [
 [[package]]
 name = "esp_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -2677,7 +2677,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nif"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "bstr",
  "bytemuck",
@@ -2694,7 +2694,7 @@ dependencies = [
 [[package]]
 name = "nif_macros"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -4736,7 +4736,7 @@ dependencies = [
 [[package]]
 name = "tes3"
 version = "0.0.1"
-source = "git+https://github.com/staticnation/tes3#0bda25c3425a5f3036cef823653a81f52a2fe495"
+source = "git+https://github.com/staticnation/tes3#e31beee045fa0365adc61d13db0d0e2903a73ddd"
 dependencies = [
  "bsa",
  "esp",
