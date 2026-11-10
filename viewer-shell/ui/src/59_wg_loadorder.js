@@ -284,9 +284,40 @@ const WgLoadOrder={
     return a;
   },
 
+  /** Whether the setup is an MO2 profile or a Morrowind.ini install: no MOMW list, sorted by
+   *  the mlox rules alone (`loadorder_plain_sort`, TODO.md Next 3). */
+  plainSetup(){
+    const cfg=this.val('cfg');
+    return !!cfg && typeof setupSpec==='function' && setupSpec(cfg).kind!=='openmw';
+  },
+
+  async sortPlain(){
+    const got=await Engine.call('loadorder_plain_sort',{cfg:this.val('cfg'), rules:this.lines('rules')});
+    const where=got.kind==='mo2'? 'the MO2 profile' : 'Morrowind.ini';
+    const items=[{kind:'section', text:'Sorted by the mlox rules ('+where+'; no MOMW list): '+got.moved.length+' of '+got.order.length+' plugin(s) move'}];
+    for(const m of got.moved) items.push({kind:'line', text:m.name+': '+m.from+' -> '+m.to, names:[m.name]});
+    if(got.conflicts.length){
+      items.push({kind:'subsection', text:'Rules not applied (they would close a cycle)'});
+      for(const [a,b] of got.conflicts) items.push({kind:'line', text:a+' before '+b, warning:'rule_conflict', names:[a,b]});
+    }
+    for(const t of got.notes||[]) items.push({kind:'log', text:t});
+    this.report=items;
+    this.load({plain:got.kind, finalOrder:got.order, subset:[], masterProblems:[], dataOrder:[], dataResult:null});
+    this.drawWarnings();
+  },
+
   async sort(){
     const btn=$('#loSort'); btn.disabled=true;
     $('#loContent').innerHTML='<li class="empty">Sorting...</li>';
+    if(this.plainSetup()){
+      try{ await this.sortPlain(); }
+      catch(e){
+        toast(String(e.message||e),'err',6000);
+        $('#loContent').innerHTML='<li class="empty">'+loEsc(String(e.message||e))+'</li>';
+      }
+      finally{ btn.disabled=false; }
+      return;
+    }
     try{
       const a=this.args();
       const dir=this.val('scanDir');
@@ -586,8 +617,28 @@ const WgLoadOrder={
     else toast(name+' is not in the orders','warn',2500);
   },
 
+  /** Export for an MO2 or Morrowind.ini install: the order as the panel has it, written into
+   *  the install (`loadorder_plain_write`): [Game Files], an MO2 profile's loadorder.txt and
+   *  plugins.txt, a Morrowind.ini install's plugin dates; each file copied first. Every plugin
+   *  stays loaded: a box ticked off is not written as off (MO2 or the game's launcher does that). */
+  async exportPlain(){
+    const btn=$('#loExport'); btn.disabled=true;
+    try{
+      const dryRun=this.flag('dryRun');
+      const off=this.content.filter(r=>!r.on).length;
+      const got=await Engine.call('loadorder_plain_write',{cfg:this.val('cfg'), order:this.content.map(r=>r.name), dryRun, stamp:this.stamp()});
+      this.report=this.report.concat([{kind:'subsection', text:dryRun? 'Export (dry run: nothing written)' : 'Export'}], got.lines.map(t=>({kind:'line', text:t})));
+      if(off) this.report.push({kind:'line', text:off+' plugin(s) ticked off are written in their place and stay loaded: switch them off in '+(this.plan.plain==='mo2'? 'MO2' : 'the launcher'), warning:'orphan'});
+      this.showText=true; $('#loText').checked=true;
+      this.drawWarnings();
+      toast(dryRun? 'Dry run: nothing written (see the run\'s text)' : 'Written: '+got.lines.length+' file(s) or step(s)', dryRun?'warn':'ok', 5000);
+    }catch(e){ toast(String(e.message||e),'err',6000); }
+    finally{ btn.disabled=false; }
+  },
+
   async exportPlan(){
     if(!this.plan) return;
+    if(this.plan.plain) return this.exportPlain();
     const btn=$('#loExport'); btn.disabled=true;
     try{
       const stamp=this.stamp();

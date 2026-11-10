@@ -3069,7 +3069,9 @@ pub(crate) fn settings_path(given: &str) -> Result<PathBuf, String> {
 pub(crate) fn settings_cfg() -> Option<String> {
     let s = toolscore::settings::read(&settings_path("").ok()?);
     let cfg = s.get("cfg")?.as_str()?.trim().to_string();
-    std::path::Path::new(&cfg).is_file().then_some(cfg)
+    // An openmw.cfg, an MO2 install (`mo2:...`) or a Data Files folder (`setup_spec`).
+    let (_, path, _) = setup_spec(&cfg);
+    std::path::Path::new(&path).exists().then_some(cfg)
 }
 
 /// Wraithguard: the pages' fields from the settings file, so each page opens on the setup the
@@ -4115,6 +4117,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             editor_setup,
             loadorder_compute,
             loadorder_export,
+            loadorder_plain_sort,
+            loadorder_plain_write,
             loadorder_rule_ages,
             settings_seed,
             settings_write,

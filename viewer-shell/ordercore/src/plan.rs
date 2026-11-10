@@ -280,7 +280,7 @@ fn rule_text(path: &Path) -> Result<String, PlanError> {
 
 /// The ordering blocks of every rule file (`load_rule_blocks`): `(chains, nearstart, nearend)`,
 /// a chain's priority its entry's place in `rules`, and a note per file with bridged lines.
-fn load_rule_blocks(rules: &[String], report: &mut Report) -> Result<RuleBlocks, PlanError> {
+pub(crate) fn load_rule_blocks(rules: &[String], report: &mut Report) -> Result<RuleBlocks, PlanError> {
     let mut out = RuleBlocks::default();
     for (priority, entry) in rules.iter().enumerate() {
         for file in rule_files(entry) {
@@ -307,10 +307,10 @@ fn load_rule_blocks(rules: &[String], report: &mut Report) -> Result<RuleBlocks,
 }
 
 #[derive(Default)]
-struct RuleBlocks {
-    chains: Vec<(Vec<String>, i64)>,
-    nearstart: Vec<String>,
-    nearend: Vec<String>,
+pub(crate) struct RuleBlocks {
+    pub(crate) chains: Vec<(Vec<String>, i64)>,
+    pub(crate) nearstart: Vec<String>,
+    pub(crate) nearend: Vec<String>,
 }
 
 /// Every rule file's text joined by newlines (`load_rules_raw_text`).

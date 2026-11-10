@@ -5,6 +5,23 @@
 
 ### Added
 
+- **Every page reads an MO2 or Morrowind.ini install, not only an `openmw.cfg`.** The Setup
+  page's first field is "The install": an `openmw.cfg`, an MO2 folder (MO2..., saved as
+  `mo2:<folder>|<profile>`) or the game's `Data Files` / `Morrowind.ini` (Morrowind...). The
+  Load order, Conflicts, Tools and Editor pages read it through `cf_setup`, which makes a
+  `viewcore::layout` install (Robin's reader: the profile's Morrowind.ini, its mods by
+  priority, the game's Data Files lowest, the archives) into the cfg's shape. Opening an
+  install in the viewer sets it as the pages' setup.
+- **Sort and Export for an MO2 or Morrowind.ini install: plain mlox, no MOMW list**
+  (`ordercore::plain`). Sort runs the mlox rules over the whole load order: each plugin goes
+  where the rules and its masters put it, one no rule names keeps its place; what moves and
+  the rules refused for closing a cycle are listed. Export writes the order as the page has
+  it: the profile's `loadorder.txt` and `plugins.txt` (MO2) and the `[Game Files]` of the
+  Morrowind.ini (byte for byte otherwise, its line ends kept), and for the game's own install
+  the plugins' dates, which the game loads by: a date moves only when it is not later than
+  the one before it, masters and plugins apart. Every file is copied first
+  (`name.bak-<stamp>`), the dates set are kept in `Morrowind.ini.dates-<stamp>.json`, and Dry
+  run says what would be written.
 - **A plugin edited in place.** Build patch can write the pool into one of the load order's
   own plugins, as the Construction Set saves its active file: choose the plugin as where
   the patch goes, and "Edit it in place" is offered (and chosen) beside Append and Replace.

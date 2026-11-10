@@ -298,3 +298,55 @@ pub(super) fn loadorder_author(op: String, rule: String, path: Option<String>) -
         other => Err(format!("no such rule maker step: {other}")),
     }
 }
+
+/* ---- the plain sort: an MO2 or Morrowind.ini install (TODO.md, Next, 3) ------------------
+
+   The mlox rules over the whole load order, no MOMW list: `ordercore::plain`. The page sends
+   the setup's name and its rule files; it gets the order back to look over, then writes it. */
+
+fn plain_index(c: &viewcore::ordercore::cfg::OpenmwCfg) -> viewcore::ordercore::inputs::PluginIndex {
+    let dirs: Vec<String> = c.data.iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    viewcore::ordercore::inputs::PluginIndex::build(&dirs)
+}
+
+/// Wraithguard: the plain mlox sort of an MO2 or Morrowind.ini install's load order (`cfg`: the
+/// setup's name; `rules`: the rule files, lowest priority first). Answers `{kind, was, order,
+/// moved: [{name, from, to}], conflicts: [[before, after]], notes}`.
+#[tauri::command(async)]
+pub(super) fn loadorder_plain_sort(cfg: String, rules: Vec<String>) -> Result<String, String> {
+    let (kind, _, _) = setup_spec(&cfg);
+    if kind == "openmw" {
+        return Err("an openmw.cfg is sorted by Sort, with its MOMW list".into());
+    }
+    let c = cf_setup(&cfg)?;
+    let index = plain_index(&c);
+    let got = viewcore::ordercore::plain::sort(&c.content, &rules, &|n| index.find(n).map(std::path::Path::to_path_buf))?;
+    let moved: Vec<serde_json::Value> = got.moved.iter().map(|(n, f, t)| serde_json::json!({"name": n, "from": f, "to": t})).collect();
+    Ok(serde_json::json!({"kind": kind, "was": got.was, "order": got.order, "moved": moved, "conflicts": got.conflicts, "notes": got.notes}).to_string())
+}
+
+/// Wraithguard: writes `order` into an MO2 or Morrowind.ini install (`cfg`: the setup's name):
+/// its Morrowind.ini's `[Game Files]`, an MO2 profile's `loadorder.txt` and `plugins.txt`, a
+/// Morrowind.ini install's plugin dates; each file copied first (`stamp` names the copies).
+/// `dryRun`: nothing written. Answers `{lines}`, what was (or would be) done.
+#[tauri::command(async)]
+pub(super) fn loadorder_plain_write(cfg: String, order: Vec<String>, dry_run: bool, stamp: String) -> Result<String, String> {
+    let (kind, _, _) = setup_spec(&cfg);
+    if kind == "openmw" {
+        return Err("an openmw.cfg is written by Export".into());
+    }
+    let c = cf_setup(&cfg)?;
+    let ini = c.files.first().cloned().ok_or("the install has no Morrowind.ini")?;
+    // Only the plugins the install loads, each once: the order is the page's, after the person's moves.
+    let have: std::collections::HashSet<String> = c.content.iter().map(|n| n.to_lowercase()).collect();
+    let mut seen = std::collections::HashSet::new();
+    let order: Vec<String> = order.into_iter().filter(|n| have.contains(&n.to_lowercase()) && seen.insert(n.to_lowercase())).collect();
+    if order.len() != have.len() {
+        return Err(format!("the order names {} of the install's {} plugins: sort again", order.len(), have.len()));
+    }
+    let index = plain_index(&c);
+    let profile = if kind == "mo2" { ini.parent().map(std::path::Path::to_path_buf) } else { None };
+    let stamp = if stamp.trim().is_empty() { "backup".to_string() } else { stamp };
+    let lines = viewcore::ordercore::plain::write(&ini, &order, profile.as_deref(), &|n| index.find(n).map(std::path::Path::to_path_buf), dry_run, &stamp)?;
+    Ok(serde_json::json!({"lines": lines}).to_string())
+}

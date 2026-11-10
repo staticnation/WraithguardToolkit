@@ -45,6 +45,7 @@ pub mod order;
 pub mod patterns;
 pub mod plan;
 pub mod predicates;
+pub mod plain;
 pub mod pyre;
 pub mod records;
 pub mod refs;

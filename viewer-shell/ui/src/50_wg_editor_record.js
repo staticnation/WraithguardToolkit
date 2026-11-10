@@ -86,7 +86,7 @@ Object.assign(WgEditor, {
     const cfg=String((window.__WG_VIEW__||{}).cfg||'');
     if(cfg && typeof openInstall==='function'
        && await wgConfirm('Read the load order again so the render window draws '+(name? name+' last, as the Editor reads it' : 'it as the game loads it')+'?\n\nOn a big load order this takes as long as a first load.', 'Edit a plugin')){
-      try{ await openInstall('openmw', cfg, null, null); }catch(e){ toast(String(e.message||e),'err',6000); }
+      try{ const sp=setupSpec(cfg); await openInstall(sp.kind, sp.path, sp.profile, null); }catch(e){ toast(String(e.message||e),'err',6000); }
     }
   },
 

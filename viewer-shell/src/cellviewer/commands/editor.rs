@@ -712,11 +712,15 @@ pub(super) fn editor_open(plugins: Vec<(String, String)>, journal: String, folde
 /// app used, so a queue it left opens here unchanged.
 #[tauri::command(async)]
 pub(super) fn editor_setup(state: State) -> Result<String, String> {
-    let cfg = state.app().order_file.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    if !viewcore::luascan::is_openmw_cfg(&cfg) {
-        return Err("The Editor's changes need an OpenMW setup (openmw.cfg); this install is a Morrowind.ini".into());
-    }
-    let setup = cf_setup(&cfg.to_string_lossy())?;
+    let (cfg, l) = {
+        let app = state.app();
+        (app.order_file.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.layout.clone())
+    };
+    // An MO2 or Morrowind.ini install: the layout it was opened with (Static, 2026-11-10).
+    let setup = match l.filter(|_| !viewcore::luascan::is_openmw_cfg(&cfg)) {
+        Some(l) => setup_from_layout(&l),
+        None => cf_setup(&cfg.to_string_lossy())?,
+    };
     let plugins: Vec<(String, String)> = setup
         .locate(&setup.plugins())
         .into_iter()

@@ -89,6 +89,28 @@ pub fn cfg(path: &str) -> Check {
     if path.trim().is_empty() {
         return Check::new(Level::Error, "Every page needs the openmw.cfg: choose it, or let Find look where OpenMW keeps it.");
     }
+    // An MO2 install (`mo2:<folder>[|<profile>]`) or the game's own (its Data Files, or the
+    // Morrowind.ini beside it): read by the viewer's layout when it loads (Static, 2026-11-10).
+    if let Some(rest) = path.trim().strip_prefix("mo2:") {
+        let base = rest.rsplit_once('|').map_or(rest, |(b, _)| b).trim();
+        let p = std::path::Path::new(base);
+        return if p.join("ModOrganizer.ini").is_file() || p.join("profiles").is_dir() {
+            Check::new(Level::Ok, "A Mod Organizer 2 install: its profile's Morrowind.ini and enabled mods are read when it loads.")
+        } else {
+            Check::new(Level::Error, format!("{base} is not a Mod Organizer 2 folder (no ModOrganizer.ini, no profiles)."))
+        };
+    }
+    let p = std::path::Path::new(path.trim());
+    let ini = p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("morrowind.ini"));
+    if p.is_dir() || ini {
+        let data = if ini { p.parent().map(|g| g.join("Data Files")).unwrap_or_default() } else { p.to_path_buf() };
+        let has_ini = data.parent().is_some_and(|g| g.join("Morrowind.ini").is_file()) || data.join("Morrowind.ini").is_file();
+        return if data.is_dir() && has_ini {
+            Check::new(Level::Ok, "The game as it is installed: Morrowind.ini's [Game Files] and Data Files are read when it loads.")
+        } else {
+            Check::new(Level::Error, format!("{} is not a Data Files folder with a Morrowind.ini beside it.", data.display()))
+        };
+    }
     let p = match file(path) {
         Ok(p) => p,
         Err(c) => return c,
@@ -341,7 +363,12 @@ mod tests {
         assert_eq!(c.lines[0], "1 data folder, 1 content file.");
         assert!(c.lines[1].starts_with("1 data folder is not there:"));
         assert_eq!(super::cfg("").level, Level::Error);
-        assert_eq!(super::cfg(&d.to_string_lossy()).lines[0], "This is a folder; a file is wanted here.");
+        // A folder is the game's own install (its Data Files): this one has no Morrowind.ini.
+        assert_eq!(super::cfg(&d.to_string_lossy()).level, Level::Error);
+        assert!(super::cfg(&d.to_string_lossy()).lines[0].ends_with("is not a Data Files folder with a Morrowind.ini beside it."));
+        std::fs::write(d.join("Morrowind.ini"), "[Game Files]\r\n").unwrap();
+        assert_eq!(super::cfg(&d.join("Data Files").to_string_lossy()).level, Level::Ok);
+        assert_eq!(super::cfg(&d.join("Morrowind.ini").to_string_lossy()).level, Level::Ok);
         let _ = std::fs::remove_dir_all(&d);
     }
 

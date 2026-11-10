@@ -540,7 +540,7 @@ Object.assign(WgEditor, {
       const cfg=String((window.__WG_VIEW__||{}).cfg||'');
       if(!cfg || typeof openInstall!=='function') return toast('The load order is read again from Setup','warn',4000);
       again.disabled=true;
-      try{ await openInstall('openmw', cfg, null, null); }catch(e){ toast(String(e.message||e),'err',6000); }
+      try{ const sp=setupSpec(cfg); await openInstall(sp.kind, sp.path, sp.profile, null); }catch(e){ toast(String(e.message||e),'err',6000); }
     };
     done.querySelector('#edBuildPreview').onclick=async()=>{
       try{ await Engine.call('editor_preview_patch', {cfg:String((window.__WG_VIEW__||{}).cfg||''), path:r.output}); toast('Opening a Cell Preview with the patch','ok',3000); }

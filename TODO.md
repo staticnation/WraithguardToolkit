@@ -22,39 +22,30 @@ the game's masters, not in the game or on screen. Left:
 
 - Nothing left but trying it: on screen and in the game.
 
-### 2. One setup type for every page (reading only)
+### 2. One setup type for every page: in (2026-11-10), to be tried on an MO2 and a game install
 
-The viewer opens a `Data Files` folder, an MO2 profile or an `openmw.cfg`
-(`viewcore::layout`, Robin's `gardenfell-install`: `ModOrganizer.ini`, the profile,
-`modlist.txt`, `loadorder.txt`; the right `Morrowind.ini`, `[Game Files]`, the unticked
-plugins by file date; the code page). `grassforge-main(2).zip` is that same code (its
-`layout.rs` is ours byte for byte) and writes nothing. The Load order, Conflicts, Tools and
-Editor pages take an `openmw.cfg` alone (`cf_setup`).
+In (`CHANGELOG.md` 5.0.4): the Setup page takes an MO2 install or the game's own (a `Data
+Files` folder or its `Morrowind.ini`) beside an `openmw.cfg`, and `cf_setup` reads either into
+the cfg's shape (`setup_from_layout`), so the Load order, Conflicts, Tools and Editor pages
+read them. Left:
 
-- A setup the pages read in place of the cfg: the plugins in order, the data folders by
-  priority, the archives, what kind it is; made from a `Layout` or from the cfg. In
-  `ordercore`, beside the cfg reader (the MO2 and Morrowind.ini load orders move there; the
-  vendored crate stays Robin's, unmodified).
-- Every page on an MO2 or Morrowind.ini install, read-only: Conflicts, Tools (lint, masters,
-  the save check), the Editor, the command line (`--mo2 BASE [--profile NAME]`,
-  `--data-files DIR` beside `--cfg`).
-- What is OpenMW's alone hides or says so there: groundcover, Lua, `.omwaddon` and
-  `.omwscripts`, the customizations TOML.
+- The command line: `--mo2 BASE [--profile NAME]` and `--data-files DIR` beside `--cfg`.
+- What is OpenMW's alone hides or says so on these installs: groundcover, Lua, `.omwaddon`
+  and `.omwscripts`, the customizations TOML.
 
-### 3. Sorting them: the mlox engine without MOMW
+### 3. Sorting them: the mlox engine without MOMW: in (2026-11-10), to be tried
 
-The engine takes plugins and rule files and gives an order; only what is around it is
-OpenMW's (the curated list, `plugin-order.yml`, the customizations TOML, the cfg export).
+In (`CHANGELOG.md` 5.0.4): on an MO2 or Morrowind.ini setup, Sort is plain mlox over the
+whole load order (`ordercore::plain`), and Export writes it, a dry run first if ticked, every
+file copied before. Left:
 
-- A mode where the whole load order is the user's to sort (plain mlox), the MOMW parts
-  optional and off for these installs.
-- Writers, in `ordercore` beside the cfg's, each with a dry run and a backup first:
-  - MO2: the profile's `loadorder.txt` and `plugins.txt`.
-  - Morrowind.ini: the `[Game Files]` list, and the plugins' modified dates (the game loads
-    by date, masters first: what mlox and Wrye Mash set). Last, as it changes the user's
-    plugin files: the dates before are kept, to put back.
-- Hard parts: MO2's winner of a file is the mod's priority, not a `data=` line; a date set
-  on a plugin MO2 manages lands in its mod folder; two plugins with one date.
+- A plugin ticked off on the page is written in its place and stays loaded: switching it off
+  (MO2's `plugins.txt` `*`, the ini's list) is not done.
+- MO2 plugin dates are not set (MO2 orders by `loadorder.txt`); a Morrowind.ini install's
+  dates are, with the old ones kept in `Morrowind.ini.dates-<stamp>.json`. Nothing puts them
+  back yet: a "Restore dates" button reading that file.
+- Two plugins with one date: the sort moves the later one a minute on; untried on a real
+  install.
 
 ## Tools page
 

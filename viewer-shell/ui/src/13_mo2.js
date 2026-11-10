@@ -19,13 +19,32 @@
    path that does not go through those guards may still have left behind. */
 /** Opens an install and fills the page from the world the engine loaded.
     Returns the engine's summary, or null when it could not be opened. */
+/** What a setup's name (`__WG_VIEW__.cfg`, the settings file's `cfg`) opens: `{kind, path,
+ *  profile}` - `mo2:<folder>[|<profile>]`, an openmw.cfg, or a Data Files folder (or the
+ *  Morrowind.ini beside one). As `setup_spec` in the engine. */
+function setupSpec(spec){
+  const s=String(spec||'').trim();
+  if(/^mo2:/i.test(s)){ const rest=s.slice(4), at=rest.lastIndexOf('|'); return at>=0? {kind:'mo2', path:rest.slice(0,at), profile:rest.slice(at+1)||null} : {kind:'mo2', path:rest, profile:null}; }
+  if(/(^|[\\/])openmw\.cfg$/i.test(s)) return {kind:'openmw', path:s, profile:null};
+  if(/(^|[\\/])morrowind\.ini$/i.test(s)) return {kind:'vanilla', path:s.replace(/[\\/][^\\/]*$/,'')+(s.includes('\\')? '\\' : '/')+'Data Files', profile:null};
+  return {kind:'vanilla', path:s, profile:null};
+}
+/** The setup's name for an install opened (`setupSpec` the other way). */
+function setupName(kind, path, profile){ return kind==='mo2'? 'mo2:'+path+(profile? '|'+profile : '') : String(path||''); }
+
 async function openInstall(kind, path, profile, plugins){
   /* The load order is Wraithguard's (its sort lists, written as the cfg this opens), so
      there is nothing to choose here: `plugins` is the whole of it - or, for the mesh
      viewer, an empty list: the data folders and archives, and no plugin parsed at all. */
   if(!(Array.isArray(plugins) && plugins.length===0)) plugins=null;
   App.swapEpoch=(App.swapEpoch|0)+1; App.swapping=true;
-  try{ return await openInstallRun(kind, path, profile, plugins); }
+  try{
+    const r=await openInstallRun(kind, path, profile, plugins);
+    // The pages (Load order, Conflicts, Tools, the Editor) read the install by this name: an
+    // MO2 profile or a Morrowind.ini install as well as an openmw.cfg.
+    if(r && !(Array.isArray(plugins) && plugins.length===0)){ const v=window.__WG_VIEW__||(window.__WG_VIEW__={}); v.cfg=setupName(kind, path, profile); }
+    return r;
+  }
   catch(e){
     /* Round 18bd (F2): a throw part-way through the connect.
        `openInstallRun` sets `VFS.connected=true` and shows the busy card, then awaits

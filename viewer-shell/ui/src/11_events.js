@@ -1958,7 +1958,8 @@ async function openWraithguardSetup(){
      that never finishes opens the Setup page at the next start instead of the same load. */
   const mark=want.app && !meshView;
   if(mark){ try{ await Engine.call('setup_mark',{state:'connecting', cfg:String(want.cfg)}); }catch(_){ } }
-  const r=await openInstall('openmw', want.cfg, null, meshView? [] : null);
+  const sp=setupSpec(want.cfg);
+  const r=await openInstall(sp.kind, sp.path, sp.profile, meshView? [] : null);
   if(mark){ try{ await Engine.call('setup_mark',{state:'ok', cfg:''}); }catch(_){ } }
   if(!r && !VFS.connected){
     if(want.app && typeof WgSetup==='object') WgSetup.enter('The openmw.cfg did not load: check what is marked below.');

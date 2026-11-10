@@ -27,7 +27,7 @@ const WgSetup={
       written), lines (one a line), plain, cfg. Names are the settings file's page names. */
   SECTIONS:[
     ['Your install', [
-      ['cfg','openmw.cfg','cfg','The cfg OpenMW starts with: its data= folders and content= files are the load order every page reads.'],
+      ['cfg','The install','cfg','The load order every page reads. OpenMW: the openmw.cfg it starts with (its data= folders and content= files). Mod Organizer 2: its folder (MO2...; the profile it has selected, or add |Profile). The game as installed: its Data Files folder (Morrowind...), read with the Morrowind.ini beside it.'],
       ['openmwInstall','OpenMW folder','dir','Where OpenMW is installed: the Lua checks read its Lua API from it. Optional.'],
     ]],
     ['Sorting (the Load order page)', [
@@ -193,8 +193,9 @@ const WgSetup={
     const cur=$('#su_'+k).value.split('\n').map(s=>s.trim()).filter(Boolean);
     let p;
     if(kind==='save') p=await Engine.pick('save',{defaultPath:cur[0]||undefined});
-    else p=await Engine.pick('open',{directory:kind==='dir', multiple:kind==='lines', defaultPath:cur[cur.length-1]||undefined});
+    else p=await Engine.pick('open',{directory:kind==='dir' || kind==='mo2' || kind==='datafiles', multiple:kind==='lines', defaultPath:cur[cur.length-1]||undefined});
     if(!p) return;
+    if(kind==='mo2'){ p='mo2:'+String(Array.isArray(p)?p[0]:p); }
     if(kind==='lines') $('#su_'+k).value=[...cur, ...(Array.isArray(p)?p:[p]).map(String)].join('\n');
     else $('#su_'+k).value=String(Array.isArray(p)?p[0]:p);
     this.dirty(true); this.check();
@@ -234,7 +235,9 @@ const WgSetup={
     const row=([k,label,kind,help])=>{
       const input=kind==='lines'? `<textarea id="su_${k}" spellcheck="false"></textarea>` : `<input type="text" id="su_${k}" spellcheck="false">`;
       const pick=kind==='plain'? '' : kind==='cfg'
-        ? `<button class="btn dim" id="suFind" title="Look where OpenMW keeps its openmw.cfg">Find</button><button class="btn dim" data-pick="${k}" data-kind="file">…</button>`
+        ? `<button class="btn dim" id="suFind" title="Look where OpenMW keeps its openmw.cfg">Find</button><button class="btn dim" data-pick="${k}" data-kind="file" title="An openmw.cfg">…</button>`+
+          `<button class="btn dim" data-pick="${k}" data-kind="mo2" title="A Mod Organizer 2 folder (the one with ModOrganizer.ini)">MO2…</button>`+
+          `<button class="btn dim" data-pick="${k}" data-kind="datafiles" title="The game's Data Files folder (Morrowind.ini beside it)">Morrowind…</button>`
         : kind==='lines' && k==='groundcover' ? '' : `<button class="btn dim" data-pick="${k}" data-kind="${kind==='lines'?'lines':kind}">…</button>`;
       return `<div class="su-row"><label for="su_${k}">${label}</label><div class="su-f">${input}${pick}</div><div class="help">${help}</div><div class="su-c" id="suc_${k}"></div></div>`;
     };
