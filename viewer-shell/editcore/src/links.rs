@@ -229,7 +229,8 @@ impl Links {
     /// Python Editor's record cache, `wraithguard_record_cache.sqlite3`): a plugin's records of a
     /// type and which keys it has, valid while the plugin's size and date are the same.
     pub fn with_record_cache(self, path: PathBuf) -> Links {
-        let parser = format!("editcore-records-1-{}", env!("CARGO_PKG_VERSION"));
+        // The code page in the name: records read in another are another reading.
+        let parser = format!("editcore-records-1-{}-{}", env!("CARGO_PKG_VERSION"), crate::plugin::code_page().name());
         self.session.set_disk_cache(Arc::new(crate::cache::Cache::new(path, &parser, crate::cache::RECORD_CACHE_BYTES)));
         self
     }
@@ -238,7 +239,10 @@ impl Links {
     /// plugin files as before and starts indexing the plugins in the background; once all are
     /// in, a report is a query.
     pub fn with_use_index(mut self, path: PathBuf) -> Links {
-        self.use_index = Some(Arc::new(crate::cache::Cache::new(path, "editor-use-index", crate::cache::MAX_BYTES)));
+        // Another code page's index is another reading (Windows-1252's keeps the name it had).
+        let page = crate::plugin::code_page();
+        let parser = if page == bytes_io::encoding_rs::WINDOWS_1252 { "editor-use-index".to_string() } else { format!("editor-use-index-{}", page.name()) };
+        self.use_index = Some(Arc::new(crate::cache::Cache::new(path, &parser, crate::cache::MAX_BYTES)));
         self
     }
 

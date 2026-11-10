@@ -342,6 +342,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             Some(strs(a, "folders")),
             opt(a, "last"),
             opt(a, "testSettings"),
+            opt(a, "encoding"),
         )?),
         "editor_link" => Reply::Text(t::editor_link(st(), s(a, "name"), s(a, "body"))?),
         "cpu_threads" => Reply::Raw(t::cpu_threads().to_string()),

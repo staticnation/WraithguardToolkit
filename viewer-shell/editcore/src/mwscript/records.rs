@@ -183,7 +183,7 @@ fn record_of(obj: &TES3Object) -> Option<Record> {
 /// The records of one plugin a compile can refer to.
 pub fn records_from_bytes(data: &[u8]) -> std::io::Result<Vec<Record>> {
     let mut plugin = Plugin::new();
-    crate::guarded(|| plugin.load_bytes_filtered(data, wanted))?;
+    crate::guarded(|| plugin.load_bytes_filtered_with_encoding(data, wanted, crate::plugin::code_page()))?;
     let mut out: Vec<Record> = plugin.objects.iter().filter_map(record_of).collect();
     // Cells by name, from the framing: a compile never needs a cell's contents.
     for (tag, body) in records(data) {

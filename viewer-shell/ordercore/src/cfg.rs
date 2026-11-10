@@ -124,6 +124,9 @@ pub struct OpenmwCfg {
     pub resources: Option<PathBuf>,
     /// Lines that could not be followed, in words.
     pub warnings: Vec<String>,
+    /// The code page the plugins' text is in, as OpenMW names it (`encoding=`: `win1250`,
+    /// `win1251`, `win1252`); `None` where no cfg sets it (OpenMW's own default is win1252).
+    pub encoding: Option<String>,
 }
 
 impl OpenmwCfg {
@@ -355,6 +358,8 @@ fn combine(sources: &[Source], tokens: &Tokens) -> OpenmwCfg {
             }
         }
     }
+    // One value: the last cfg read that sets it wins, as for any single option.
+    out.encoding = sources.iter().rev().find_map(|s| s.opts.iter().rev().find(|(k, v)| k == "encoding" && !v.is_empty())).map(|(_, v)| v.to_ascii_lowercase());
     out.data_local = single("data-local", &mut warn);
     out.user_data = single("user-data", &mut warn);
     out.resources = single("resources", &mut warn);
@@ -375,6 +380,13 @@ fn combine(sources: &[Source], tokens: &Tokens) -> OpenmwCfg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_code_page_is_the_last_cfg_s() {
+        let got = read_text("encoding=win1251\ncontent=A.esp\n", Path::new("/x"), &Tokens::default());
+        assert_eq!(got.encoding.as_deref(), Some("win1251"));
+        assert_eq!(read_text("content=A.esp\n", Path::new("/x"), &Tokens::default()).encoding, None);
+    }
 
     #[test]
     fn options_are_trimmed_and_comments_skipped() {

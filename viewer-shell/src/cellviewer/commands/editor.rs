@@ -669,12 +669,24 @@ pub(super) static EDITOR: Mutex<Option<std::sync::Arc<editcore::links::Links>>> 
 /// Test in OpenMW's choices are kept (`""`: testing refused). The links it answers, as
 /// JSON.
 #[tauri::command(async)]
-pub(super) fn editor_open(plugins: Vec<(String, String)>, journal: String, folders: Option<Vec<String>>, last: Option<String>, test_settings: Option<String>) -> Result<String, String> {
+#[allow(clippy::too_many_arguments)]
+pub(super) fn editor_open(
+    plugins: Vec<(String, String)>,
+    journal: String,
+    folders: Option<Vec<String>>,
+    last: Option<String>,
+    test_settings: Option<String>,
+    encoding: Option<String>,
+) -> Result<String, String> {
     let plugins: Vec<(String, PathBuf)> = plugins.into_iter().map(|(n, p)| (n, PathBuf::from(p))).collect();
     let path = |s: Option<String>| s.filter(|s| !s.is_empty()).map(PathBuf::from);
     let journal = path(Some(journal));
     let mut slot = EDITOR.lock().unwrap_or_else(|p| p.into_inner());
-    let same = slot.as_ref().is_some_and(|l| l.plugins == plugins && l.journal == journal);
+    // The install's code page (`encoding`, as OpenMW names it; none: Windows-1252): the
+    // Editor reads and writes the plugins' text in it. Another page is another Editor.
+    let before = editcore::plugin::code_page();
+    let page = editcore::plugin::set_code_page(encoding.as_deref().unwrap_or(""));
+    let same = page == before && slot.as_ref().is_some_and(|l| l.plugins == plugins && l.journal == journal);
     if !same {
         // The Use Report's index beside the journal.
         let use_index = journal.as_ref().and_then(|j| j.parent()).map(|d| d.join("wraithguard_use_index.sqlite3"));
@@ -719,6 +731,8 @@ pub(super) fn editor_setup(state: State) -> Result<String, String> {
     let dir = app_dir()?;
     Ok(serde_json::json!({
         "plugins": plugins,
+        // The plugins' code page (the cfg's `encoding=`, the edition's own): the Editor's text.
+        "encoding": setup.encoding.unwrap_or_default(),
         "journal": dir.join("wraithguard_patch_journal.json"),
         "folders": folders,
         "last": "",

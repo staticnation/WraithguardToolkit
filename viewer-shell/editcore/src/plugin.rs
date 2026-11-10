@@ -28,10 +28,59 @@ pub fn known(tag: [u8; 4]) -> bool {
     TAGS.iter().any(|t| **t == tag)
 }
 
+/* The code page the plugins' text is in: the install's (OpenMW's `encoding=`, the game's own
+   edition), Windows-1252 until the Editor opens on one that says otherwise. One for the
+   process, as the Editor is: set when it opens (`set_code_page`). Read as 1252, a Russian
+   plugin's names were other letters, and a name typed in Cyrillic could not be written
+   (Static, 2026-11-10; Greatness7/tes3#6). Any page reads every byte and writes it back as
+   it was: only the text shown and typed changes. */
+static CODE_PAGE: std::sync::RwLock<&'static bytes_io::Encoding> = std::sync::RwLock::new(bytes_io::encoding_rs::WINDOWS_1252);
+
+/// The code page named `label` - OpenMW's names (`win1250`, `win1251`, `win1252`) and the
+/// usual others (`windows-1251`, `cp1251`, `1251`) - or `None` for one it does not know.
+pub fn code_page_named(label: &str) -> Option<&'static bytes_io::Encoding> {
+    use bytes_io::encoding_rs::{WINDOWS_1250, WINDOWS_1251, WINDOWS_1252};
+    let l = label.trim().to_ascii_lowercase();
+    let digits = l.trim_start_matches("windows-").trim_start_matches("win").trim_start_matches("cp");
+    match digits {
+        "1250" => Some(WINDOWS_1250),
+        "1251" => Some(WINDOWS_1251),
+        "1252" => Some(WINDOWS_1252),
+        _ => None,
+    }
+}
+
+/// The plugins' text read and written in `label`'s code page from now on (an unknown or empty
+/// one: Windows-1252). Answers the page set.
+pub fn set_code_page(label: &str) -> &'static bytes_io::Encoding {
+    let page = code_page_named(label).unwrap_or(bytes_io::encoding_rs::WINDOWS_1252);
+    *CODE_PAGE.write().unwrap_or_else(|p| p.into_inner()) = page;
+    page
+}
+
+/// The code page the plugins' text is read and written in.
+pub fn code_page() -> &'static bytes_io::Encoding {
+    *CODE_PAGE.read().unwrap_or_else(|p| p.into_inner())
+}
+
+/// A reader of `bytes` in the code page.
+pub fn reader(bytes: &[u8]) -> bytes_io::Reader<'_> {
+    let mut r = bytes_io::Reader::new(bytes);
+    r.encoding = code_page();
+    r
+}
+
+/// A writer in the code page.
+pub fn writer() -> bytes_io::Writer {
+    let mut w = bytes_io::Writer::new(Vec::new());
+    w.encoding = code_page();
+    w
+}
+
 /// Reads a plugin, keeping the records the crate models.
 pub fn read(bytes: &[u8]) -> io::Result<Plugin> {
     let mut plugin = Plugin::new();
-    guarded(|| plugin.load_bytes_filtered(bytes, known))?;
+    guarded(|| plugin.load_bytes_filtered_with_encoding(bytes, known, code_page()))?;
     Ok(plugin)
 }
 
@@ -99,7 +148,7 @@ pub fn records_json(bytes: &[u8], keep: Option<&[[u8; 4]]>) -> io::Result<String
             }
             first = false;
             if known(tag) {
-                let obj: tes3::esp::TES3Object = guarded(|| bytes_io::Reader::new(&bytes[pos..end]).load()).map_err(|e| {
+                let obj: tes3::esp::TES3Object = guarded(|| reader(&bytes[pos..end]).load()).map_err(|e| {
                     bad(format!("the {} record at {pos}: {e}", String::from_utf8_lossy(&tag)))
                 })?;
                 let text = serde_json::to_vec(&obj).map_err(io::Error::other)?;
@@ -138,7 +187,7 @@ pub fn records_bytes(json: &str) -> io::Result<Vec<u8>> {
     use base64::Engine as _;
     let bad = |m: String| io::Error::new(io::ErrorKind::InvalidData, m);
     let items: Vec<serde_json::Value> = serde_json::from_str(json).map_err(|e| bad(e.to_string()))?;
-    let mut w = bytes_io::Writer::new(Vec::new());
+    let mut w = writer();
     for (i, v) in items.into_iter().enumerate() {
         if v.get("type").and_then(|t| t.as_str()) == Some(RAW) {
             let tag = v["tag"].as_str().unwrap_or("");
@@ -215,7 +264,7 @@ fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
             let flags = u32::from_le_bytes(bytes[pos + 12..pos + 16].try_into().unwrap());
             out.push((pos, end, Item::Raw { tag, flags, body: bytes[pos + 16..end].to_vec() }));
         } else if known(tag) && keep.is_none_or(|k| k.contains(&tag)) {
-            let mut obj: O = guarded(|| bytes_io::Reader::new(&bytes[pos..end]).load())
+            let mut obj: O = guarded(|| reader(&bytes[pos..end]).load())
                 .map_err(|e| bad(format!("the {} record at {pos}: {e}", String::from_utf8_lossy(&tag))))?;
             if light {
                 match &mut obj {
@@ -247,7 +296,7 @@ fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
 /// what `Save` writes for the field (a `Box`'s array as it is; a `Vec` as a `u32`
 /// count, then its elements).
 pub fn blob<T: bytes_io::Save>(v: &T) -> Vec<u8> {
-    let mut w = bytes_io::Writer::new(Vec::new());
+    let mut w = writer();
     let _ = w.save(v);
     w.cursor.into_inner()
 }
@@ -387,7 +436,7 @@ pub fn keys_cells_spans(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>
 /// One record by itself - its bytes as [`keys_cells_spans`] places them - in its
 /// tes3conv-schema form, whole (no references or vertices cleared).
 pub fn record_value(span: &[u8]) -> io::Result<serde_json::Value> {
-    let obj: tes3::esp::TES3Object = guarded(|| bytes_io::Reader::new(span).load())
+    let obj: tes3::esp::TES3Object = guarded(|| reader(span).load())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("the record: {e}")))?;
     serde_json::to_value(&obj).map_err(io::Error::other)
 }

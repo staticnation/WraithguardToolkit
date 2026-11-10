@@ -178,7 +178,9 @@ Object.assign(WgEditor, {
         : Engine.call('editor_setup',{}).then(t=>typeof t==='string'? JSON.parse(t) : t);
       this._native=setup.then(ed=>(!ed || !Array.isArray(ed.plugins))? new Set()
         : Engine.call('editor_open',{plugins:this.withActiveLast(ed), journal:String(ed.journal||''), folders:ed.folders||[],
-            last:String(ed.last||''), testSettings:String(ed.testSettings||'')})
+            last:String(ed.last||''), testSettings:String(ed.testSettings||''),
+            // the plugins' code page (editor_setup's, from the install; none: Windows-1252)
+            encoding:String(ed.encoding||'')})
           .then(t=>new Set(typeof t==='string'? JSON.parse(t) : t))
           .then(names=>{
             if(names.size){ this._ownLinks={}; names.forEach(n=>{ this._ownLinks[n]='native:'+n; }); }

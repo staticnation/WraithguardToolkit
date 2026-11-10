@@ -204,6 +204,8 @@ pub fn from_layout_for(l: &gardenfell_install::layout::Layout, openmw: Option<&O
         archives: gardenfell_bsa::bsa::archives_loaded(&l.order_file).names,
         warnings,
         groundcover: openmw.map(|c| c.groundcover.clone()).unwrap_or_default(),
+        // The edition's code page as the layout found it (the ini's own bytes, or the cfg MO2 feeds).
+        encoding: openmw.and_then(|c| c.encoding.clone()).or_else(|| Some(l.code_page.openmw_name().to_string())),
         ..Default::default()
     }
 }
