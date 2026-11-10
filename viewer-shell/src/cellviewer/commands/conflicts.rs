@@ -108,54 +108,19 @@ pub(super) static RESOURCES: Mutex<Option<ResourceScan>> = Mutex::new(None);
 /// shape as a cfg's, so every page reads an MO2 or a Morrowind.ini install as it reads an
 /// OpenMW one (Static, 2026-11-10).
 pub(super) fn cf_setup(cfg: &str) -> Result<viewcore::ordercore::cfg::OpenmwCfg, String> {
-    let (kind, path, profile) = setup_spec(cfg);
-    if kind == "openmw" {
-        let path = std::path::Path::new(&path);
-        return viewcore::ordercore::cfg::read(path, &viewcore::ordercore::cfg::Tokens::for_cfg(path)).map_err(|e| format!("{cfg} could not be read: {e}"));
-    }
-    let p = PathBuf::from(&path);
-    let l = if kind == "mo2" { layout::mo2_profile(&p, profile.as_deref())? } else { layout::vanilla(&p)? };
-    Ok(setup_from_layout(&l))
+    viewcore::ordercore::install::read(cfg)
 }
 
 /// What a setup's name says it is: `(kind, path, profile)` - `openmw`, `mo2` or `vanilla`
-/// (a Morrowind.ini named stands for the `Data Files` beside it).
+/// (a Morrowind.ini named stands for the `Data Files` beside it; `ordercore::install::spec`).
 pub(super) fn setup_spec(spec: &str) -> (String, String, Option<String>) {
-    let spec = spec.trim();
-    if let Some(rest) = spec.strip_prefix("mo2:") {
-        let (base, profile) = match rest.rsplit_once('|') {
-            Some((b, p)) if !p.trim().is_empty() => (b, Some(p.trim().to_string())),
-            _ => (rest.trim_end_matches('|'), None),
-        };
-        return ("mo2".into(), base.to_string(), profile);
-    }
-    let p = std::path::Path::new(spec);
-    if viewcore::luascan::is_openmw_cfg(p) {
-        return ("openmw".into(), spec.to_string(), None);
-    }
-    if p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("morrowind.ini")) {
-        if let Some(game) = p.parent() {
-            return ("vanilla".into(), game.join("Data Files").to_string_lossy().into_owned(), None);
-        }
-    }
-    ("vanilla".into(), spec.to_string(), None)
+    let s = viewcore::ordercore::install::spec(spec);
+    (s.kind.name().to_string(), s.path, s.profile)
 }
 
-/// A Morrowind.ini or MO2 install in a cfg's shape: its `[Game Files]` (`GameFileN=`) as the
-/// content, its overlay's roots as the data folders (lowest priority first, as a cfg lists
-/// them), its `[Archives]` with the `Morrowind.bsa` the engine always loads.
+/// A Morrowind.ini or MO2 install in a cfg's shape (`ordercore::install::from_layout`).
 pub(super) fn setup_from_layout(l: &layout::Layout) -> viewcore::ordercore::cfg::OpenmwCfg {
-    let content = read_load_order(&l.order_file);
-    let archives = viewcore::bsa::archives_loaded(&l.order_file).names;
-    viewcore::ordercore::cfg::OpenmwCfg {
-        files: vec![l.order_file.clone()],
-        data: l.roots.iter().rev().filter(|d| d.is_dir()).cloned().collect(),
-        missing_data: l.roots.iter().rev().filter(|d| !d.is_dir()).cloned().collect(),
-        content,
-        archives,
-        warnings: l.warnings.clone(),
-        ..Default::default()
-    }
+    viewcore::ordercore::install::from_layout(l)
 }
 
 /// Wraithguard: what files and folders dropped on the Load order page are (the page asks

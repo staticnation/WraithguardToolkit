@@ -31,6 +31,11 @@ const WgLua={
   /** The engine's Lua started; the whole scene is sent with the first frame. */
   async start(){
     await this.stop();
+    // OpenMW's alone: the game's engine (an MO2 or Morrowind.ini install) runs no Lua.
+    if(typeof wgSetupKind==='function' && wgSetupKind()!=='openmw'){
+      this.say('', 'skip', 'OpenMW Lua is not run: this is '+wgSetupWords(wgSetupKind())+', and the game\'s engine runs no Lua scripts');
+      return;
+    }
     let got;
     let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
     try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null}); }

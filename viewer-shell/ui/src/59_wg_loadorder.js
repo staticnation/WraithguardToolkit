@@ -173,18 +173,20 @@ const WgLoadOrder={
 #wgLO .warn .kind{color:var(--tx3);font-size:11px;display:block}
 #wgLO .warn a{color:var(--ac);cursor:pointer;margin-right:8px}
 #wgLO pre{margin:0;font-family:var(--mono);white-space:pre-wrap;color:var(--tx2)}
-#wgLO .empty{color:var(--tx3);padding:8px}`;
+#wgLO .empty{color:var(--tx3);padding:8px}
+#wgLO [data-f][hidden],#wgLO .btn[hidden]{display:none}`;
     document.head.appendChild(st);
 
     const el=document.createElement('div');
     el.id='wgLO'; el.hidden=true;
     const pick=(k,kind)=> kind==='plain'||kind==='text' ? '' : `<button class="btn dim" data-pick="${k}" data-kind="${kind}">…</button>`;
-    const field=([k,label,kind])=> `<label class="f" for="lo_${k}">${label}</label><div class="row">${
-      kind==='text' ? `<textarea id="lo_${k}"></textarea>` : `<input type="text" id="lo_${k}">`}${pick(k,kind)}</div>`;
+    const field=([k,label,kind])=> `<div data-f="${k}"><label class="f" for="lo_${k}">${label}</label><div class="row">${
+      kind==='text' ? `<textarea id="lo_${k}"></textarea>` : `<input type="text" id="lo_${k}">`}${pick(k,kind)}</div></div>`;
     el.innerHTML=`
 <div class="lo-col"><h3>Inputs</h3><div class="lo-scroll">
   ${this.FIELDS.map(field).join('')}
-  <div class="flags">${this.FLAGS.map(([k,l])=>`<label><input type="checkbox" id="lo_${k}"> ${l}</label>`).join('')}</div>
+  <div class="flags">${this.FLAGS.map(([k,l])=>`<label data-f="${k}"><input type="checkbox" id="lo_${k}"> ${l}</label>`).join('')}</div>
+  <div id="loMode" class="empty" hidden></div>
   <label class="f">Rule files</label><div id="loAges" class="empty">-</div>
   <div class="row" style="margin-top:4px;flex-wrap:wrap">
     <button class="btn dim" id="loUpRules" title="Download the managed rule files again (each old one kept as a .bak)">Update rules</button>
@@ -297,9 +299,36 @@ const WgLoadOrder={
     const k=this.kind();
     return !!k && (k!=='openmw' || this.flag('plainMlox'));
   },
-  /** Restore dates shows for the game's own install, where Export sets the plugins' dates. */
+  /** What the page sorts with: `momw` (an openmw.cfg into MOMW's curated list), `plaincfg` (an
+   *  openmw.cfg by the mlox rules alone, "Plain mlox"), `install` (an MO2 or Morrowind.ini
+   *  install, by the rules alone). */
+  mode(){
+    const k=this.kind();
+    return k && k!=='openmw'? 'install' : this.flag('plainMlox')? 'plaincfg' : 'momw';
+  },
+  /** Which fields, boxes and buttons each mode uses: the rest are hidden (what is OpenMW's or
+   *  MOMW's alone). */
+  USES:{
+    momw:null,
+    plaincfg:['cfg','rules','userRules','customizations','emitToml','listName','sortDataPaths','writeCfg','dryRun','plainMlox'],
+    install:['cfg','rules','userRules','dryRun'],
+  },
+  /** The fields of the mode shown, the rest hidden; Restore dates for the game's own install,
+   *  where Export sets the plugins' dates; a line saying what the mode does. */
   plainShow(){
+    const mode=this.mode(), uses=this.USES[mode];
+    for(const el of document.querySelectorAll('#wgLO [data-f]')) el.hidden=!!uses && !uses.includes(el.dataset.f);
+    for(const id of ['#loUpYml','#loUpData']){ const b=$(id); if(b) b.hidden=mode!=='momw'; }
     const b=$('#loRestore'); if(b) b.hidden=this.kind()!=='vanilla';
+    const n=$('#loMode');
+    if(n){
+      n.hidden=mode==='momw';
+      n.textContent= mode==='install'
+        ? 'This is '+wgSetupWords(this.kind())+': Sort places every plugin by the mlox rules alone, and Export writes the order into it. What is OpenMW\'s or MOMW\'s (the customizations TOML, plugin-order.yml, the list, grass, data= lines) is hidden.'
+        : mode==='plaincfg'
+        ? 'Plain mlox: Sort places every content= plugin by the mlox rules alone (no MOMW list); Export writes openmw.cfg (Write openmw.cfg) and, with a customizations TOML named, the customizations that make MOMW\'s configurator build the same order. Sort data paths: the data= folders that hold plugins follow them.'
+        : '';
+    }
   },
 
   async restoreDates(){
@@ -314,7 +343,7 @@ const WgLoadOrder={
   },
 
   async sortPlain(){
-    const got=await Engine.call('loadorder_plain_sort',{cfg:this.val('cfg'), rules:this.lines('rules')});
+    const got=await Engine.call('loadorder_plain_sort',{cfg:this.val('cfg'), rules:this.lines('rules'), sortData:this.mode()==='plaincfg' && this.flag('sortDataPaths')});
     const where=got.kind==='mo2'? 'the MO2 profile' : got.kind==='openmw'? 'openmw.cfg' : 'Morrowind.ini';
     const items=[{kind:'section', text:'Sorted by the mlox rules ('+where+'; no MOMW list): '+got.moved.length+' of '+got.order.length+' plugin(s) move'}];
     for(const m of got.moved) items.push({kind:'line', text:m.name+': '+m.from+' -> '+m.to, names:[m.name]});
@@ -322,9 +351,14 @@ const WgLoadOrder={
       items.push({kind:'subsection', text:'Rules not applied (they would close a cycle)'});
       for(const [a,b] of got.conflicts) items.push({kind:'line', text:a+' before '+b, warning:'rule_conflict', names:[a,b]});
     }
+    if((got.dataMoved||[]).length){
+      items.push({kind:'subsection', text:'data= folders that move ('+got.dataMoved.length+'): they follow their plugins'});
+      for(const m of got.dataMoved) items.push({kind:'line', text:m.name+': '+m.from+' -> '+m.to});
+    }
     for(const t of got.notes||[]) items.push({kind:'log', text:t});
     this.report=items;
-    this.load({plain:got.kind, finalOrder:got.order, subset:[], masterProblems:[], dataOrder:[], dataResult:null});
+    this.load({plain:got.kind, finalOrder:got.order, subset:[], masterProblems:[], dataOrder:got.data||[], dataResult:null});
+    if(got.kind!=='openmw') $('#loData').innerHTML='<li class="empty">'+(got.kind==='mo2'? 'MO2 orders the data folders: its mods by priority, the game\'s Data Files lowest.' : 'The game reads its one Data Files folder.')+'</li>';
     this.drawWarnings();
   },
 
@@ -647,15 +681,25 @@ const WgLoadOrder={
   async exportPlain(){
     const btn=$('#loExport'); btn.disabled=true;
     try{
-      const cfgNot=this.plan.plain==='openmw' && !this.flag('writeCfg');
-      const dryRun=this.flag('dryRun') || cfgNot;
-      const got=await Engine.call('loadorder_plain_write',{cfg:this.val('cfg'), order:this.content.map(r=>r.name),
-        off:this.content.filter(r=>!r.on).map(r=>r.name), dryRun, stamp:this.stamp()});
-      this.report=this.report.concat([{kind:'subsection', text:dryRun? 'Export (dry run: nothing written)' : 'Export'}], got.lines.map(t=>({kind:'line', text:t})));
+      const dryRun=this.flag('dryRun');
+      const a={cfg:this.val('cfg'), order:this.content.map(r=>r.name), off:this.content.filter(r=>!r.on).map(r=>r.name), dryRun, stamp:this.stamp()};
+      const omw=this.plan.plain==='openmw';
+      if(omw){
+        // openmw.cfg only with Write openmw.cfg ticked (as Export does); the data= folders as
+        // the panel has them; the customizations TOML when one is named (an empty "Write
+        // customizations to": back into customizations.toml, as Export does)
+        a.writeCfg=this.flag('writeCfg');
+        a.data=this.data.map(r=>r.line); a.dataOff=this.data.filter(r=>!r.on).map(r=>r.line);
+        a.tomlFrom=this.val('customizations')||null; a.tomlTo=this.val('emitToml')||this.val('customizations')||null;
+        a.listName=this.val('listName')||null;
+      }
+      const got=await Engine.call('loadorder_plain_write',a);
+      const none=dryRun || (omw && !a.writeCfg && !a.tomlTo);
+      this.report=this.report.concat([{kind:'subsection', text:none? 'Export (nothing written)' : 'Export'}], got.lines.map(t=>({kind:'line', text:t})));
       this.showText=true; $('#loText').checked=true;
       this.drawWarnings();
-      const why=cfgNot? 'tick Write openmw.cfg to write it' : 'Dry run is ticked';
-      toast(dryRun? 'Nothing written ('+why+'): see the run\'s text' : 'Written: '+got.lines.length+' file(s) or step(s)', dryRun?'warn':'ok', 6000);
+      const why=dryRun? 'Dry run is ticked' : 'tick Write openmw.cfg, or name a customizations TOML';
+      toast(none? 'Nothing written ('+why+'): see the run\'s text' : got.lines.join('; ').slice(0,200), none?'warn':'ok', 6000);
     }catch(e){ toast(String(e.message||e),'err',6000); }
     finally{ btn.disabled=false; }
   },

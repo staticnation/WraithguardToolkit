@@ -24,27 +24,18 @@ the game's masters, not in the game or on screen. Left:
 
 ### 2. One setup type for every page: in (2026-11-10), to be tried on an MO2 and a game install
 
-In (`CHANGELOG.md` 5.0.4): the Setup page takes an MO2 install or the game's own (a `Data
-Files` folder or its `Morrowind.ini`) beside an `openmw.cfg`, and `cf_setup` reads either into
-the cfg's shape (`setup_from_layout`), so the Load order, Conflicts, Tools and Editor pages
-read them. Left:
-
-- The command line: `--mo2 BASE [--profile NAME]` and `--data-files DIR` beside `--cfg`.
-- What is OpenMW's alone hides or says so on these installs: groundcover, Lua, `.omwaddon`
-  and `.omwscripts`, the customizations TOML.
+In (`CHANGELOG.md` 5.0.4): the Setup page and the command line (`--mo2`, `--data-files`)
+take an MO2 install or the game's own beside an `openmw.cfg`, read by `ordercore::install`
+for every page; what is OpenMW's alone is hidden or said. Nothing left but trying it.
 
 ### 3. Sorting them: the mlox engine without MOMW: in (2026-11-10), to be tried
 
 In (`CHANGELOG.md` 5.0.4): on an MO2 or Morrowind.ini setup, or an `openmw.cfg` with "Plain
-mlox" ticked, Sort is plain mlox over the whole load order (`ordercore::plain`), and Export
-writes it (a box ticked off switched off), a dry run first if ticked, every file copied
-before; Restore dates puts a Morrowind.ini install's dates back. Left:
-
-- Plain mlox on an `openmw.cfg` does not sort the `data=` lines, and writes the cfg only, not
-  the customizations TOML (MOMW's configurator, run again, puts its own order back).
-
-- Two plugins with one date: the sort moves the later one a minute on; untried on a real
-  install.
+mlox" (`--plain-mlox`), Sort is plain mlox over the whole load order (`ordercore::plain`);
+Export writes it (a box ticked off switched off; a cfg's `data=` lines with Sort data paths;
+the customizations TOML when named), a dry run first if ticked, every file copied before;
+Restore dates puts a Morrowind.ini install's dates back. Two plugins with one date: the later
+in the order goes a minute on (tested; not yet on a real install). Nothing left but trying it.
 
 ## Tools page
 

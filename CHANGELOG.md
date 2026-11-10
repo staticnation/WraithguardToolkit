@@ -24,12 +24,27 @@
   run says what would be written. A plugin ticked off is switched off: out of `[Game Files]`,
   its `*` taken off in `plugins.txt` (or its line, where the file lists only the plugins on).
   Restore dates (a game install) puts back the dates the last Export set.
+- **The command line reads an MO2 or Morrowind.ini install:** `--mo2 DIR [--profile NAME]`
+  and `--data-files DIR` beside `--cfg`, and `--plain-mlox` for a cfg. These sort by the mlox
+  rules alone, print what moves, write with `--write-cfg` (each file copied first), and run
+  the scans and `--merge-lands` over the install. The setup reader every page and the
+  command line use is `ordercore::install` now (it was the viewer's own).
+- **What is OpenMW's alone is hidden on an MO2 or Morrowind.ini install.** The Setup and Load
+  order pages hide the customizations TOML, plugin-order.yml, the list, grass, the data=
+  lines and the OpenMW folder, and say why; the Tools page drops Save Check (OpenMW's saves);
+  the Lua panel and the Preview's Lua say the game's engine runs no Lua; Lint leaves out the
+  `.omwscripts` twin warnings; an `.omwaddon`, `.omwscripts` or `.omwgame` in `[Game Files]`
+  is warned of (the game does not load it).
 - **Plain mlox for an `openmw.cfg` too: the Load order page's "Plain mlox" box.** Sort runs
   the mlox rules over the cfg's whole `content=` list with no MOMW list, `plugin-order.yml`
   or customizations TOML; Export (with Write openmw.cfg ticked) puts the `content=` lines in
   that order where they were, a plugin ticked off written `#content=`, the cfg copied first.
   The cfg written is the one of those read that holds the `content=` lines; content in two
-  chained cfgs is refused.
+  chained cfgs is refused. Sort data paths puts the `data=` folders that hold plugins in the
+  order their plugins load (a folder with none keeps its place; ticked off: `#data=`). With a
+  customizations TOML named, Export writes the customizations that make MOMW's configurator
+  build the same order: the TOML's own plugins placed again, and the fewest of the list's
+  plugins moved (a `removeContent` and an insert each) or switched off.
 - **A plugin edited in place.** Build patch can write the pool into one of the load order's
   own plugins, as the Construction Set saves its active file: choose the plugin as where
   the patch goes, and "Edit it in place" is offered (and chosen) beside Append and Replace.

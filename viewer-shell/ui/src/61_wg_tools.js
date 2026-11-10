@@ -83,7 +83,7 @@ const WgToolsPage={
     const i=document.querySelector('#brand i'); if(i){ this._brand=i.textContent; i.textContent='Tools'; }
     document.title='Wraithguard - Tools';
     const b=$('#btnTools'); if(b) b.classList.add('on');
-    const t=this.extra().tool; if(t){ this.show(t); this.extra().tool=''; }
+    const t=this.extra().tool; if(t){ this.show(t); this.extra().tool=''; } else this.show(this.tool);
   },
 
   leave(){
@@ -288,6 +288,11 @@ const WgToolsPage={
   },
 
   show(tool){
+    // Save Check reads OpenMW's saves: not offered for an MO2 or Morrowind.ini install.
+    const omw=typeof wgSetupKind!=='function' || wgSetupKind(this.cfg())==='openmw';
+    const sv=document.querySelector('#tlNav [data-t="save"]');
+    if(sv){ sv.hidden=!omw; sv.style.display=omw? '' : 'none'; }
+    if(tool==='save' && !omw) tool='lint';
     this.tool=tool;
     for(const d of document.querySelectorAll('#tlNav [data-t]')) d.classList.toggle('on', d.dataset.t===tool);
     $('#tlLint').hidden=tool!=='lint';

@@ -25,10 +25,18 @@
 function setupSpec(spec){
   const s=String(spec||'').trim();
   if(/^mo2:/i.test(s)){ const rest=s.slice(4), at=rest.lastIndexOf('|'); return at>=0? {kind:'mo2', path:rest.slice(0,at), profile:rest.slice(at+1)||null} : {kind:'mo2', path:rest, profile:null}; }
-  if(/(^|[\\/])openmw\.cfg$/i.test(s)) return {kind:'openmw', path:s, profile:null};
   if(/(^|[\\/])morrowind\.ini$/i.test(s)) return {kind:'vanilla', path:s.replace(/[\\/][^\\/]*$/,'')+(s.includes('\\')? '\\' : '/')+'Data Files', profile:null};
+  if(/\.cfg$/i.test(s)) return {kind:'openmw', path:s, profile:null};
   return {kind:'vanilla', path:s, profile:null};
 }
+/** The kind of the setup the pages read (`spec`; by default the install the viewer opened):
+ *  `openmw`, `mo2` or `vanilla`. No setup counts as OpenMW's (what the pages ask for first). */
+function wgSetupKind(spec){
+  const s=spec!=null? String(spec) : String((window.__WG_VIEW__||{}).cfg||'');
+  return s.trim()? setupSpec(s).kind : 'openmw';
+}
+/** What an install that is not OpenMW's is, in words (`kind` as `wgSetupKind` answers). */
+function wgSetupWords(kind){ return kind==='mo2'? 'an MO2 install' : kind==='vanilla'? "the game's own install" : 'an OpenMW install'; }
 /** The setup's name for an install opened (`setupSpec` the other way). */
 function setupName(kind, path, profile){ return kind==='mo2'? 'mo2:'+path+(profile? '|'+profile : '') : String(path||''); }
 

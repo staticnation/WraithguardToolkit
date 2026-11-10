@@ -350,6 +350,62 @@ pub fn cfg_with_order(text: &str, order: &[String], off: &HashSet<String>) -> St
     join(&out, text)
 }
 
+/// A path as compared: the same folder however it was spelled.
+fn same_path(p: &Path) -> String {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().to_lowercase()
+}
+
+/// The data folders (`data`, lowest priority first) in the order the plugins load: a folder
+/// that holds plugins of `order` (`find` says where each is) goes as its first plugin does,
+/// into one of the places such folders had; a folder with none (textures, meshes) keeps its
+/// place. `(order, moved: (folder, place it had, place it takes))`, places from 1.
+pub fn data_order(data: &[PathBuf], order: &[String], find: &dyn Fn(&str) -> Option<PathBuf>) -> (Vec<PathBuf>, Vec<(String, usize, usize)>) {
+    let mut first: HashMap<String, usize> = HashMap::new();
+    for (i, n) in order.iter().enumerate() {
+        if let Some(dir) = find(n).as_deref().and_then(Path::parent) {
+            first.entry(same_path(dir)).or_insert(i);
+        }
+    }
+    let key = |d: &PathBuf| first.get(&same_path(d)).copied();
+    let at: Vec<usize> = (0..data.len()).filter(|&i| key(&data[i]).is_some()).collect();
+    let mut holding: Vec<&PathBuf> = at.iter().map(|&i| &data[i]).collect();
+    holding.sort_by_key(|d| key(d));
+    let mut out = data.to_vec();
+    for (slot, d) in at.iter().zip(holding) {
+        out[*slot] = d.clone();
+    }
+    let was: HashMap<String, usize> = data.iter().enumerate().map(|(i, d)| (same_path(d), i + 1)).collect();
+    let moved = out
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| was.get(&same_path(d)).filter(|&&w| w != i + 1).map(|&w| (d.to_string_lossy().into_owned(), w, i + 1)))
+        .collect();
+    (out, moved)
+}
+
+/// An `openmw.cfg`'s `data=` lines (of the file in `dir`) in the order of `data`, each in one
+/// of the places the file had one (a line as written: its quotes, its token); one of `off`
+/// written `#data=`. A line naming a folder not in `data` stays where it is.
+fn cfg_with_data(text: &str, data: &[PathBuf], off: &HashSet<String>, dir: &Path, tokens: &crate::cfg::Tokens) -> String {
+    let want: HashMap<String, usize> = data.iter().enumerate().map(|(i, d)| (same_path(d), i)).collect();
+    let mut out: Vec<String> = text.lines().map(str::to_string).collect();
+    let key = |l: &str| -> Option<String> {
+        let (k, v) = l.trim().split_once('=')?;
+        if k.trim() != "data" {
+            return None;
+        }
+        let p = crate::cfg::resolve(v.trim(), dir, tokens).ok()?;
+        Some(same_path(&p)).filter(|k| want.contains_key(k))
+    };
+    let at: Vec<(usize, String)> = (0..out.len()).filter_map(|i| key(&out[i]).map(|k| (i, k))).collect();
+    let mut lines: Vec<(String, String)> = at.iter().map(|(i, k)| (k.clone(), out[*i].trim().to_string())).collect();
+    lines.sort_by_key(|(k, _)| want[k]);
+    for ((slot, _), (k, line)) in at.iter().zip(lines) {
+        out[*slot] = if off.contains(&k) { format!("#{line}") } else { line };
+    }
+    join(&out, text)
+}
+
 /// Writes `order` into an `openmw.cfg` (the one of the cfgs read that holds the `content=`
 /// lines, `cfg`): its `content=` lines, `off` written as `#content=`; the file copied first.
 /// The customizations TOML is not written: MOMW's configurator, run again, would put its
@@ -357,12 +413,126 @@ pub fn cfg_with_order(text: &str, order: &[String], off: &HashSet<String>) -> St
 ///
 /// # Errors
 /// The cfg cannot be read, copied or written.
-pub fn write_cfg(cfg: &Path, order: &[String], off: &[String], dry: bool, stamp: &str) -> Result<Written, String> {
+pub fn write_cfg(cfg: &Path, order: &[String], off: &[String], data: Option<(&[PathBuf], &[PathBuf])>, dry: bool, stamp: &str) -> Result<Written, String> {
     let text = latin1(&std::fs::read(cfg).map_err(|e| format!("{} could not be read: {e}", cfg.display()))?);
     let offs = lowered(off);
     let mut said = Vec::new();
-    let what = format!("content= ({} on, {} off)", order.len() - order.iter().filter(|n| offs.contains(&n.to_lowercase())).count(), off.len());
-    put(cfg, &text, &cfg_with_order(&text, order, &offs), &what, dry, stamp, &mut said)?;
+    let mut now = cfg_with_order(&text, order, &offs);
+    let mut what = format!("content= ({} on, {} off)", order.len() - order.iter().filter(|n| offs.contains(&n.to_lowercase())).count(), off.len());
+    if let Some((data, data_off)) = data {
+        let dir = cfg.parent().unwrap_or(Path::new("."));
+        let doff: HashSet<String> = data_off.iter().map(|d| same_path(d)).collect();
+        now = cfg_with_data(&now, data, &doff, dir, &crate::cfg::Tokens::for_cfg(cfg));
+        what.push_str(&format!(" and data= ({} off)", data_off.len()));
+    }
+    put(cfg, &text, &now, &what, dry, stamp, &mut said)?;
+    Ok(said)
+}
+
+/// The plugins of `was` to move to make it `now`: those outside a longest run they share in
+/// the same order (a longest common subsequence, ignoring case), so the fewest move.
+pub fn to_move(was: &[String], now: &[String]) -> Vec<String> {
+    let a: Vec<String> = was.iter().map(|n| n.to_lowercase()).collect();
+    let b: Vec<String> = now.iter().map(|n| n.to_lowercase()).collect();
+    let (n, m) = (a.len(), b.len());
+    let mut t = vec![0u32; (n + 1) * (m + 1)];
+    let at = |i: usize, j: usize| i * (m + 1) + j;
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            t[at(i, j)] = if a[i] == b[j] { t[at(i + 1, j + 1)] + 1 } else { t[at(i + 1, j)].max(t[at(i, j + 1)]) };
+        }
+    }
+    let mut keep: HashSet<String> = HashSet::new();
+    let (mut i, mut j) = (0, 0);
+    while i < n && j < m {
+        if a[i] == b[j] {
+            keep.insert(b[j].clone());
+            i += 1;
+            j += 1;
+        } else if t[at(i + 1, j)] >= t[at(i, j + 1)] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    now.iter().filter(|x| !keep.contains(&x.to_lowercase())).cloned().collect()
+}
+
+/// A customizations TOML that makes MOMW's configurator build `order` (the plugins on, sorted)
+/// where it built `was` (the cfg's `content=` as it is): the source TOML (`source`; none: a new
+/// one) with its own plugins placed again where `order` has them, and the curated list's
+/// plugins that move (the fewest, [`to_move`]) or are switched off (`off`) given a
+/// `removeContent`, the moved ones inserted again in their new places. `(text, warnings)`.
+///
+/// # Errors
+/// A source TOML that does not read, or that holds what the writer does not write.
+pub fn customizations_toml(source: Option<&str>, was: &[String], order: &[String], off: &[String], list_name: Option<&str>) -> Result<(String, Vec<String>), String> {
+    use crate::export::{generate_customizations_toml, TomlInput};
+    let bad = |_| "the customizations TOML holds what the writer does not write".to_string();
+    let (cust, blocks) = match source {
+        Some(t) => (crate::inputs::customizations(t).map_err(bad)?, crate::plan::customization_blocks(t).map_err(bad)?),
+        None => Default::default(),
+    };
+    let offs = lowered(off);
+    let on: Vec<String> = order.iter().filter(|n| !offs.contains(&n.to_lowercase())).cloned().collect();
+    let was_on: Vec<String> = was.iter().filter(|n| !offs.contains(&n.to_lowercase())).cloned().collect();
+    let theirs: HashSet<String> = cust.subset.iter().map(|n| n.to_lowercase()).collect();
+    let moved: HashSet<String> = to_move(&was_on, &on).iter().map(|n| n.to_lowercase()).collect();
+    // The plugins placed by inserts: the TOML's own (on) and the list's that move.
+    let subset: Vec<String> = on.iter().filter(|n| theirs.contains(&n.to_lowercase()) || moved.contains(&n.to_lowercase())).cloned().collect();
+    let remove: Vec<String> = order
+        .iter()
+        .filter(|n| !theirs.contains(&n.to_lowercase()) && (moved.contains(&n.to_lowercase()) || offs.contains(&n.to_lowercase())))
+        .cloned()
+        .collect();
+    let values: BTreeMap<String, String> = order.iter().map(|n| (n.clone(), n.clone())).collect();
+    let replace_dest: HashSet<String> = cust.replace_dest.iter().cloned().collect();
+    let user_data: Vec<String> = cust.data.iter().map(|d| d.value.clone()).collect();
+    let toml = generate_customizations_toml(&TomlInput {
+        original_blocks: &blocks,
+        final_content_order: &on,
+        subset: &subset,
+        original_content_values: &values,
+        data_result: None,
+        raw_data_inserts: Some(&cust.data),
+        replace_dest_names: &replace_dest,
+        user_data_values: &user_data,
+        list_name,
+        remove_content: &remove,
+        remove_data: &[],
+        custom_anchors: &BTreeMap::new(),
+        new_groundcover: &[],
+    })
+    .map_err(|_| "the order could not be written as a customizations TOML".to_string())?;
+    Ok((toml.text, toml.warnings))
+}
+
+/// [`customizations_toml`] written to `to` (copied first when it is there), its line ends as
+/// the source's. `dry`: not written.
+///
+/// # Errors
+/// As [`customizations_toml`], or `to` cannot be copied or written.
+#[allow(clippy::too_many_arguments)]
+pub fn write_toml(from: Option<&Path>, to: &Path, was: &[String], order: &[String], off: &[String], list_name: Option<&str>, dry: bool, stamp: &str) -> Result<Written, String> {
+    let source = match from.filter(|p| p.is_file()) {
+        Some(p) => Some(String::from_utf8(std::fs::read(p).map_err(|e| format!("{} could not be read: {e}", p.display()))?).map_err(|_| format!("{} is not UTF-8", p.display()))?),
+        None => None,
+    };
+    let (text, warnings) = customizations_toml(source.as_deref(), was, order, off, list_name)?;
+    let crlf = source.as_deref().is_some_and(|t| t.contains("\r\n"));
+    let text = if crlf { text.replace('\n', "\r\n") } else { text };
+    let mut said: Written = warnings;
+    let was_text = std::fs::read(to).map(|b| latin1(&b)).unwrap_or_default();
+    let name = to.display();
+    if was_text == latin1(text.as_bytes()) {
+        said.push(format!("{name}: the customizations already as sorted"));
+    } else if dry {
+        said.push(format!("{name}: the customizations would be written"));
+    } else {
+        let copy = if to.is_file() { Some(backup(to, stamp)?) } else { None };
+        std::fs::write(to, text.as_bytes()).map_err(|e| format!("{name} could not be written: {e}"))?;
+        said.push(format!("{name}: the customizations written{}", copy.map(|b| format!("; as it was: {}", b.display())).unwrap_or_default()));
+    }
     Ok(said)
 }
 
@@ -403,6 +573,24 @@ mod tests {
         let order: Vec<String> = ["M.esm", "A.esp", "B.esp", "C.esp"].iter().map(|s| s.to_string()).collect();
         let got = dates_for(&order, &|n| dates.get(n).copied());
         assert_eq!(got, vec![("B.esp".to_string(), t(300), t(560))]);
+        // Two plugins with one date (a mod's files unpacked together; the game's own load
+        // between them is the file system's): the later in the order a minute on, and the one
+        // after it moved on only when that puts it behind; masters by themselves.
+        let one: HashMap<&str, SystemTime> =
+            [("M.esm", t(100)), ("T.esm", t(100)), ("A.esp", t(500)), ("B.esp", t(500)), ("C.esp", t(530)), ("D.esp", t(900))].into();
+        let order: Vec<String> = ["M.esm", "T.esm", "B.esp", "A.esp", "C.esp", "D.esp"].iter().map(|s| s.to_string()).collect();
+        let got = dates_for(&order, &|n| one.get(n).copied());
+        assert_eq!(
+            got,
+            vec![
+                ("T.esm".to_string(), t(100), t(160)),
+                ("A.esp".to_string(), t(500), t(560)),
+                ("C.esp".to_string(), t(530), t(620)),
+            ]
+        );
+        // A plugin with no date (not found) is passed over, not counted.
+        let got = dates_for(&order, &|n| (n != "A.esp").then(|| one.get(n).copied()).flatten());
+        assert_eq!(got.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(), ["T.esm"]);
     }
 
     #[test]
@@ -424,6 +612,52 @@ mod tests {
         let order: Vec<String> = ["Morrowind.esm", "A.esp", "B.esp"].iter().map(|s| s.to_string()).collect();
         let b: HashSet<String> = ["b.esp".to_string()].into();
         assert_eq!(cfg_with_order(cfg, &order, &b), "data=\"D\"\ncontent=Morrowind.esm\ncontent=A.esp\n# a note\n#content=B.esp\nfallback-archive=Morrowind.bsa\n");
+    }
+
+    #[test]
+    fn data_folders_follow_their_plugins() {
+        let d = std::env::temp_dir().join(format!("wg_plain_data_{}", std::process::id()));
+        let (base, a, tex, b) = (d.join("base"), d.join("a"), d.join("tex"), d.join("b"));
+        for (dir, plugin) in [(&base, Some("Morrowind.esm")), (&a, Some("A.esp")), (&tex, None), (&b, Some("B.esp"))] {
+            std::fs::create_dir_all(dir).unwrap();
+            if let Some(p) = plugin {
+                std::fs::write(dir.join(p), b"").unwrap();
+            }
+        }
+        let find = |n: &str| [&base, &a, &b].iter().map(|dir| dir.join(n)).find(|p| p.is_file());
+        let order: Vec<String> = ["Morrowind.esm", "B.esp", "A.esp"].iter().map(|s| s.to_string()).collect();
+        let data = vec![base.clone(), a.clone(), tex.clone(), b.clone()];
+        let (now, moved) = data_order(&data, &order, &find);
+        assert_eq!(now, [base.clone(), b.clone(), tex.clone(), a.clone()]);
+        assert_eq!(moved.len(), 2);
+        let cfg = d.join("openmw.cfg");
+        let text = format!("data=\"{}\"\ndata={}\ndata=\"{}\"\ndata=\"{}\"\ncontent=Morrowind.esm\ncontent=A.esp\ncontent=B.esp\n", base.display(), a.display(), tex.display(), b.display());
+        std::fs::write(&cfg, &text).unwrap();
+        write_cfg(&cfg, &order, &[], Some((&now, std::slice::from_ref(&tex))), false, "s").unwrap();
+        let got = std::fs::read_to_string(&cfg).unwrap();
+        let want = format!("data=\"{}\"\ndata=\"{}\"\n#data=\"{}\"\ndata={}\ncontent=Morrowind.esm\ncontent=B.esp\ncontent=A.esp\n", base.display(), b.display(), tex.display(), a.display());
+        assert_eq!(got, want);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_fewest_move() {
+        let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(to_move(&v(&["M", "A", "B", "C", "D"]), &v(&["M", "B", "C", "A", "D"])), ["A"]);
+        assert!(to_move(&v(&["M", "A"]), &v(&["m", "a"])).is_empty());
+    }
+
+    #[test]
+    fn a_customizations_toml_moves_list_plugins_and_places_its_own() {
+        let was: Vec<String> = ["Morrowind.esm", "List1.esp", "List2.esp", "Mine.esp", "List3.esp"].iter().map(|s| s.to_string()).collect();
+        let now: Vec<String> = ["Morrowind.esm", "List2.esp", "List1.esp", "List3.esp", "Mine.esp"].iter().map(|s| s.to_string()).collect();
+        let src = "[[Customizations]]\nlistName = \"total-overhaul\"\n\n[[Customizations.insert]]\ninsert = \"Mine.esp\"\nafter = \"List2.esp\"\n";
+        let (text, _) = customizations_toml(Some(src), &was, &now, &[], None).unwrap();
+        assert!(text.contains("listName = 'total-overhaul'"), "{text}");
+        assert!(text.contains("removeContent = [\n  'List1.esp',\n]"), "{text}");
+        assert!(text.contains("insert = 'List1.esp'\nafter = 'List2.esp'"), "{text}");
+        assert!(text.contains("insert = 'Mine.esp'\nafter = 'List3.esp'"), "{text}");
+        assert!(!text.contains("  'Mine.esp',"), "Mine.esp is the TOML's own: inserted, not removed\n{text}");
     }
 
     #[test]

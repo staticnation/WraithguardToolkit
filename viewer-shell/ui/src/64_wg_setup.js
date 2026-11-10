@@ -49,6 +49,22 @@ const WgSetup={
     ]],
   ],
 
+  /** The fields that are OpenMW's or MOMW's alone: hidden for an MO2 or Morrowind.ini
+   *  install, which the Load order page sorts by the mlox rules alone. */
+  OMW:['openmwInstall','customizations','subsetFile','scanDir','pluginOrderYml','listName','dataPathsCache','emitToml','groundcover'],
+
+  /** Hides the OpenMW-only fields when the install is not an openmw.cfg, and says so. */
+  kindShow(){
+    const v=$('#su_cfg') && $('#su_cfg').value.trim();
+    const kind=v && typeof wgSetupKind==='function'? wgSetupKind(v) : 'openmw';
+    for(const r of document.querySelectorAll('#wgSetup .su-row[data-omw]')) r.hidden=kind!=='openmw';
+    const n=$('#suKind');
+    if(n){
+      n.hidden=kind==='openmw';
+      n.textContent=kind==='openmw'? '' : 'This is '+wgSetupWords(kind)+': the Load order page sorts it by the mlox rules alone, and the fields that are OpenMW\'s or MOMW\'s (the customizations TOML, plugin-order.yml, the list, grass, the OpenMW folder) are hidden.';
+    }
+  },
+
   view(){ return window.__WG_VIEW__||{}; },
   file(){ return String((this.view().extra||{}).settingsFile||''); },
 
@@ -143,6 +159,7 @@ const WgSetup={
   dirty(v){ this._dirty=v; $('#suSave').textContent=v? 'Save *' : 'Save'; },
 
   async check(){
+    this.kindShow();
     let c;
     try{ c=await Engine.call('setup_check',{fields:JSON.stringify(this.fields())}); }catch(e){ return; }
     this.checks=c;
@@ -224,6 +241,8 @@ const WgSetup={
 #wgSetup .su-c.ok{border-color:var(--ac);color:var(--tx2)}
 #wgSetup .su-c.warn{border-color:var(--warn)}
 #wgSetup .su-c.error{border-color:var(--err);color:var(--tx)}
+#wgSetup .su-row[hidden]{display:none}
+#wgSetup #suKind{margin:6px 0;color:var(--tx2)}
 #wgSetup #suNote{background:var(--acd);border:1px solid var(--ac);border-radius:var(--r-box);padding:8px 10px}
 #wgSetup .su-bar{display:flex;gap:8px;align-items:center;padding:8px 16px;border-top:1px solid var(--line);background:var(--bg2);flex-wrap:wrap}
 #wgSetup .su-sum.error{color:var(--err)} #wgSetup .su-sum.ok{color:var(--tx2)}
@@ -239,11 +258,12 @@ const WgSetup={
           `<button class="btn dim" data-pick="${k}" data-kind="mo2" title="A Mod Organizer 2 folder (the one with ModOrganizer.ini)">MO2…</button>`+
           `<button class="btn dim" data-pick="${k}" data-kind="datafiles" title="The game's Data Files folder (Morrowind.ini beside it)">Morrowind…</button>`
         : kind==='lines' && k==='groundcover' ? '' : `<button class="btn dim" data-pick="${k}" data-kind="${kind==='lines'?'lines':kind}">…</button>`;
-      return `<div class="su-row"><label for="su_${k}">${label}</label><div class="su-f">${input}${pick}</div><div class="help">${help}</div><div class="su-c" id="suc_${k}"></div></div>`;
+      return `<div class="su-row"${this.OMW.includes(k)? ' data-omw' : ''}><label for="su_${k}">${label}</label><div class="su-f">${input}${pick}</div><div class="help">${help}</div><div class="su-c" id="suc_${k}"></div></div>`;
     };
     el.innerHTML=`<div class="su-scroll"><div class="su-in">
   <h2>Setup</h2>
   <div id="suNote" hidden></div>
+  <div id="suKind" class="help" hidden></div>
   ${this.SECTIONS.map(([t,rows])=>`<div class="su-sec"><h3>${t}</h3>${rows.map(row).join('')}</div>`).join('')}
 </div></div>
 <div class="su-bar"><button class="btn" id="suLoad" title="Save, then load the openmw.cfg">Save and load</button><button class="btn dim" id="suSave">Save</button>

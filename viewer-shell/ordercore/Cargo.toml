@@ -28,5 +28,10 @@ serde = { version = "1", features = ["derive"] }
 # tomllib: only the reading half. 0.8 reads TOML 1.0, as tomllib does up to Python 3.14; 0.9 reads
 # 1.1, so it would take files the Python refuses.
 toml = { version = "0.8", default-features = false, features = ["parse"] }
+# An MO2 profile or the game's own install read as a cfg is (install.rs): Robin's readers,
+# Gardenfell's, vendored unmodified in viewer-shell/gardenfell (the profile, its mods by
+# priority, the right Morrowind.ini; the archives the engine loads).
+gardenfell-install = { path = "../gardenfell/crates/gardenfell-install" }
+gardenfell-bsa = { path = "../gardenfell/crates/gardenfell-bsa" }
 
 [lints.clippy]

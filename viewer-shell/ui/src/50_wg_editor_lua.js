@@ -33,6 +33,10 @@ Object.assign(WgEditor, {
     }
     const d=this.lua, body=d.querySelector('#edLuaBody');
     d.hidden=false;
+    if(typeof wgSetupKind==='function' && wgSetupKind()!=='openmw'){
+      body.innerHTML='<div class="hint">Lua scripts are OpenMW\'s: this is '+escHtml(wgSetupWords(wgSetupKind()))+', and the game\'s engine runs none. Open an openmw.cfg to check them.</div>';
+      return null;
+    }
     body.innerHTML='<div class="hint">Reading the load order\'s Lua scripts…</div>';
     let r;
     try{ r=await Engine.call('lua_scan',{}); }

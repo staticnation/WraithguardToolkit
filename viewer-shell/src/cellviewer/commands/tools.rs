@@ -24,7 +24,12 @@ pub(super) fn tools_lint(cfg: String, subset: Vec<String>) -> Result<String, Str
     let find = move |name: &str| at.get(name).cloned();
     let origins: std::collections::BTreeMap<String, String> = subset.iter().map(|s| (s.to_lowercase(), "your mod".to_string())).collect();
     let threads = scan_budget();
-    let (warnings, st) = toolscore::lint::lint_order(&order, &find, &subset, &origins, threads);
+    let (mut warnings, st) = toolscore::lint::lint_order(&order, &find, &subset, &origins, threads);
+    // A plugin's .omwscripts twin is OpenMW's: on an MO2 or Morrowind.ini install the game's
+    // engine runs no Lua, so a twin left out is nothing to say.
+    if setup_spec(&cfg).0 != "openmw" {
+        warnings.retain(|w| !w.starts_with("[TWIN]"));
+    }
     Ok(serde_json::json!({
         "warnings": warnings,
         "stats": {"scanned": st.scanned, "unreadable": st.unreadable, "warnings": st.warnings, "interiorCells": st.interior_cells, "pathgrids": st.pathgrids},

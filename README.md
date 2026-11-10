@@ -375,6 +375,8 @@ yourself, last, as you would after the Tools page's merge.
 | Flag | What it does |
 |---|---|
 | `--cfg PATH`, `--rules ...` | The cfg and the rule files (required; `--rules` not for `--merge-lands` alone). |
+| `--mo2 DIR [--profile NAME]`, `--data-files DIR` | An MO2 install or the game's own in place of `--cfg`, sorted by the mlox rules alone. |
+| `--plain-mlox` | With `--cfg`: the whole `content=` list by the mlox rules alone, no MOMW list. |
 | `--customizations PATH`, `--subset ...`, `--subset-file PATH` | Where the subset comes from. |
 | `--scan-dir DIR` | Scan a mods folder, write the result to `--subset-file`, then sort it. |
 | `--subset-from-cfg` | Sort the cfg's own unmanaged `content=` and `data=` entries. |
@@ -393,6 +395,21 @@ yourself, last, as you would after the Tools page's merge.
 | `--merge-model masters\|loadorder` | Measure each plugin's terrain against the masters (default), or against the load order before it. |
 | `--merge-ignore ...` | Plugins Merge Lands leaves out, by name or by folder; replaces the default list (generated plugins such as `delta-merged.omwaddon`). |
 | `--no-predicate-warnings`, `-v`/`-vv`, `--trace` | Quieter, louder, or a trace log. |
+
+An MO2 install or the game's own takes the place of `--cfg`, and is sorted by the mlox
+rules alone (no MOMW list); `--plain-mlox` does the same for an `openmw.cfg`:
+
+```
+wraithguard --mo2 "C:\Modding\MO2" --profile Default --rules mlox_base.txt mlox_user.txt
+wraithguard --data-files "C:\Games\Morrowind\Data Files" --rules mlox_base.txt --write-cfg
+wraithguard --cfg openmw.cfg --plain-mlox --rules mlox_base.txt --sort-data-paths --write-cfg
+```
+
+It prints what moves; `--write-cfg` writes the order into the install (the profile's
+`Morrowind.ini`, `loadorder.txt` and `plugins.txt`; the game's `Morrowind.ini` and its plugins'
+dates; the cfg's `content=` lines), each file copied first. With `--plain-mlox`,
+`--emit-toml` writes the customizations that make MOMW's configurator build the same order.
+The scans and `--merge-lands` read these installs too.
 
 `wraithguard --help` lists them all.
 

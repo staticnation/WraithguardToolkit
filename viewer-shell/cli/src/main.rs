@@ -25,7 +25,7 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 use std::process::ExitCode;
 
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgGroup, ArgMatches, Command};
 use conflictcore::records;
 use ordercore::inputs::PluginIndex;
 use ordercore::plan::{self, Computed, Counts, ExportArgs, ItemKind, PlanArgs, PlanError, Report};
@@ -51,7 +51,12 @@ fn command() -> Command {
              optionally scan it for record and loose-file conflicts, lint it, and draw a cell map.",
         )
         .args_override_self(true)
-        .arg(path("cfg", "Path to openmw.cfg").required(true))
+        .arg(path("cfg", "Path to openmw.cfg"))
+        .arg(path("mo2", "A Mod Organizer 2 install (its folder) in place of --cfg: sorted by the mlox rules alone, no MOMW list"))
+        .arg(Arg::new("profile").long("profile").value_name("NAME").help("With --mo2: the profile (default: the one MO2 has selected)"))
+        .arg(path("data-files", "The game's own install (its Data Files folder, or the Morrowind.ini) in place of --cfg: sorted by the mlox rules alone"))
+        .group(ArgGroup::new("setup").args(["cfg", "mo2", "data-files"]).required(true))
+        .arg(flag("plain-mlox", "With --cfg: sort the whole content= list by the mlox rules alone, no MOMW list (--write-cfg writes it)"))
         .arg(
             Arg::new("rules")
                 .long("rules")
@@ -78,7 +83,11 @@ fn command() -> Command {
         .arg(Arg::new("list-name").long("list-name").value_name("LIST_NAME").help("listName for the emitted TOML"))
         .arg(path("plugin-order-yml", "MOMW's plugin-order.yml: the curated list's plugins, kept out of the sort"))
         .arg(path("data-paths-cache", "A cached MOMW list data-path order (one path tail per line)"))
-        .arg(flag("write-cfg", "Patch openmw.cfg in place (a .bak copy first unless --no-backup)"))
+        .arg(flag(
+            "write-cfg",
+            "Patch openmw.cfg in place (a .bak copy first unless --no-backup); with --mo2 / --data-files, the install's load order \
+             (Morrowind.ini, loadorder.txt, plugins.txt, the plugins' dates), each file copied first",
+        ))
         .arg(flag("sort-data-paths", "Also position the data= folders the customizations insert"))
         .arg(flag("no-predicate-warnings", "Skip the [Requires]/[Conflict]/[Note] warnings"))
         .arg(flag("check-conflicts", "After sorting, scan the active plugins for record-level conflicts"))
@@ -141,6 +150,12 @@ fn command() -> Command {
 struct Args {
     plan: PlanArgs,
     cfg: String,
+    /// The setup's name (`ordercore::install`): the cfg, `mo2:<folder>[|<profile>]` or the Data Files.
+    setup: String,
+    /// The whole load order by the mlox rules alone (`--mo2`, `--data-files`, `--plain-mlox`).
+    plain: bool,
+    /// `--profile` given without `--mo2` (refused when the run starts).
+    stray_profile: bool,
     dry_run: bool,
     no_backup: bool,
     emit_toml: Option<String>,
@@ -169,6 +184,17 @@ impl Args {
         let list = |k: &str| m.get_many::<String>(k).map(|v| v.cloned().collect()).unwrap_or_default();
         let on = |k: &str| m.get_flag(k);
         let cfg = path("cfg").unwrap_or_default();
+        let setup = match (path("mo2"), path("data-files")) {
+            (Some(base), _) => ordercore::install::Spec {
+                kind: ordercore::install::Kind::Mo2,
+                path: base,
+                profile: m.get_one::<String>("profile").filter(|p| !p.is_empty()).cloned(),
+            }
+            .name(),
+            (None, Some(dir)) => dir,
+            (None, None) => cfg.clone(),
+        };
+        let plain = on("plain-mlox") || ordercore::install::spec(&setup).kind != ordercore::install::Kind::Openmw;
         let verbose = m.get_count("verbose");
         let mut unused = Vec::new();
         for k in ["tes3conv", "json-dump-dir"] {
@@ -197,6 +223,9 @@ impl Args {
                 verbose: verbose > 0,
             },
             cfg,
+            setup,
+            plain,
+            stray_profile: m.get_one::<String>("profile").is_some() && m.get_one::<String>("mo2").is_none(),
             dry_run: on("dry-run"),
             no_backup: on("no-backup"),
             emit_toml: path("emit-toml"),
@@ -306,10 +335,29 @@ fn os_error(e: &std::io::Error, path: &str) -> String {
 /// The record-conflict and cell-map scans, the lint and the loose-file scan, as the Python runs
 /// them at the report's scans place.
 fn scans(args: &Args, got: &Computed, log: &Log, trace: &Trace) {
-    let subset = &got.plan.subset;
     let active: &[String] =
         if got.sorted && !got.plan.final_order.is_empty() { &got.plan.final_order } else { &got.plan.base_order_names };
-    let dirs = &got.scan_dirs;
+    let input = ScanInput {
+        active,
+        subset: &got.plan.subset,
+        dirs: &got.scan_dirs,
+        origins: &got.subset_origins,
+        custom_data_dirs: &got.custom_data_dirs,
+    };
+    scan_with(args, &input, log, trace);
+}
+
+/// What the scans read: the active plugins, the user's own (the subset), the data folders.
+struct ScanInput<'a> {
+    active: &'a [String],
+    subset: &'a [String],
+    dirs: &'a [String],
+    origins: &'a BTreeMap<String, String>,
+    custom_data_dirs: &'a [String],
+}
+
+fn scan_with(args: &Args, input: &ScanInput, log: &Log, trace: &Trace) {
+    let (subset, active, dirs) = (input.subset, input.active, input.dirs);
     if args.check_conflicts || args.cell_map.is_some() {
         let (order, excluded) = records::filter_plugins(active, &args.exclude);
         excluded_line(excluded.len());
@@ -356,7 +404,7 @@ fn scans(args: &Args, got: &Computed, log: &Log, trace: &Trace) {
         let index = PluginIndex::build(dirs);
         let find = records::in_index(&index);
         let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4);
-        let origins: BTreeMap<String, String> = got.subset_origins.clone();
+        let origins: BTreeMap<String, String> = input.origins.clone();
         let (warnings, st) = toolscore::lint::lint_order(&order, &find, subset, &origins, threads);
         println!(
             "  Scanned {} plugin(s); {} interior cell(s), {} interior pathgrid(s).",
@@ -372,7 +420,7 @@ fn scans(args: &Args, got: &Computed, log: &Log, trace: &Trace) {
     if args.resource_conflicts {
         use conflictcore::resources::{self, MeshColumns};
         section("DATA-PATH RESOURCE (VFS) CONFLICTS (read-only)");
-        let (list, stats) = resources::detect(dirs, &got.custom_data_dirs, &[], true);
+        let (list, stats) = resources::detect(dirs, input.custom_data_dirs, &[], true);
         let (mesh, ms) = conflictcore::mesh::analyse(&list, 0);
         log.debug(&format!("analysed {} mesh conflict(s): {} finding(s), {} unreadable", ms.analysed, ms.findings, ms.unreadable));
         let notes: Vec<Option<MeshColumns>> = mesh
@@ -404,8 +452,7 @@ fn scans(args: &Args, got: &Computed, log: &Log, trace: &Trace) {
 fn merge_lands(args: &Args, folder: &str, log: &Log, trace: &Trace) -> Result<(), String> {
     use landcore::pipeline::DiffModel;
     use landcore::service::{build_merged_lands, home_folder, MergeOptions, DEFAULT_NAME};
-    let path = std::path::Path::new(&args.cfg);
-    let setup = ordercore::cfg::read(path, &ordercore::cfg::Tokens::for_cfg(path)).map_err(|e| format!("{} could not be read: {e}", args.cfg))?;
+    let setup = ordercore::install::read(&args.setup)?;
     let order = setup.plugins();
     let dirs: Vec<std::path::PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
     section("MERGE LANDS");
@@ -446,6 +493,9 @@ fn run(args: &Args) -> Result<(), String> {
     let log = Log { verbose: args.verbose };
     let trace = Trace::open(args.trace.as_deref());
     trace.line("CLI started");
+    if args.stray_profile {
+        return Err("--profile names an MO2 profile: give the MO2 folder with --mo2".into());
+    }
     for k in &args.unused {
         log.warning(&format!("--{k} is not used: plugins are read by the built-in reader"));
     }
@@ -454,6 +504,14 @@ fn run(args: &Args) -> Result<(), String> {
         let r = merge_lands(args, args.merge_lands.as_deref().unwrap_or_default(), &log, &trace);
         trace.line("done");
         return r;
+    }
+    if args.plain {
+        plain_run(args, &log, &trace)?;
+        if let Some(folder) = &args.merge_lands {
+            merge_lands(args, folder, &log, &trace)?;
+        }
+        trace.line("done");
+        return Ok(());
     }
     let got = match plan::compute_plan(&args.plan) {
         Ok(got) => got,
@@ -488,6 +546,90 @@ fn run(args: &Args) -> Result<(), String> {
         merge_lands(args, folder, &log, &trace)?;
     }
     trace.line("done");
+    Ok(())
+}
+
+/// The plain sort (`ordercore::plain`): an MO2 or Morrowind.ini install, or a cfg with
+/// `--plain-mlox`: the whole load order by the mlox rules, what moves printed; with
+/// `--write-cfg` (and not `--dry-run`) written into the install, each file copied first. The
+/// scans then run over it as sorted, every plugin counted as the user's.
+fn plain_run(args: &Args, log: &Log, trace: &Trace) -> Result<(), String> {
+    use ordercore::install::Kind;
+    let spec = ordercore::install::spec(&args.setup);
+    let setup = ordercore::install::read(&args.setup)?;
+    for w in &setup.warnings {
+        log.warning(w);
+    }
+    let dirs: Vec<String> = setup.data.iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    let index = PluginIndex::build(&dirs);
+    let find = |n: &str| index.find(n).map(std::path::Path::to_path_buf);
+    let got = ordercore::plain::sort(&setup.content, &args.plan.rules, &find)?;
+    trace.line(&format!("plain sort: {} plugin(s), {} move", got.order.len(), got.moved.len()));
+    let what = match spec.kind {
+        Kind::Mo2 => "the MO2 profile",
+        Kind::Vanilla => "Morrowind.ini",
+        Kind::Openmw => "openmw.cfg",
+    };
+    section(&format!("PLAIN MLOX SORT ({what}; no MOMW list)"));
+    println!("  {} plugin(s), {} data folder(s); {} move", got.order.len(), dirs.len(), got.moved.len());
+    for (n, from, to) in &got.moved {
+        println!("  {n}: {from} -> {to}");
+    }
+    if !got.conflicts.is_empty() {
+        println!("\n--- Rules not applied (they would close a cycle) ---");
+        for (a, b) in &got.conflicts {
+            println!("  {a} before {b}");
+        }
+    }
+    for n in &got.notes {
+        log.warning(n);
+    }
+    println!("\n--- Final order ---");
+    for (i, n) in got.order.iter().enumerate() {
+        println!("  {:>4}  {n}", i + 1);
+    }
+    let input = ScanInput { active: &got.order, subset: &got.order, dirs: &dirs, origins: &BTreeMap::new(), custom_data_dirs: &dirs };
+    scan_with(args, &input, log, trace);
+    let dry = args.dry_run || !args.write_cfg;
+    let stamp = now().format("%Y%m%d-%H%M%S").to_string();
+    let mut lines = match spec.kind {
+        Kind::Openmw => {
+            // --sort-data-paths: the data folders holding plugins in the order they load.
+            let data = args.plan.sort_data_paths.then(|| ordercore::plain::data_order(&setup.data, &got.order, &find));
+            if let Some((_, moved)) = &data {
+                println!("\n--- data= folders ({} move) ---", moved.len());
+                for (d, from, to) in moved {
+                    println!("  {d}: {from} -> {to}");
+                }
+            }
+            let data = data.map(|(d, _)| d);
+            ordercore::plain::write_cfg(
+                &ordercore::plain::cfg_holding_content(&setup.files)?,
+                &got.order,
+                &[],
+                data.as_deref().map(|d| (d, &[][..])),
+                dry,
+                &stamp,
+            )?
+        }
+        _ => {
+            let ini = setup.files.first().cloned().ok_or("the install has no Morrowind.ini")?;
+            let profile = if spec.kind == Kind::Mo2 { ini.parent().map(std::path::Path::to_path_buf) } else { None };
+            ordercore::plain::write(&ini, &got.order, &[], profile.as_deref(), &find, dry, &stamp)?
+        }
+    };
+    // --emit-toml (a cfg): the customizations that make MOMW's configurator build this order.
+    if let (Kind::Openmw, Some(to)) = (spec.kind, args.emit_toml.as_deref().filter(|t| !t.is_empty())) {
+        let from = args.plan.customizations.as_deref().map(std::path::Path::new);
+        lines.extend(ordercore::plain::write_toml(from, std::path::Path::new(to), &setup.content, &got.order, &[], args.plan.list_name.as_deref(), args.dry_run, &stamp)?);
+    }
+    section(if dry { "EXPORT (the load order not written: --write-cfg writes it)" } else { "EXPORT" });
+    if args.dry_run && args.write_cfg {
+        println!("  --dry-run: nothing written");
+    }
+    for l in &lines {
+        println!("  {l}");
+    }
     Ok(())
 }
 
@@ -539,6 +681,24 @@ mod tests {
         assert_eq!(a.merge_lands, Some(py_path("out/")));
         assert_eq!((a.merge_model.as_str(), a.merge_ignore), ("loadorder", Some(Vec::new())));
         assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-model", "odd", "--merge-lands"]).is_err());
+    }
+
+    #[test]
+    fn an_mo2_or_game_install_in_place_of_the_cfg() {
+        let m = command().try_get_matches_from(["wraithguard", "--mo2", "C:/MO2", "--profile", "Main", "--rules", "r"]).unwrap();
+        let a = Args::read(&m);
+        assert_eq!((a.setup.as_str(), a.plain), (format!("mo2:{}|Main", py_path("C:/MO2")).as_str(), true));
+        let m = command().try_get_matches_from(["wraithguard", "--data-files", "G/Data Files", "--rules", "r"]).unwrap();
+        assert!(Args::read(&m).plain);
+        let m = command().try_get_matches_from(["wraithguard", "--cfg", "openmw.cfg", "--rules", "r"]).unwrap();
+        assert!(!Args::read(&m).plain);
+        let m = command().try_get_matches_from(["wraithguard", "--cfg", "openmw.cfg", "--plain-mlox", "--rules", "r"]).unwrap();
+        assert!(Args::read(&m).plain);
+        // One of them, not two; --profile only with --mo2.
+        assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x", "--mo2", "y", "--rules", "r"]).is_err());
+        assert!(command().try_get_matches_from(["wraithguard", "--rules", "r"]).is_err());
+        let m = command().try_get_matches_from(["wraithguard", "--cfg", "x", "--profile", "p", "--rules", "r"]).unwrap();
+        assert!(run(&Args::read(&m)).is_err_and(|e| e.contains("--mo2")));
     }
 
     #[test]
