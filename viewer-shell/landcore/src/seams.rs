@@ -130,15 +130,18 @@ pub fn find_tears(cells: &BTreeMap<Coords, Vec<Value>>, reference: Option<&BTree
     tears
 }
 
-fn anchor_value(corner: &Corner, coords: Coords, cells: &BTreeMap<Coords, Vec<Value>>, anchor: Option<&BTreeMap<Coords, Vec<Value>>>) -> Option<Value> {
+/// The terrain outside the merge: a cell's height at a vertex index, where there is one.
+pub type Anchor<'a> = &'a dyn Fn(Coords, usize) -> Option<Value>;
+
+fn anchor_value(corner: &Corner, coords: Coords, cells: &BTreeMap<Coords, Vec<Value>>, anchor: Option<Anchor>) -> Option<Value> {
     let anchor = anchor?;
     for &((x, y), (dx, dy)) in corner {
         let other = (coords.0 + dx, coords.1 + dy);
         if cells.contains_key(&other) {
             continue;
         }
-        if let Some(grid) = anchor.get(&other) {
-            return Some(grid[index(x, y)]);
+        if let Some(v) = anchor(other, index(x, y)) {
+            return Some(v);
         }
     }
     None
@@ -165,7 +168,7 @@ fn is_pinned(cells: &BTreeMap<Coords, Vec<Value>>, coords: Coords, x: usize, y: 
     shared_cells(coords, x, y).iter().any(|c| !cells.contains_key(c))
 }
 
-fn repair_corners(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamReport, anchor: Option<&BTreeMap<Coords, Vec<Value>>>, authoritative: &BTreeSet<Coords>) {
+fn repair_corners(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamReport, anchor: Option<Anchor>, authoritative: &BTreeSet<Coords>) {
     let order: Vec<Coords> = cells.keys().copied().collect();
     for coords in order {
         for corner in &CORNERS {
@@ -210,12 +213,17 @@ fn repair_corners(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamRep
 
 fn repair_edges(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamReport, authoritative: &BTreeSet<Coords>) -> Result<(), String> {
     let mut borders = Vec::new();
+    // Each border's two grids looked up once (not twice a vertex): what it moves is worked
+    // out reading them, then written (2026-11-10, the finish step's time).
+    let mut sets: Vec<(usize, usize, Value)> = Vec::with_capacity(LAND_SIZE);
     for (left, right) in border_pairs(cells) {
         let vertical = left.0 == right.0;
         let mut moved = 0;
+        sets.clear();
+        let (lg, rg) = (&cells[&left], &cells[&right]);
         for step in 0..LAND_SIZE {
             let (a, b) = if vertical { (index(step, LAST), index(step, 0)) } else { (index(LAST, step), index(0, step)) };
-            let (first, second) = (cells[&left][a], cells[&right][b]);
+            let (first, second) = (lg[a], rg[b]);
             if first == second {
                 continue;
             }
@@ -242,9 +250,18 @@ fn repair_edges(cells: &mut BTreeMap<Coords, Vec<Value>>, report: &mut SeamRepor
             } else {
                 mean(&[first, second])
             };
-            cells.get_mut(&left).unwrap()[a] = average;
-            cells.get_mut(&right).unwrap()[b] = average;
+            sets.push((a, b, average));
             moved += 1;
+        }
+        if !sets.is_empty() {
+            let l = cells.get_mut(&left).unwrap();
+            for &(a, _, v) in &sets {
+                l[a] = v;
+            }
+            let r = cells.get_mut(&right).unwrap();
+            for &(_, b, v) in &sets {
+                r[b] = v;
+            }
         }
         if moved > 0 {
             report.edge_vertices += moved;
@@ -306,7 +323,7 @@ fn boundary_offsets() -> Vec<usize> {
 pub fn repair_seams(
     cells: &mut BTreeMap<Coords, Vec<Value>>,
     feather: Value,
-    anchor: Option<&BTreeMap<Coords, Vec<Value>>>,
+    anchor: Option<Anchor>,
     authoritative: &BTreeSet<Coords>,
 ) -> Result<SeamReport, String> {
     for (c, g) in cells.iter() {
@@ -320,9 +337,11 @@ pub fn repair_seams(
     repair_corners(cells, &mut report, anchor, authoritative);
     repair_edges(cells, &mut report, authoritative)?;
     if feather >= 2 {
+        // `before` and `cells` hold the same cells in the same order: walked together.
         let moves: BTreeMap<Coords, Vec<(usize, Value)>> = before
             .iter()
-            .map(|(c, vals)| (*c, vals.iter().filter(|(o, v)| cells[c][*o] != *v).map(|(o, v)| (*o, cells[c][*o] - v)).collect()))
+            .zip(cells.values())
+            .map(|((c, vals), g)| (*c, vals.iter().filter(|(o, v)| g[*o] != *v).map(|(o, v)| (*o, g[*o] - v)).collect()))
             .collect();
         feather_corrections(cells, &moves, feather, &mut report);
     }

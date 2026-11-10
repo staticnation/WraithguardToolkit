@@ -46,13 +46,16 @@ in the order goes a minute on (tested; not yet on a real install). Nothing left 
   2.23 s, seams 0.9 s, 4.47 s in all, the same SHA. Then: the decoded cells moved rather than
   cloned (peak memory 1.50 to 1.22 GB), a packed layer compared and read in place, the merge
   loop settling untouched vertices first - only 1% fewer instructions in the merge (callgrind):
-  what is left is blending the 28 million contested vertices, the work itself. Next, if it
-  still leads: the finish step (seams).
-  Then the 621-plugin order on the Tools page. Benchmark, from `viewer-shell\landcore` (not
-  a workspace member), on one line; prints the steps' times, VmHWM (Linux only) and the
-  output's SHA-256 (`4d2e6cee...` on 2026-11-02):
+  what is left is blending the 28 million contested vertices, the work itself. Static's run
+  2026-11-10: merge 1.90 s, finish 0.92 s, 3.86 s in all, the same SHA. The finish step since
+  (2026-11-10, 0.42 s to 0.30 s on 2 cores here): the normals worked out only where the
+  reference's are not kept, the reference read in place (no unpacked copies for the anchor,
+  the normals or the digests), each border's grids looked up once, the cell digests a fast
+  hash instead of SipHash. Left: Static's run to measure it, then the 621-plugin order on the
+  Tools page. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
+  (Linux only) and the output's SHA-256 (`4d2e6cee...`, unchanged since 2026-11-02):
 
-      cargo test --release --test merge_cases -- --ignored --nocapture big_order
+      cargo test --release -p landcore --test merge_cases -- --ignored --nocapture big_order
 
 - tes3cmd in Rust (`viewer-shell/TES3CMD-REWRITE.md`; decided 2026-11-09, not started): its own
   repository (`staticnation/tes3cmd-rs`), a library and a `tes3cmd` command line over greatness7's

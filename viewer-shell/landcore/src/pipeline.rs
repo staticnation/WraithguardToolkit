@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::cleaning::{clean_against_loaded, clean_landmass, CellDigest, CleaningReport};
 use crate::grid::RelativeGrid;
-use crate::heights::resolve_cell_normals;
+
 use crate::landmass::{differences, layer_onto, masked, Coords, Landmass, PluginRecords};
 use crate::layers::{LandscapeDiff, LandscapeLayers, Layer, ALL_LAYERS};
 use crate::merge::{self, merge_layer, ConflictParams};
@@ -96,7 +96,7 @@ fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, 
             }
         };
         grids.insert(which, merged);
-        *digest_slot(&mut cell.sole_source, which) = if first { Some(crate::cleaning::digest(&source.flat())) } else { None };
+        *digest_slot(&mut cell.sole_source, which) = if first { Some(crate::cleaning::digest_of(source.reference.iter().zip(&source.delta).map(|(a, b)| a + b))) } else { None };
         if bit == layer::VERTEX_HEIGHTS {
             cell.contested += contested;
             cell.major += major;
@@ -326,12 +326,13 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usiz
     par_each(cells, |(coords, cell)| {
         let Some(h) = &cell.heights else { return 0 };
         let l = reference.get(*coords);
-        let (mut original, mut base) = (l.and_then(|l| l.normals.as_deref().map(crate::layers::Packed::to_vec)), l.and_then(|l| l.heights.as_deref().map(crate::layers::Packed::to_vec)));
-        if original.is_none() || base.as_ref().is_none_or(|b| b.len() != h.len()) {
-            original = None;
-            base = None;
-        }
-        let (n, kept) = resolve_cell_normals(h, original.as_deref(), base.as_deref());
+        let (original, base) = (l.and_then(|l| l.normals.as_deref()), l.and_then(|l| l.heights.as_deref()));
+        let (orig_at, base_at) = (|i: usize| original.and_then(|o| o.at(i)).unwrap_or(0), |i: usize| base.and_then(|b| b.at(i)).unwrap_or(0));
+        let (original, base) = match (original, base) {
+            (Some(o), Some(b)) if b.len() == h.len() => (Some((o.len(), &orig_at as &dyn Fn(usize) -> Value)), Some((b.len(), &base_at as &dyn Fn(usize) -> Value))),
+            _ => (None, None),
+        };
+        let (n, kept) = crate::heights::resolve_cell_normals_with(h, original, base);
         cell.normals = Some(n);
         kept
     })
@@ -409,7 +410,7 @@ fn digest_cell(cell: &MergedCell) -> CellDigest {
 
 fn digest_reference(l: &LandscapeLayers) -> CellDigest {
     {
-        let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(|v| crate::cleaning::digest(&v.to_vec()));
+        let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(crate::layers::Packed::digest);
         CellDigest { heights: d(&l.heights), normals: None, world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
     }
 }
@@ -423,11 +424,9 @@ pub fn finish(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
     if !heights.is_empty() {
-        // The reference only around the merge (a corner's outside cells), not the whole
-        // landmass unpacked.
-        let near: BTreeSet<Coords> = heights.keys().flat_map(|&(x, y)| (-1..=1).flat_map(move |dx| (-1..=1).map(move |dy| (x + dx, y + dy)))).collect();
-        let anchor: BTreeMap<Coords, Vec<Value>> =
-            near.into_iter().filter_map(|c| reference.get(c).and_then(|l| l.heights.as_deref()).map(|h| (c, h.to_vec()))).collect();
+        // The reference's heights read in place where a corner needs the terrain outside the
+        // merge, nothing unpacked.
+        let anchor = |c: Coords, i: usize| reference.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i));
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
     }

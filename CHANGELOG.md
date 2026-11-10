@@ -140,6 +140,12 @@
 
 ### Changed
 
+- **Merge Lands' finish step is faster** (seams, slopes, normals, cleaning: 0.42 s to 0.30 s
+  on `big_order`, 2 cores, the same `Merged Lands.esp` byte for byte). Normals are worked out
+  only where the reference's are not kept; the reference's heights and normals are read in
+  place rather than unpacked; seam repair looks each border's two cells up once; the cell
+  digests the cleaning compares use a fast hash instead of SipHash.
+
 - **Three rules settled as the Construction Set has them** (Static, 2026-11-09):
   - *A moved reference, then a later plugin's plain record for it in its home cell.* The later
     record is the reference: it stands at home and is taken out of the cell the move put it

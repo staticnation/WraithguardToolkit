@@ -89,57 +89,74 @@ fn to_signed_byte(v: f64) -> Value {
 
 /// `vertex_normals_from_heights`, flat: 65x65 heights in, 65x65x3 normals out.
 pub fn normals_from_heights(h: &[f64]) -> Vec<Value> {
-    let scale = HEIGHT_SCALE as f64;
-    let step = 128.0 / scale;
-    let limit = LAND_SIZE - 1;
     let fin = |v: f64| if v.is_finite() { v } else { 0.0 };
     let mut out = Vec::with_capacity(h.len() * 3);
     for y in 0..LAND_SIZE {
-        let fy = if y == limit { y - 1 } else { y };
         for x in 0..LAND_SIZE {
-            let fx = if x == limit { x - 1 } else { x };
-            let here = fin(h[fy * LAND_SIZE + fx]) / scale;
-            let east = fin(h[fy * LAND_SIZE + fx + 1]) / scale;
-            let north = fin(h[(fy + 1) * LAND_SIZE + fx]) / scale;
-            let nx = -(east - here) * step;
-            let ny = -(north - here) * step;
-            let nz = step * step;
-            // `** 0.5` in the Python is `pow`, which is not always `sqrt` to the bit.
-            let length = (nx * nx + ny * ny + nz * nz).powf(0.5);
-            if length == 0.0 {
-                out.extend_from_slice(&[0, 0, 127]);
-                continue;
-            }
-            let unit = length / 127.0;
-            out.push(to_signed_byte(nx / unit));
-            out.push(to_signed_byte(ny / unit));
-            out.push(to_signed_byte(nz / unit));
+            out.extend_from_slice(&normal_at(&|i| fin(h[i]), x, y));
         }
     }
     out
+}
+
+/// The normal at (`x`, `y`) of the heights `h` gives (by vertex index): from the vertex and
+/// its east and north neighbours (the last row and column from the ones before them).
+fn normal_at(h: &dyn Fn(usize) -> f64, x: usize, y: usize) -> [Value; 3] {
+    let scale = HEIGHT_SCALE as f64;
+    let step = 128.0 / scale;
+    let limit = LAND_SIZE - 1;
+    let fy = if y == limit { y - 1 } else { y };
+    let fx = if x == limit { x - 1 } else { x };
+    let here = h(fy * LAND_SIZE + fx) / scale;
+    let east = h(fy * LAND_SIZE + fx + 1) / scale;
+    let north = h((fy + 1) * LAND_SIZE + fx) / scale;
+    let nx = -(east - here) * step;
+    let ny = -(north - here) * step;
+    let nz = step * step;
+    // `** 0.5` in the Python is `pow`, which is not always `sqrt` to the bit.
+    let length = (nx * nx + ny * ny + nz * nz).powf(0.5);
+    if length == 0.0 {
+        return [0, 0, 127];
+    }
+    let unit = length / 127.0;
+    [to_signed_byte(nx / unit), to_signed_byte(ny / unit), to_signed_byte(nz / unit)]
 }
 
 /// One merged cell's normals (`resolve_cell_normals`): recomputed from its final heights,
 /// keeping the reference's own normal wherever the height did not move and that normal is not
 /// `(0, 0, 0)`. Returns the normals and how many were kept.
 pub fn resolve_cell_normals(heights: &[Value], original: Option<&[Value]>, base: Option<&[Value]>) -> (Vec<Value>, usize) {
-    let hf: Vec<f64> = heights.iter().map(|&v| v as f64).collect();
-    let mut normals = normals_from_heights(&hf);
+    let (o_at, b_at) = (|i: usize| original.map_or(0, |o| o[i]), |i: usize| base.map_or(0, |b| b[i]));
+    let o: Option<(usize, &dyn Fn(usize) -> Value)> = original.map(|o| (o.len(), &o_at as &dyn Fn(usize) -> Value));
+    let b: Option<(usize, &dyn Fn(usize) -> Value)> = base.map(|b| (b.len(), &b_at as &dyn Fn(usize) -> Value));
+    resolve_cell_normals_with(heights, o, b)
+}
+
+/// [`resolve_cell_normals`] reading the reference's normals and heights in place (`(len,
+/// value at)`, a packed layer unpacked by nobody); a normal is worked out only where the
+/// reference's is not kept (Merge Lands' finish step, 2026-11-10: the normals were a third of it).
+pub fn resolve_cell_normals_with(heights: &[Value], original: Option<(usize, &dyn Fn(usize) -> Value)>, base: Option<(usize, &dyn Fn(usize) -> Value)>) -> (Vec<Value>, usize) {
+    let mut normals = vec![0; heights.len() * 3];
     let mut preserved = 0;
-    if let (Some(orig), Some(base)) = (original, base)
-        && base.len() == heights.len()
-        && orig.len() >= normals.len()
-    {
-        for i in 0..heights.len() {
-            if heights[i] != base[i] {
-                continue;
+    let keeps = match (original, base) {
+        (Some((olen, orig)), Some((blen, base))) if blen == heights.len() && olen >= normals.len() => Some((orig, base)),
+        _ => None,
+    };
+    let h = |i: usize| heights[i] as f64;
+    for y in 0..LAND_SIZE {
+        for x in 0..LAND_SIZE {
+            let i = y * LAND_SIZE + x;
+            if let Some((orig, base)) = keeps
+                && heights[i] == base(i)
+            {
+                let t = [orig(i * 3), orig(i * 3 + 1), orig(i * 3 + 2)];
+                if t != [0, 0, 0] {
+                    normals[i * 3..i * 3 + 3].copy_from_slice(&t);
+                    preserved += 1;
+                    continue;
+                }
             }
-            let t = &orig[i * 3..i * 3 + 3];
-            if t == [0, 0, 0] {
-                continue;
-            }
-            normals[i * 3..i * 3 + 3].copy_from_slice(t);
-            preserved += 1;
+            normals[i * 3..i * 3 + 3].copy_from_slice(&normal_at(&h, x, y));
         }
     }
     (normals, preserved)

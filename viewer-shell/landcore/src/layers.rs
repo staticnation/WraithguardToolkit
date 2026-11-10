@@ -105,6 +105,27 @@ impl Packed {
         }
     }
 
+    /// The value at `i`, without unpacking the rest.
+    pub fn at(&self, i: usize) -> Option<Value> {
+        match self {
+            Packed::I8(v) => v.get(i).map(|&x| x as Value),
+            Packed::U8(v) => v.get(i).map(|&x| x as Value),
+            Packed::U16(v) => v.get(i).map(|&x| x as Value),
+            Packed::I32(v) => v.get(i).copied(),
+        }
+    }
+
+    /// [`crate::cleaning::digest`] of the values, read in place.
+    pub fn digest(&self) -> u64 {
+        use crate::cleaning::digest_of;
+        match self {
+            Packed::I8(v) => digest_of(v.iter().map(|&x| x as Value)),
+            Packed::U8(v) => digest_of(v.iter().map(|&x| x as Value)),
+            Packed::U16(v) => digest_of(v.iter().map(|&x| x as Value)),
+            Packed::I32(v) => digest_of(v.iter().copied()),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Packed::I8(v) => v.len(),

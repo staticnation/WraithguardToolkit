@@ -25,10 +25,32 @@ pub struct CellDigest {
 
 /// A layer's values as a [`CellDigest`] holds them.
 pub fn digest(values: &[Value]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    values.hash(&mut h);
-    h.finish()
+    digest_of(values.iter().copied())
+}
+
+/// [`digest`] of values as they come, nothing gathered first (a packed layer, a delta grid).
+/// Only compared within one merge, never kept, so the hash is a fast one rather than SipHash
+/// (2026-11-10: the digests were a fifth of the finish step): two values a step, each step
+/// folded through a 128-bit product, the count folded in last.
+pub fn digest_of(values: impl Iterator<Item = Value>) -> u64 {
+    const K: u64 = 0x9E37_79B9_7F4A_7C15;
+    const M: u64 = 0xBF58_476D_1CE4_E5B9;
+    let fold = |a: u64, b: u64| {
+        let p = u128::from(a) * u128::from(b);
+        (p as u64) ^ ((p >> 64) as u64)
+    };
+    let (mut h, mut n, mut pending): (u64, u64, Option<u32>) = (0x243F_6A88_85A3_08D3, 0, None);
+    for v in values {
+        n += 1;
+        match pending.take() {
+            None => pending = Some(v as u32),
+            Some(a) => h = fold(h ^ (u64::from(a) | (u64::from(v as u32) << 32)), K),
+        }
+    }
+    if let Some(a) = pending {
+        h = fold(h ^ u64::from(a) ^ (1 << 63), K);
+    }
+    fold(h ^ n, M)
 }
 
 impl CellDigest {
