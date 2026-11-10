@@ -1196,6 +1196,7 @@ fn build_plan(p: &Value) -> editcore::build::Plan {
                 topic: m.get("topic").map(s).unwrap_or_default(),
             })
             .collect(),
+        only_own: Default::default(),
     }
 }
 

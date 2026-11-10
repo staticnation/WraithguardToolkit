@@ -13,6 +13,9 @@
 //!   place it (as merge_to_master does), anything else at the end of the file;
 //! - a cell whose references the queue changes or adds to is the file's own record with
 //!   those changes (or a new record for a cell the file has none of);
+//! - a record marked deleted that no other plugin has is taken out of the file (a DELETED
+//!   record of something only this file ever had deletes nothing); one a master or another
+//!   plugin has is written as its DELETED record;
 //! - the header keeps its author, description and masters; the record count is set, and a
 //!   master the build needs besides is added after its own (so the file's references keep
 //!   their numbers).
@@ -183,7 +186,13 @@ pub fn build_in_place(
     let next_ref = next_new_index(&all_cells);
     drop(all_cells);
     let plan = Plan { carried: if carried.len() > 1 { carried } else { Vec::new() }, ..plan.clone() };
-    let kept = Kept { masters: &own_masters, next_ref };
+    let land_textures: Vec<(String, i64)> = values
+        .iter()
+        .flatten()
+        .filter(|v| type_name(v) == "LandscapeTexture")
+        .map(|v| (v.get("id").and_then(Value::as_str).unwrap_or("").to_string(), v.get("index").and_then(Value::as_i64).unwrap_or(0)))
+        .collect();
+    let kept = Kept { masters: &own_masters, next_ref, land_textures: &land_textures };
     let (built, mut result) = build_records(&plan, sources, load_order, sizes, name, Some(&kept), say)?;
 
     // Where each built record goes: in place of the file's own record of its key, into its
@@ -194,10 +203,36 @@ pub fn build_in_place(
     let mut into_topic: HashMap<String, Vec<(String, String, Vec<u8>)>> = HashMap::new();
     let mut tail: Vec<Vec<u8>> = Vec::new();
     let (mut replaced, mut added) = (0usize, 0usize);
+    // The file's records taken out, and a topic's responses taken out (by id).
+    let mut gone: HashSet<usize> = HashSet::new();
+    let mut gone_infos: HashSet<(String, String)> = HashSet::new();
     let mut current: Option<(String, bool)> = None;
     for record in &built {
         let rtype = type_name(record).to_string();
         let key = record_key(record).to_lowercase();
+        // Deleted, and nothing else has it: out of the file, not a DELETED record in it.
+        let out = text(record, "flags").split('|').any(|f| f.trim() == "deleted") && plan.only_own.contains(&(rtype.clone(), key.clone()));
+        if out {
+            match rtype.as_str() {
+                "DialogueInfo" => {
+                    if let Some((topic, true)) = &current {
+                        gone_infos.insert((topic.clone(), key));
+                    }
+                }
+                _ => {
+                    if rtype == "Dialogue" {
+                        current = Some((key.clone(), false));
+                    } else {
+                        current = None;
+                    }
+                    let there = keys_of(record).iter().find_map(|k| at_of.get(&(rtype.clone(), k.to_lowercase())).copied()).or_else(|| at_of.get(&(rtype.clone(), key.clone())).copied());
+                    if let Some(i) = there {
+                        gone.insert(i);
+                    }
+                }
+            }
+            continue;
+        }
         match rtype.as_str() {
             "Dialogue" => {
                 let there = at_of.get(&(rtype.clone(), key.clone())).copied();
@@ -252,19 +287,37 @@ pub fn build_in_place(
     // placed by its links as merge_to_master places them (greatness7's `insert_info`): one
     // already there whose `prev_id` is unchanged stays where it is; else it goes after the
     // response its `prev_id` names, first with none, last when that one is not in the block.
+    let mut taken_out = 0usize;
     let mut body: Vec<u8> = Vec::with_capacity(original.len() + tail.iter().map(Vec::len).sum::<usize>());
     let mut count = 0usize;
     let mut i = 1;
     while i < raws.len() {
         let raw = &raws[i];
+        if gone.contains(&i) {
+            // A topic taken out takes its responses with it.
+            i += 1;
+            if !raw.is_info && raw.topic.is_some() {
+                while i < raws.len() && raws[i].is_info {
+                    gone.insert(i);
+                    i += 1;
+                }
+            }
+            continue;
+        }
         match replace.get(&i) {
             Some(bytes) => body.extend_from_slice(bytes),
             None => body.extend_from_slice(raw.bytes),
         }
         count += 1;
         i += 1;
-        let decided_here = if raw.is_info { None } else { raw.topic.as_ref().and_then(|t| into_topic.remove(t)) };
-        let Some(decided_here) = decided_here else { continue };
+        let topic_here = if raw.is_info { None } else { raw.topic.clone() };
+        let takes_out = topic_here.as_ref().is_some_and(|t| gone_infos.iter().any(|(g, _)| g == t));
+        let decided_here = topic_here.as_ref().and_then(|t| into_topic.remove(t));
+        if decided_here.is_none() && !takes_out {
+            continue;
+        }
+        let decided_here = decided_here.unwrap_or_default();
+        let topic_here = topic_here.unwrap_or_default();
         // The block: `(id, prev_id, bytes)`.
         let mut block: Vec<(String, String, std::borrow::Cow<[u8]>)> = Vec::new();
         while i < raws.len() && raws[i].is_info {
@@ -289,6 +342,9 @@ pub fn build_in_place(
                 block.push(entry);
             }
         }
+        let before = block.len();
+        block.retain(|b| !gone_infos.contains(&(topic_here.clone(), b.0.clone())));
+        taken_out += before - block.len();
         for (_, _, bytes) in &block {
             body.extend_from_slice(bytes);
             count += 1;
@@ -311,7 +367,11 @@ pub fn build_in_place(
         say(&t);
         result.lines.push(t);
     };
+    let taken_out = taken_out + gone.len();
     line(format!("{name} edited in place: {replaced} record(s) changed, {added} added, {} left as they were", count - replaced - added));
+    if taken_out > 0 {
+        line(format!("{taken_out} record(s) taken out of it: deleted, and no other plugin has them"));
+    }
     if !more.is_empty() {
         line(format!("master(s) added to its header: {}", more.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")));
     }

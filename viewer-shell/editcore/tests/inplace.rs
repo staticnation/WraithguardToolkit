@@ -244,6 +244,29 @@ fn a_response_goes_where_its_links_place_it() {
 }
 
 #[test]
+fn a_deleted_record_only_it_has_is_taken_out_and_a_masters_is_marked() {
+    let mut s = setup("deleted");
+    for (tag, id) in [("MISC", "misc_plate"), ("NPC_", "fargoth"), ("INFO", "2")] {
+        let found = s.ed.find(tag, id, None).unwrap();
+        s.ed.set_field(&found, "flags", &json!("DELETED")).unwrap();
+    }
+    let result = build(&mut s);
+    let records = read(&s.target);
+    assert!(!records.iter().any(|r| r["id"] == json!("misc_plate")), "only Mod.esp had the plate: it is out of the file");
+    let fargoth = by_id(&records, "Npc", "fargoth");
+    assert!(fargoth["flags"].as_str().unwrap().contains("DELETED"), "Base.esm has Fargoth: a DELETED record stands");
+    let infos: Vec<&str> = records.iter().filter(|r| r["type"] == "DialogueInfo").map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!(infos, ["1", "3"], "the response is out of its topic");
+    assert_eq!(records[0]["num_objects"], json!(records.len() - 1));
+    assert!(result.lines.iter().any(|l| l == "2 record(s) taken out of it: deleted, and no other plugin has them"), "{:#?}", result.lines);
+    // The records between are the same bytes.
+    let now = std::fs::read(&s.target).unwrap();
+    let (was, is) = (frames(&s.original), frames(&now));
+    assert_eq!(was[9], *is.last().unwrap(), "the last record as it was");
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+#[test]
 fn only_the_load_orders_own_plugin_is_edited_in_place() {
     let mut s = setup("refused");
     let plate = s.ed.find("MISC", "misc_plate", None).unwrap();
@@ -293,5 +316,46 @@ fn in_place_given() {
     println!("{} of {} records differ: {differ:?} (the header's count is unchanged)", differ.len(), was.len());
     assert_eq!(differ.len(), 1, "only the NPC");
     assert_eq!(by_id(&read(&target), "Npc", &id)["name"], json!("Edited In Place"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_landscape_from_another_plugin_is_numbered_for_this_ones_textures() {
+    use tes3::esp::TES3Object;
+    let dir = std::env::temp_dir().join(format!("wg-inplace-land-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let ltex = |id: &str, index: i64| rec("LandscapeTexture", id, json!({"index": index, "file_name": format!("{id}.tga")}));
+    // Base.esm: sand is its 0 and rock its 1; the land wears sand (1) and rock (2).
+    let mut land = tes3::esp::Landscape { grid: (0, 0), ..Default::default() };
+    let rows: Vec<landcore::grid::Value> = (0..256).map(|i| if i < 128 { 1 } else { 2 }).collect();
+    landcore::emit::attach_texture_indices(&mut land, &rows);
+    let land = serde_json::to_value(TES3Object::Landscape(land)).unwrap();
+    let base = plugin_bytes(&[], "Bethesda", vec![ltex("tx_sand", 0), ltex("tx_rock", 1), land]);
+    // Mod.esp: rock is its 0, grass its 1; it has no land there.
+    let this = plugin_bytes(&[("Base.esm", base.len() as u64)], "The Author", vec![ltex("tx_rock", 0), ltex("tx_grass", 1)]);
+    let mut plugins = Vec::new();
+    for (n, bytes) in [("Base.esm", &base), ("Mod.esp", &this)] {
+        let p = dir.join(n);
+        std::fs::write(&p, bytes).unwrap();
+        plugins.push((n.to_string(), p));
+    }
+    let target = dir.join("Mod.esp");
+    let mut ed = Editor::new(Session::new(plugins), PatchQueue::new(), None);
+    ed.queue.add_whole(editcore::queue::Selection { plugin: "Base.esm".into(), record_type: "Landscape".into(), key: "(0, 0)".into() });
+    let job = ed.prepare_in_place(&target).unwrap();
+    let result = editcore::build::run_patch(&ed.session, &job, false, &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
+    assert!(result.lines.iter().any(|l| l == "1 landscape(s) had their textures renumbered for this plugin, 1 land texture(s) brought with them"), "{:#?}", result.lines);
+
+    let records = read(&target);
+    // Sand came along as Mod.esp's 2; rock is the rock it had (0); grass stands.
+    let index = |id: &str| by_id(&records, "LandscapeTexture", id)["index"].as_i64().unwrap();
+    assert_eq!((index("tx_rock"), index("tx_grass"), index("tx_sand")), (0, 1, 2));
+    let land = records.iter().find(|r| r["type"] == "Landscape").unwrap().clone();
+    let Ok(TES3Object::Landscape(land)) = serde_json::from_value::<TES3Object>(land) else { panic!("no land") };
+    let mut worn: Vec<u16> = land.texture_indices.data.iter().flatten().copied().collect();
+    worn.sort_unstable();
+    worn.dedup();
+    assert_eq!(worn, [1, 3], "rock as Mod.esp's 0 (1), sand as its 2 (3)");
     let _ = std::fs::remove_dir_all(&dir);
 }

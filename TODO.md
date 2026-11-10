@@ -12,27 +12,21 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 
 Two features, in this order (Static: the Editor first).
 
-### 1. The Editor edits an existing plugin: the build is in (2026-11-10), the rest is not
+### 1. The Editor edits an existing plugin: in (2026-11-10), to be tried in the game
 
-In: Build patch's "Edit it in place" (`inplace::build_in_place`, `CHANGELOG.md` 5.0.4): the
-pool written into a plugin of the load order, every record it does not decide copied as its
-bytes, a backup kept. Tried on the test plugins and on copies of the game's masters, not
-yet in the game. Left:
+In (`CHANGELOG.md` 5.0.4): Build patch's "Edit a plugin" (the Editor opens with it last) and
+"Edit it in place" (`inplace::build_in_place`): the pool written into a plugin of the load
+order, what it does not decide copied as its bytes, a deleted record only it had taken out,
+a landscape's textures renumbered, a backup kept. Tried on the test plugins and on copies of
+the game's masters, not in the game or on screen. Left:
 
-- An active plugin chosen in the Editor, before editing rather than at the build: the
-  Editor's load order with it last (as the Construction Set loads its active file last), so
-  a record is edited as that plugin has it; the record lists marking what is its own; the
-  journal naming it, so a pool is not written into another file by mistake. Today the pool
-  is made against the load order as it is, and a record a later plugin overrides is built
-  from that later plugin's version.
-- Taking a record out of the plugin: out of the file when no master has it, a DELETED
-  record when one does (as the Construction Set). The pool has no such decision yet.
-- A landscape taken from another plugin: its texture indices are that plugin's (its LTEX
-  list), and are not renumbered for the edited plugin's (merge_to_master's `remap_textures`
-  does this). The patch build has the same gap.
+- The journal does not name the plugin being edited: a pool made with one chosen is written
+  into another if the choice is changed before the build. Name it in the journal, and ask.
+- The record lists do not mark which records are the edited plugin's own.
 - A record the plugin has twice: the last is the one replaced.
-- The engine's world is not read again after the write: Preview opens it in a new Cell
-  Preview, as for a patch.
+- The engine's world is not read again after the write, and it draws the load order as the
+  game has it (the edited plugin where it stands, not last): Preview opens the result in a
+  new Cell Preview, as for a patch.
 
 ### 2. One setup type for every page (reading only)
 

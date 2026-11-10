@@ -20,6 +20,21 @@
   (`name.preedit.bak`, listed by the Tools page's Backups), and the new file is written
   beside it and put in its place. One NPC's name changed in Morrowind.esm: 5.4 s, one
   record of 48,296 different (`editcore/src/inplace.rs`, `tests/inplace.rs`).
+- **The plugin being edited is chosen before editing** (Build patch, "Edit a plugin"): the
+  Editor opens on the load order with it last, as the Construction Set loads its active
+  file, so a record is edited as that plugin has it whatever loads after it in the game;
+  Build patch then writes into it in place. "(none: a new patch)" is the load order as it
+  is. The choice is kept between runs; the pool is the same either way.
+- **A record deleted in the plugin being edited** (the record dialog's Delete, as before):
+  taken out of the file when no other plugin of the load order has it - a DELETED record of
+  something only that file ever had deletes nothing - and written as its DELETED record
+  when a master or another plugin has it, as the Construction Set does. A topic taken out
+  takes its responses.
+- **A landscape taken from another plugin is renumbered for the plugin written**, in a patch
+  and in place alike (`build::renumber_land_textures`, as merge_to_master's
+  `remap_textures`): its texture numbers were the source plugin's, and pointed at whatever
+  the written plugin numbered so. A texture the written plugin has takes that number; one
+  it has not comes along as a copy of the source's `LTEX`, numbered next.
 
 - **Merge Lands on the command line**: `wraithguard --cfg openmw.cfg --merge-lands [FOLDER]`
   runs the Tools page's merge (`landcore::service`) over the cfg's load order and data

@@ -27,6 +27,33 @@ Object.assign(WgEditor, {
     this.syncSel();
   },
 
+  /** The plugin being edited (the Construction Set's active file), by name; '' for none: the
+   *  pool then makes a new patch. Kept between runs. */
+  activePlugin(){ try{ return String(localStorage.getItem('wgEditorActive')||''); }catch(_){ return ''; } },
+  /** The Editor's load order with the active plugin last, as the Construction Set loads its
+   *  active file: a record is then edited as that plugin has it, whatever loads after it in
+   *  the game. The setup's plugins (`[[name, path]]`) are kept for the Build panel. */
+  withActiveLast(ed){
+    this._edPlugins=ed.plugins.slice();
+    const want=this.activePlugin().toLowerCase();
+    const at=want? ed.plugins.findIndex(p=>String(p[0]).toLowerCase()===want) : -1;
+    this._activeAt=at;
+    if(at<0) return ed.plugins;
+    const order=ed.plugins.slice(); const [mine]=order.splice(at, 1); order.push(mine);
+    return order;
+  },
+  /** Chooses the plugin to edit ('' for a new patch): the Editor opens again on the load
+   *  order with it last. The pool is kept (the journal is the same). */
+  async setActivePlugin(name){
+    try{ if(name) localStorage.setItem('wgEditorActive', name); else localStorage.removeItem('wgEditorActive'); }catch(_){ }
+    this._native=null; this._ownLinks=null;
+    await this.nativeLinks();
+    this._buildPath='';
+    await this.refreshPending();
+    if(this.bld && !this.bld.hidden) await this.showBuild();
+    toast(name? name+' is the plugin being edited: it is read last, and Build patch writes into it' : 'A new patch: the load order as it is','ok',4000);
+  },
+
   /** After the scene is drawn again: the selection follows its references to the new
    *  objects (or lets go of those no longer there), and stays lit. */
   reselect(){
@@ -121,7 +148,7 @@ Object.assign(WgEditor, {
       const setup=(extra.editor && Array.isArray(extra.editor.plugins))? Promise.resolve(extra.editor)
         : own? Engine.call('editor_setup',{}).then(t=>typeof t==='string'? JSON.parse(t) : t) : Promise.resolve(null);
       this._native=setup.then(ed=>(!ed || !Array.isArray(ed.plugins))? new Set()
-        : Engine.call('editor_open',{plugins:ed.plugins, journal:String(ed.journal||''), folders:ed.folders||[],
+        : Engine.call('editor_open',{plugins:this.withActiveLast(ed), journal:String(ed.journal||''), folders:ed.folders||[],
             last:String(ed.last||''), testSettings:String(ed.testSettings||'')})
           .then(t=>new Set(typeof t==='string'? JSON.parse(t) : t))
           .then(names=>{

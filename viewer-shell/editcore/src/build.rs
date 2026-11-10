@@ -849,6 +849,11 @@ pub struct Plan {
     pub ref_edits: Vec<RefEdit>,
     pub new_refs: Vec<NewRef>,
     pub new_records: Vec<NewRecord>,
+    /// For a plugin edited in place: the records the pool decides, `(record type, lower-case
+    /// key)`, that no other plugin of the load order has. One of them marked deleted is
+    /// taken out of the file (there is nothing left to delete); the others get their
+    /// DELETED record, as the Construction Set writes one.
+    pub only_own: HashSet<(String, String)>,
 }
 
 /// The patch's records (header first) and what was made of them; `say` hears each line
@@ -869,6 +874,68 @@ pub struct Kept<'a> {
     pub masters: &'a [String],
     /// One above the highest reference index of its own, over every cell it has.
     pub next_ref: i64,
+    /// Its own land textures, `(id, index)`: a landscape taken from another plugin is
+    /// numbered for these ([`renumber_land_textures`]).
+    pub land_textures: &'a [(String, i64)],
+}
+
+/// A landscape's texture numbers mean something only inside the plugin that wrote them (a
+/// `VTEX` value is one above the `index` of one of that plugin's own `LTEX` records). Each
+/// landscape of `records` named in `from` (its key, lower case, to the plugin its textures
+/// are that plugin's) is renumbered for the plugin being written: a texture it wears that
+/// the plugin has (by id: `have`, and the `LTEX` among `records`) takes that one's number;
+/// one it has not gets a copy of the source's `LTEX` record, numbered next, added to
+/// `records`. As merge_to_master's `remap_textures`. A number the source has no `LTEX` for
+/// is left as it is. How many landscapes were renumbered, and textures added.
+pub fn renumber_land_textures(records: &mut Vec<Value>, from: &HashMap<String, String>, sources: &Sources, have: &[(String, i64)]) -> Res<(usize, usize)> {
+    use tes3::esp::TES3Object;
+    let mut numbered: HashMap<String, i64> = have.iter().map(|(id, i)| (id.to_lowercase(), *i)).collect();
+    for r in records.iter().filter(|r| rtype(r) == "LandscapeTexture") {
+        numbered.insert(text(r.get("id")).to_lowercase(), r.get("index").and_then(Value::as_i64).unwrap_or(0));
+    }
+    let mut next = numbered.values().copied().max().map_or(0, |m| m + 1);
+    let (mut lands, mut added) = (0usize, Vec::new());
+    for record in records.iter_mut().filter(|r| rtype(r) == "Landscape") {
+        let Some(plugin) = from.get(&record_key(record).to_lowercase()) else { continue };
+        // The source's own textures, by number.
+        let theirs: HashMap<i64, &Value> = sources
+            .get(plugin)
+            .map(|rs| rs.iter().filter(|r| rtype(r) == "LandscapeTexture").map(|r| (r.get("index").and_then(Value::as_i64).unwrap_or(0), r)).collect())
+            .unwrap_or_default();
+        let Ok(TES3Object::Landscape(mut land)) = serde_json::from_value::<TES3Object>(record.clone()) else {
+            return fail(format!("the landscape {} does not read", record_key(record)));
+        };
+        let mut changed = false;
+        for v in land.texture_indices.data.iter_mut().flatten() {
+            if *v == 0 {
+                continue;
+            }
+            let Some(ltex) = theirs.get(&(i64::from(*v) - 1)) else { continue };
+            let id = text(ltex.get("id")).to_lowercase();
+            let at = match numbered.get(&id) {
+                Some(&i) => i,
+                None => {
+                    let mut copy = (*ltex).clone();
+                    copy["index"] = json!(next);
+                    added.push(copy);
+                    numbered.insert(id, next);
+                    next += 1;
+                    next - 1
+                }
+            };
+            let Ok(now) = u16::try_from(at + 1) else { return fail("more land textures than a landscape can number") };
+            changed |= *v != now;
+            *v = now;
+        }
+        if changed {
+            let as_json = serde_json::to_value(TES3Object::Landscape(land)).map_err(|e| BuildError(e.to_string()))?;
+            record["texture_indices"] = as_json["texture_indices"].clone();
+            lands += 1;
+        }
+    }
+    let textures = added.len();
+    records.extend(added);
+    Ok((lands, textures))
 }
 
 /// The records a build makes (no header) and what was made of them: [`build_record_patch`]'s
@@ -887,7 +954,7 @@ pub fn build_records(
         say(&t);
         lines.push(t);
     };
-    let Plan { selections, merges, carried, ref_edits, new_refs, new_records } = plan;
+    let Plan { selections, merges, carried, ref_edits, new_refs, new_records, .. } = plan;
     if selections.is_empty() && merges.is_empty() && carried.is_empty() && ref_edits.is_empty() && new_refs.is_empty() && new_records.is_empty() {
         return fail("nothing was selected, so there is no patch to build");
     }
@@ -951,6 +1018,29 @@ pub fn build_records(
         match topic {
             Some(t) if m.record_type == "DialogueInfo" => place_in(&mut records, m.record.clone(), &t),
             _ => records.push(m.record.clone()),
+        }
+    }
+    // A landscape taken from a plugin wears that plugin's texture numbers: renumbered for
+    // this one, the textures it has not brought along. One whose textures the pool typed
+    // (the Land view's brush) is numbered for the patch already.
+    let mut land_from: HashMap<String, String> = HashMap::new();
+    for sel in selections.iter().filter(|s| s.record_type == "Landscape") {
+        land_from.insert(sel.key.to_lowercase(), sel.plugin.clone());
+    }
+    for m in merges.iter().filter(|m| m.record_type == "Landscape") {
+        let source = m.choices.iter().rev().find(|c| c.path() == "texture_indices").map(|c| match c {
+            Choice::Plugin { plugin, .. } => Some(plugin.clone()),
+            Choice::Value { .. } => None,
+        });
+        if let Some(plugin) = source.unwrap_or_else(|| Some(m.base_plugin.clone())) {
+            land_from.insert(m.key.to_lowercase(), plugin);
+        }
+    }
+    land_from.retain(|_, plugin| own.is_empty() || !plugin.eq_ignore_ascii_case(own));
+    if !land_from.is_empty() {
+        let (lands, textures) = renumber_land_textures(&mut records, &land_from, sources, kept.map_or(&[][..], |k| k.land_textures))?;
+        if lands > 0 || textures > 0 {
+            say(format!("{lands} landscape(s) had their textures renumbered for this plugin, {textures} land texture(s) brought with them"), &mut lines);
         }
     }
     if !ref_edits.is_empty() {
@@ -1147,14 +1237,26 @@ impl Editor {
         } else {
             Vec::new()
         };
-        let plan = Plan {
+        let mut plan = Plan {
             selections: self.queue.selections().to_vec(),
             merges,
             carried,
             ref_edits: self.queue.ref_edits().cloned().collect(),
             new_refs: self.queue.new_refs().cloned().collect(),
             new_records: self.queue.new_records().cloned().collect(),
+            only_own: HashSet::new(),
         };
+        if in_place {
+            let own = target.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let decided = plan.selections.iter().map(|s| (s.record_type.clone(), s.key.clone())).chain(plan.merges.iter().map(|m| (m.record_type.clone(), m.key.clone())));
+            for (rtype, key) in decided {
+                let Some(tag) = crate::key::tag_of(&rtype) else { continue };
+                let low = key.to_lowercase();
+                if self.session.id_holders(tag, &low).iter().all(|n| n.to_lowercase() == own) {
+                    plan.only_own.insert((rtype, low));
+                }
+            }
+        }
         let mut wanted: BTreeSet<String> = plan.selections.iter().map(|s| s.plugin.clone()).collect();
         for m in &plan.merges {
             wanted.extend(m.plugins());

@@ -357,8 +357,13 @@ Object.assign(WgEditor, {
     const picks=[];
     if(info.last) picks.push(['The last patch', info.last]);
     for(const f of info.folders||[]) picks.push([f, f.replace(/[\\/]+$/,'')+(f.includes('\\')? '\\' : '/')+info.defaultName]);
+    // The plugin being edited (the active file), from the load order as the setup has it.
+    const plugs=this._edPlugins||[], active=this.activePlugin();
+    const activePath=(plugs.find(p=>String(p[0]).toLowerCase()===active.toLowerCase())||[])[1]||'';
     sec.push({key:'where', title:'Where it goes', html:
-      '<div class="edVec"><input class="fld" id="edBuildPath" spellcheck="false" placeholder="The patch file, folder and all" value="'+escHtml(this._buildPath||info.suggested||'')+'" title="The plugin the patch is written as. Load it last">'+
+      (plugs.length? '<div class="orirow"><span class="k" title="The plugin the Editor edits, as the Construction Set has an active file: it is read last, so a record is edited as this plugin has it, and Build patch writes the pool into it in place (a backup is kept). None: the pool makes a new patch">Edit a plugin</span><span class="v"><select class="fld" id="edBuildActive">'+
+        '<option value="">(none: a new patch)</option>'+plugs.map(p=>'<option value="'+escHtml(p[0])+'"'+(String(p[0]).toLowerCase()===active.toLowerCase()? ' selected' : '')+'>'+escHtml(p[0])+'</option>').join('')+'</select></span></div>' : '')+
+      '<div class="edVec"><input class="fld" id="edBuildPath" spellcheck="false" placeholder="The patch file, folder and all" value="'+escHtml(this._buildPath||activePath||info.suggested||'')+'" title="The plugin the patch is written as. Load it last">'+
       '<button class="btn sm" id="edBuildBrowse" title="Choose the file with the system\'s dialog">Browse…</button></div>'+
       (picks.length? '<div class="edChips">'+picks.slice(0,8).map(([label, path])=>
         '<button class="btn dim sm" data-bpath="'+escHtml(path)+'" title="'+escHtml(path)+'">'+escHtml(label.length>46? '…'+label.slice(-45) : label)+'</button>').join('')+'</div>' : '')+
@@ -375,6 +380,8 @@ Object.assign(WgEditor, {
     body.innerHTML=h;
     WgUI.wireSections(body);
     const path=body.querySelector('#edBuildPath');
+    const act=body.querySelector('#edBuildActive');
+    if(act) act.onchange=()=>this.setActivePlugin(act.value);
     const check=async()=>{
       this._buildPath=path.value.trim();
       const st=body.querySelector('#edBuildState'), mode=body.querySelector('#edBuildMode');
