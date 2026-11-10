@@ -80,6 +80,7 @@ pub fn loadorder_fields(s: &Map<String, Value>) -> Map<String, Value> {
         ("writeCfg", "write_cfg"),
         ("dryRun", "dry_run"),
         ("noBackup", "no_backup"),
+        ("plainMlox", "plain_mlox"),
     ] {
         if let Some(b) = flag(s, key) {
             out.insert(page.to_string(), Value::Bool(b));
@@ -187,6 +188,7 @@ fn kept(field: &str) -> Option<Kept> {
         "writeCfg" => Kept::Flag("write_cfg"),
         "dryRun" => Kept::Flag("dry_run"),
         "noBackup" => Kept::Flag("no_backup"),
+        "plainMlox" => Kept::Flag("plain_mlox"),
         _ => return None,
     })
 }

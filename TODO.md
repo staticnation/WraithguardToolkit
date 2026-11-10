@@ -35,15 +35,14 @@ read them. Left:
 
 ### 3. Sorting them: the mlox engine without MOMW: in (2026-11-10), to be tried
 
-In (`CHANGELOG.md` 5.0.4): on an MO2 or Morrowind.ini setup, Sort is plain mlox over the
-whole load order (`ordercore::plain`), and Export writes it, a dry run first if ticked, every
-file copied before. Left:
+In (`CHANGELOG.md` 5.0.4): on an MO2 or Morrowind.ini setup, or an `openmw.cfg` with "Plain
+mlox" ticked, Sort is plain mlox over the whole load order (`ordercore::plain`), and Export
+writes it (a box ticked off switched off), a dry run first if ticked, every file copied
+before; Restore dates puts a Morrowind.ini install's dates back. Left:
 
-- A plugin ticked off on the page is written in its place and stays loaded: switching it off
-  (MO2's `plugins.txt` `*`, the ini's list) is not done.
-- MO2 plugin dates are not set (MO2 orders by `loadorder.txt`); a Morrowind.ini install's
-  dates are, with the old ones kept in `Morrowind.ini.dates-<stamp>.json`. Nothing puts them
-  back yet: a "Restore dates" button reading that file.
+- Plain mlox on an `openmw.cfg` does not sort the `data=` lines, and writes the cfg only, not
+  the customizations TOML (MOMW's configurator, run again, puts its own order back).
+
 - Two plugins with one date: the sort moves the later one a minute on; untried on a real
   install.
 

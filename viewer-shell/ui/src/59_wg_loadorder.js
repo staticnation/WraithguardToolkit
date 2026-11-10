@@ -49,6 +49,7 @@ const WgLoadOrder={
     ['sortDataPaths','Sort data paths'], ['subsetFromCfg','Pull unmanaged entries from the cfg'],
     ['noPredicateWarnings','No rule warnings'], ['verbose','List every missing data path'],
     ['writeCfg','Write openmw.cfg'], ['dryRun','Dry run'], ['noBackup','No backup'],
+    ['plainMlox','Plain mlox: the whole load order by the rules, no MOMW list'],
   ],
 
   button(){
@@ -192,7 +193,7 @@ const WgLoadOrder={
   </div>
   <label class="f">Rules of your own</label>
   <div class="row"><button class="btn dim" id="loRuleOpen" title="Write an mlox rule - every kind the guidelines describe - checked as you write it, and add it to your rule file">Rule maker...</button></div>
-</div><div class="acts"><button class="btn" id="loSort">Sort</button><button class="btn" id="loExport" disabled>Export</button></div></div>
+</div><div class="acts"><button class="btn" id="loSort">Sort</button><button class="btn" id="loExport" disabled>Export</button><button class="btn dim" id="loRestore" hidden title="Put back the plugin dates the last Export set (the Morrowind.ini.dates-*.json it kept beside the Morrowind.ini)">Restore dates</button></div></div>
 <div class="orders">
   <div class="lo-col"><h3>content= <span class="sp"></span><input type="text" class="lo-q" id="loQcontent" placeholder="Find...  (Enter: next)" spellcheck="false" title="Lights the plugins whose name has this text. Enter goes to the next, Shift+Enter to the one before, Esc clears."><span class="qn" id="loQncontent"></span><span id="loCount"></span></h3><div class="lo-scroll"><ol id="loContent"><li class="empty">Sort to see the order.</li></ol></div></div>
   <div class="lo-col"><h3>data= <span class="sp"></span><input type="text" class="lo-q" id="loQdata" placeholder="Find...  (Enter: next)" spellcheck="false" title="Lights the data folders whose line has this text. Enter goes to the next, Shift+Enter to the one before, Esc clears."><span class="qn" id="loQndata"></span></h3><div class="lo-scroll"><ol id="loData"></ol></div></div>
@@ -224,8 +225,10 @@ const WgLoadOrder={
     // setup copy, which must not be sorted and exported over)
     if(!this.val('cfg') && view.cfg && !(view.extra||{}).loadorderCfg) $('#lo_cfg').value=view.cfg;
     for(const [k] of this.FLAGS) $('#lo_'+k).checked = !!v[k];
-    el.addEventListener('change', ()=>this.save());
-    el.addEventListener('input', ()=>this.save());
+    el.addEventListener('change', ()=>{ this.save(); this.plainShow(); });
+    el.addEventListener('input', ()=>{ this.save(); this.plainShow(); });
+    $('#loRestore').onclick=()=>this.restoreDates();
+    this.plainShow();
     for(const b of el.querySelectorAll('[data-pick]')) b.onclick=()=>this.browse(b.dataset.pick, b.dataset.kind);
     $('#loSort').onclick=()=>this.sort();
     $('#loExport').onclick=()=>this.exportPlan();
@@ -286,14 +289,33 @@ const WgLoadOrder={
 
   /** Whether the setup is an MO2 profile or a Morrowind.ini install: no MOMW list, sorted by
    *  the mlox rules alone (`loadorder_plain_sort`, TODO.md Next 3). */
-  plainSetup(){
+  kind(){
     const cfg=this.val('cfg');
-    return !!cfg && typeof setupSpec==='function' && setupSpec(cfg).kind!=='openmw';
+    return !cfg? '' : typeof setupSpec==='function'? setupSpec(cfg).kind : 'openmw';
+  },
+  plainSetup(){
+    const k=this.kind();
+    return !!k && (k!=='openmw' || this.flag('plainMlox'));
+  },
+  /** Restore dates shows for the game's own install, where Export sets the plugins' dates. */
+  plainShow(){
+    const b=$('#loRestore'); if(b) b.hidden=this.kind()!=='vanilla';
+  },
+
+  async restoreDates(){
+    const dryRun=this.flag('dryRun');
+    if(!dryRun && !(await wgConfirm('Put back the plugin dates the last Export set?'))) return;
+    try{
+      const got=await Engine.call('loadorder_plain_restore_dates',{cfg:this.val('cfg'), dryRun});
+      this.report=this.report.concat([{kind:'subsection', text:dryRun? 'Restore dates (dry run: nothing set)' : 'Restore dates'}], got.lines.map(t=>({kind:'line', text:t})));
+      this.showText=true; $('#loText').checked=true; this.drawWarnings();
+      toast(got.lines[0]||'Done', dryRun?'warn':'ok', 5000);
+    }catch(e){ toast(String(e.message||e),'err',6000); }
   },
 
   async sortPlain(){
     const got=await Engine.call('loadorder_plain_sort',{cfg:this.val('cfg'), rules:this.lines('rules')});
-    const where=got.kind==='mo2'? 'the MO2 profile' : 'Morrowind.ini';
+    const where=got.kind==='mo2'? 'the MO2 profile' : got.kind==='openmw'? 'openmw.cfg' : 'Morrowind.ini';
     const items=[{kind:'section', text:'Sorted by the mlox rules ('+where+'; no MOMW list): '+got.moved.length+' of '+got.order.length+' plugin(s) move'}];
     for(const m of got.moved) items.push({kind:'line', text:m.name+': '+m.from+' -> '+m.to, names:[m.name]});
     if(got.conflicts.length){
@@ -617,21 +639,23 @@ const WgLoadOrder={
     else toast(name+' is not in the orders','warn',2500);
   },
 
-  /** Export for an MO2 or Morrowind.ini install: the order as the panel has it, written into
-   *  the install (`loadorder_plain_write`): [Game Files], an MO2 profile's loadorder.txt and
-   *  plugins.txt, a Morrowind.ini install's plugin dates; each file copied first. Every plugin
-   *  stays loaded: a box ticked off is not written as off (MO2 or the game's launcher does that). */
+  /** Export of a plain sort: the order as the panel has it, written into the install
+   *  (`loadorder_plain_write`): an openmw.cfg's content= lines (a box ticked off: #content=;
+   *  only with Write openmw.cfg ticked, the customizations TOML left alone), or [Game Files],
+   *  an MO2 profile's loadorder.txt and plugins.txt (a box ticked off: switched off there), a
+   *  Morrowind.ini install's plugin dates; each file copied first. */
   async exportPlain(){
     const btn=$('#loExport'); btn.disabled=true;
     try{
-      const dryRun=this.flag('dryRun');
-      const off=this.content.filter(r=>!r.on).length;
-      const got=await Engine.call('loadorder_plain_write',{cfg:this.val('cfg'), order:this.content.map(r=>r.name), dryRun, stamp:this.stamp()});
+      const cfgNot=this.plan.plain==='openmw' && !this.flag('writeCfg');
+      const dryRun=this.flag('dryRun') || cfgNot;
+      const got=await Engine.call('loadorder_plain_write',{cfg:this.val('cfg'), order:this.content.map(r=>r.name),
+        off:this.content.filter(r=>!r.on).map(r=>r.name), dryRun, stamp:this.stamp()});
       this.report=this.report.concat([{kind:'subsection', text:dryRun? 'Export (dry run: nothing written)' : 'Export'}], got.lines.map(t=>({kind:'line', text:t})));
-      if(off) this.report.push({kind:'line', text:off+' plugin(s) ticked off are written in their place and stay loaded: switch them off in '+(this.plan.plain==='mo2'? 'MO2' : 'the launcher'), warning:'orphan'});
       this.showText=true; $('#loText').checked=true;
       this.drawWarnings();
-      toast(dryRun? 'Dry run: nothing written (see the run\'s text)' : 'Written: '+got.lines.length+' file(s) or step(s)', dryRun?'warn':'ok', 5000);
+      const why=cfgNot? 'tick Write openmw.cfg to write it' : 'Dry run is ticked';
+      toast(dryRun? 'Nothing written ('+why+'): see the run\'s text' : 'Written: '+got.lines.length+' file(s) or step(s)', dryRun?'warn':'ok', 6000);
     }catch(e){ toast(String(e.message||e),'err',6000); }
     finally{ btn.disabled=false; }
   },

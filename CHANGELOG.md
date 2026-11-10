@@ -21,7 +21,15 @@
   the plugins' dates, which the game loads by: a date moves only when it is not later than
   the one before it, masters and plugins apart. Every file is copied first
   (`name.bak-<stamp>`), the dates set are kept in `Morrowind.ini.dates-<stamp>.json`, and Dry
-  run says what would be written.
+  run says what would be written. A plugin ticked off is switched off: out of `[Game Files]`,
+  its `*` taken off in `plugins.txt` (or its line, where the file lists only the plugins on).
+  Restore dates (a game install) puts back the dates the last Export set.
+- **Plain mlox for an `openmw.cfg` too: the Load order page's "Plain mlox" box.** Sort runs
+  the mlox rules over the cfg's whole `content=` list with no MOMW list, `plugin-order.yml`
+  or customizations TOML; Export (with Write openmw.cfg ticked) puts the `content=` lines in
+  that order where they were, a plugin ticked off written `#content=`, the cfg copied first.
+  The cfg written is the one of those read that holds the `content=` lines; content in two
+  chained cfgs is refused.
 - **A plugin edited in place.** Build patch can write the pool into one of the load order's
   own plugins, as the Construction Set saves its active file: choose the plugin as where
   the patch goes, and "Edit it in place" is offered (and chosen) beside Append and Replace.

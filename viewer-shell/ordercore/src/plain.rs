@@ -9,7 +9,7 @@
 //! profile's `loadorder.txt` and `plugins.txt` and its Morrowind.ini. Every file is copied
 //! first (`name.bak-<stamp>`), the dates set kept to put back (`Morrowind.ini.dates-<stamp>.json`).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -150,44 +150,49 @@ fn backup(path: &Path, stamp: &str) -> Result<PathBuf, String> {
 /// What [`write`] did, in lines (or would do, on a dry run).
 pub type Written = Vec<String>;
 
-/// Writes `order` into the install: its Morrowind.ini's `[Game Files]` (`ini`), the plugins'
-/// dates (`find` says where each is; a Morrowind.ini install: the game loads by date), and for
-/// an MO2 profile (`mo2_profile`, its folder) `loadorder.txt` and `plugins.txt` as well - in
-/// MO2 the dates are its own business, and are not set. `dry`: nothing written, the lines say
-/// what would be. `stamp` names the backups.
+/// One file written (or not): the same text says so, `dry` says what would be, else the file
+/// is copied first and written. `what` names the change in the line said.
+fn put(path: &Path, was: &str, now: &str, what: &str, dry: bool, stamp: &str, said: &mut Written) -> Result<(), String> {
+    let name = path.display();
+    if now == was {
+        said.push(format!("{name}: {what} already as sorted"));
+    } else if dry {
+        said.push(format!("{name}: {what} would be written"));
+    } else {
+        let b = backup(path, stamp)?;
+        std::fs::write(path, unlatin1(now)).map_err(|e| format!("{name} could not be written: {e}"))?;
+        said.push(format!("{name}: {what} written; as it was: {}", b.display()));
+    }
+    Ok(())
+}
+
+fn lowered(off: &[String]) -> HashSet<String> {
+    off.iter().map(|n| n.to_lowercase()).collect()
+}
+
+/// Writes `order` into the install: its Morrowind.ini's `[Game Files]` (`ini`; the plugins of
+/// `off` left out: the game loads what it lists), the plugins' dates (`find` says where each
+/// is; a Morrowind.ini install: the game loads by date), and for an MO2 profile
+/// (`mo2_profile`, its folder) `loadorder.txt` and `plugins.txt` as well (`off` switched off
+/// there) - in MO2 the dates are its own business, and are not set. `dry`: nothing written,
+/// the lines say what would be. `stamp` names the backups.
 ///
 /// # Errors
 /// A file that cannot be read or written: what was written before it stays, and is said.
-pub fn write(ini: &Path, order: &[String], mo2_profile: Option<&Path>, find: &dyn Fn(&str) -> Option<PathBuf>, dry: bool, stamp: &str) -> Result<Written, String> {
+pub fn write(ini: &Path, order: &[String], off: &[String], mo2_profile: Option<&Path>, find: &dyn Fn(&str) -> Option<PathBuf>, dry: bool, stamp: &str) -> Result<Written, String> {
     let mut said: Written = Vec::new();
+    let offs = lowered(off);
+    let on: Vec<String> = order.iter().filter(|n| !offs.contains(&n.to_lowercase())).cloned().collect();
     let text = latin1(&std::fs::read(ini).map_err(|e| format!("{} could not be read: {e}", ini.display()))?);
-    let new_ini = ini_with_order(&text, order);
-    let ini_name = ini.display();
-    if new_ini == text {
-        said.push(format!("{ini_name}: [Game Files] already in this order"));
-    } else if dry {
-        said.push(format!("{ini_name}: [Game Files] would be written ({} plugins)", order.len()));
-    } else {
-        let b = backup(ini, stamp)?;
-        std::fs::write(ini, unlatin1(&new_ini)).map_err(|e| format!("{ini_name} could not be written: {e}"))?;
-        said.push(format!("{ini_name}: [Game Files] written ({} plugins); as it was: {}", order.len(), b.display()));
-    }
+    put(ini, &text, &ini_with_order(&text, &on), &format!("[Game Files] ({} plugins on)", on.len()), dry, stamp, &mut said)?;
     match mo2_profile {
         Some(dir) => {
-            for (file, star) in [("loadorder.txt", false), ("plugins.txt", true)] {
+            for file in ["loadorder.txt", "plugins.txt"] {
                 let p = dir.join(file);
                 let Ok(bytes) = std::fs::read(&p) else { continue };
                 let was = latin1(&bytes);
-                let now = list_with_order(&was, order, star);
-                if now == was {
-                    said.push(format!("{}: already in this order", p.display()));
-                } else if dry {
-                    said.push(format!("{}: would be written", p.display()));
-                } else {
-                    let b = backup(&p, stamp)?;
-                    std::fs::write(&p, unlatin1(&now)).map_err(|e| format!("{} could not be written: {e}", p.display()))?;
-                    said.push(format!("{}: written; as it was: {}", p.display(), b.display()));
-                }
+                let now = if file == "plugins.txt" { plugins_txt_with_order(&was, order, &offs) } else { list_with_order(&was, order) };
+                put(&p, &was, &now, "the order", dry, stamp, &mut said)?;
             }
         }
         None => {
@@ -199,7 +204,7 @@ pub fn write(ini: &Path, order: &[String], mo2_profile: Option<&Path>, find: &dy
                 said.push(format!("{} plugin date(s) would be set: {}", changes.len(), changes.iter().take(8).map(|c| c.0.as_str()).collect::<Vec<_>>().join(", ")));
             } else {
                 // The dates as they were, kept first, to put back.
-                let keep = ini.with_file_name(format!("Morrowind.ini.dates-{stamp}.json"));
+                let keep = ini.with_file_name(format!("{DATES}{stamp}.json"));
                 let doc: Vec<serde_json::Value> = changes
                     .iter()
                     .filter_map(|(n, was, _)| Some(serde_json::json!({"plugin": n, "path": find(n)?.to_string_lossy(), "modified": secs(*was)})))
@@ -208,8 +213,7 @@ pub fn write(ini: &Path, order: &[String], mo2_profile: Option<&Path>, find: &dy
                 let mut set = 0;
                 for (n, _, want) in &changes {
                     let Some(p) = find(n) else { continue };
-                    let f = std::fs::File::options().write(true).open(&p).map_err(|e| format!("{} could not be opened to date it ({e}); {set} set before it", p.display()))?;
-                    f.set_modified(*want).map_err(|e| format!("{} could not be dated ({e}); {set} set before it", p.display()))?;
+                    set_date(&p, *want).map_err(|e| format!("{e}; {set} set before it"))?;
                     set += 1;
                 }
                 said.push(format!("{set} plugin date(s) set so the game loads them in this order; as they were: {}", keep.display()));
@@ -219,27 +223,165 @@ pub fn write(ini: &Path, order: &[String], mo2_profile: Option<&Path>, find: &dy
     Ok(said)
 }
 
-/// An MO2 `loadorder.txt` or `plugins.txt` with the plugins of `order` in that order, each in
-/// one of the places the file had a plugin of `order` in: what else it lists (a plugin not
-/// loaded, a comment) stays where it was, and a line keeps its `*` (plugins.txt: on).
-pub fn list_with_order(text: &str, order: &[String], starred: bool) -> String {
-    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    let wanted: HashMap<String, usize> = order.iter().enumerate().map(|(i, n)| (n.to_lowercase(), i)).collect();
-    let name = |l: &str| l.trim().trim_start_matches('*').trim().to_string();
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
-    // The lines that name a plugin of the order, and those plugins in the new order.
-    let slots: Vec<usize> = (0..lines.len()).filter(|&i| !lines[i].trim_start().starts_with('#') && wanted.contains_key(&name(&lines[i]).to_lowercase())).collect();
-    let mut taken: Vec<&String> = slots.iter().map(|&i| &lines[i]).collect();
-    taken.sort_by_key(|l| wanted[&name(l).to_lowercase()]);
-    let mut out = lines.clone();
-    for (slot, line) in slots.iter().zip(taken) {
-        out[*slot] = if starred { line.clone() } else { name(line) };
+/// What the dates kept before a write are named, beside the Morrowind.ini: this and the stamp.
+const DATES: &str = "Morrowind.ini.dates-";
+
+fn set_date(p: &Path, t: SystemTime) -> Result<(), String> {
+    let f = std::fs::File::options().write(true).open(p).map_err(|e| format!("{} could not be opened to date it ({e})", p.display()))?;
+    f.set_modified(t).map_err(|e| format!("{} could not be dated ({e})", p.display()))
+}
+
+/// Puts back the plugin dates the last write set (the newest `Morrowind.ini.dates-<stamp>.json`
+/// beside `ini`), and renames that file `.restored` so the one before it is next. `dry`:
+/// nothing set, the lines say what would be.
+///
+/// # Errors
+/// No dates kept, a file that does not read, or a plugin that cannot be dated (those before it are).
+pub fn restore_dates(ini: &Path, dry: bool) -> Result<Written, String> {
+    let dir = ini.parent().ok_or("the Morrowind.ini has no folder")?;
+    let newest = std::fs::read_dir(dir)
+        .map_err(|e| format!("{} could not be read: {e}", dir.display()))?
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            n.starts_with(DATES) && n.ends_with(".json")
+        })
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .max_by_key(|(t, _)| *t)
+        .map(|(_, p)| p)
+        .ok_or_else(|| format!("no dates kept beside {}: Export has not set any", ini.display()))?;
+    let doc: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(&newest).map_err(|e| format!("{} could not be read: {e}", newest.display()))?)
+        .map_err(|e| format!("{} does not read: {e}", newest.display()))?;
+    let mut said = Vec::new();
+    let mut set = 0;
+    let mut gone = Vec::new();
+    for d in &doc {
+        let (Some(path), Some(at)) = (d.get("path").and_then(|v| v.as_str()), d.get("modified").and_then(serde_json::Value::as_f64)) else { continue };
+        let p = Path::new(path);
+        if !p.is_file() {
+            gone.push(path.to_string());
+            continue;
+        }
+        if !dry {
+            set_date(p, SystemTime::UNIX_EPOCH + Duration::from_secs_f64(at.max(0.0))).map_err(|e| format!("{e}; {set} put back before it"))?;
+        }
+        set += 1;
     }
-    let mut s = out.join(nl);
+    if dry {
+        said.push(format!("{set} plugin date(s) would be put back from {}", newest.display()));
+    } else {
+        let done = newest.with_extension("json.restored");
+        let _ = std::fs::rename(&newest, &done);
+        said.push(format!("{set} plugin date(s) put back from {} (now {})", newest.display(), done.display()));
+    }
+    if !gone.is_empty() {
+        said.push(format!("{} plugin(s) no longer there: {}", gone.len(), gone.join(", ")));
+    }
+    Ok(said)
+}
+
+/// The lines of `text` that name a plugin of `order` (by `name`, `None` for a line naming none),
+/// given the plugins of `order` in its order, one to a place: `(line index, plugin)`.
+fn slots(lines: &[String], order: &[String], name: &dyn Fn(&str) -> Option<String>) -> Vec<(usize, String)> {
+    let wanted: HashMap<String, usize> = order.iter().enumerate().map(|(i, n)| (n.to_lowercase(), i)).collect();
+    let at: Vec<usize> = (0..lines.len()).filter(|&i| name(&lines[i]).is_some_and(|n| wanted.contains_key(&n.to_lowercase()))).collect();
+    let mut names: Vec<String> = at.iter().filter_map(|&i| name(&lines[i])).collect();
+    names.sort_by_key(|n| wanted[&n.to_lowercase()]);
+    at.into_iter().zip(names).collect()
+}
+
+fn join(lines: &[String], text: &str) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut s = lines.join(nl);
     if text.ends_with('\n') {
         s.push_str(nl);
     }
     s
+}
+
+fn mo2_name(l: &str) -> Option<String> {
+    let t = l.trim();
+    (!t.is_empty() && !t.starts_with('#')).then(|| t.trim_start_matches('*').trim().to_string())
+}
+
+/// An MO2 `loadorder.txt` with the plugins of `order` in that order, each in one of the places
+/// the file had a plugin of `order` in: what else it lists (a plugin not loaded, a comment)
+/// stays where it was.
+pub fn list_with_order(text: &str, order: &[String]) -> String {
+    let mut out: Vec<String> = text.lines().map(str::to_string).collect();
+    for (i, n) in slots(&out.clone(), order, &mo2_name) {
+        out[i] = n;
+    }
+    join(&out, text)
+}
+
+/// An MO2 `plugins.txt` the same way, the plugins of `off` switched off: where the file marks
+/// the ones on with `*`, an off one loses its `*` (and one on gets it); where it lists only the
+/// ones on (Morrowind's own form), an off one's line goes.
+pub fn plugins_txt_with_order(text: &str, order: &[String], off: &HashSet<String>) -> String {
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let starred = lines.iter().any(|l| l.trim_start().starts_with('*'));
+    let mut out: Vec<Option<String>> = lines.iter().cloned().map(Some).collect();
+    for (i, n) in slots(&lines, order, &mo2_name) {
+        let is_off = off.contains(&n.to_lowercase());
+        out[i] = match (starred, is_off) {
+            (true, false) => Some(format!("*{n}")),
+            (true, true) => Some(n),
+            (false, false) => Some(n),
+            (false, true) => None,
+        };
+    }
+    join(&out.into_iter().flatten().collect::<Vec<_>>(), text)
+}
+
+fn cfg_content(l: &str) -> Option<String> {
+    let (k, v) = l.trim().split_once('=')?;
+    (k.trim() == "content").then(|| v.trim().to_string()).filter(|v| !v.is_empty())
+}
+
+/// An `openmw.cfg`'s text with its `content=` lines in the order of `order`, each in one of
+/// the places the file had one; one of `off` written `#content=` (OpenMW passes over a `#`
+/// line, and the next sort leaves it where it is). Every other line as it was.
+pub fn cfg_with_order(text: &str, order: &[String], off: &HashSet<String>) -> String {
+    let mut out: Vec<String> = text.lines().map(str::to_string).collect();
+    for (i, n) in slots(&out.clone(), order, &cfg_content) {
+        out[i] = if off.contains(&n.to_lowercase()) { format!("#content={n}") } else { format!("content={n}") };
+    }
+    join(&out, text)
+}
+
+/// Writes `order` into an `openmw.cfg` (the one of the cfgs read that holds the `content=`
+/// lines, `cfg`): its `content=` lines, `off` written as `#content=`; the file copied first.
+/// The customizations TOML is not written: MOMW's configurator, run again, would put its
+/// own order back.
+///
+/// # Errors
+/// The cfg cannot be read, copied or written.
+pub fn write_cfg(cfg: &Path, order: &[String], off: &[String], dry: bool, stamp: &str) -> Result<Written, String> {
+    let text = latin1(&std::fs::read(cfg).map_err(|e| format!("{} could not be read: {e}", cfg.display()))?);
+    let offs = lowered(off);
+    let mut said = Vec::new();
+    let what = format!("content= ({} on, {} off)", order.len() - order.iter().filter(|n| offs.contains(&n.to_lowercase())).count(), off.len());
+    put(cfg, &text, &cfg_with_order(&text, order, &offs), &what, dry, stamp, &mut said)?;
+    Ok(said)
+}
+
+/// Which of `files` (the cfgs read) holds the `content=` lines: the one to write.
+/// An error when none does, or more than one (which file takes which line is OpenMW's to say).
+pub fn cfg_holding_content(files: &[PathBuf]) -> Result<PathBuf, String> {
+    let holding: Vec<&PathBuf> = files
+        .iter()
+        .filter(|f| std::fs::read(f).is_ok_and(|b| latin1(&b).lines().any(|l| cfg_content(l).is_some())))
+        .collect();
+    match holding.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err("no cfg read has content= lines".into()),
+        many => Err(format!(
+            "content= lines are in {} cfgs ({}): move them into one to write the order",
+            many.len(),
+            many.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -267,8 +409,21 @@ mod tests {
     fn an_mo2_list_keeps_what_it_does_not_order() {
         let txt = "# This file was automatically generated by Mod Organizer.\r\n*Morrowind.esm\r\n*B.esp\r\nOff.esp\r\n*A.esp\r\n";
         let order: Vec<String> = ["Morrowind.esm", "A.esp", "B.esp"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(list_with_order(txt, &order, true), "# This file was automatically generated by Mod Organizer.\r\n*Morrowind.esm\r\n*A.esp\r\nOff.esp\r\n*B.esp\r\n");
-        assert_eq!(list_with_order("Morrowind.esm\nB.esp\nA.esp\n", &order, false), "Morrowind.esm\nA.esp\nB.esp\n");
+        let none = HashSet::new();
+        assert_eq!(plugins_txt_with_order(txt, &order, &none), "# This file was automatically generated by Mod Organizer.\r\n*Morrowind.esm\r\n*A.esp\r\nOff.esp\r\n*B.esp\r\n");
+        assert_eq!(list_with_order("Morrowind.esm\nB.esp\nA.esp\n", &order), "Morrowind.esm\nA.esp\nB.esp\n");
+        // Switched off: the `*` goes; in Morrowind's own form (only the ones on) the line goes.
+        let b: HashSet<String> = ["b.esp".to_string()].into();
+        assert_eq!(plugins_txt_with_order(txt, &order, &b), "# This file was automatically generated by Mod Organizer.\r\n*Morrowind.esm\r\n*A.esp\r\nOff.esp\r\nB.esp\r\n");
+        assert_eq!(plugins_txt_with_order("Morrowind.esm\nB.esp\nA.esp\n", &order, &b), "Morrowind.esm\nA.esp\n");
+    }
+
+    #[test]
+    fn an_openmw_cfg_gets_its_content_lines_in_order() {
+        let cfg = "data=\"D\"\ncontent=Morrowind.esm\ncontent=B.esp\n# a note\ncontent = A.esp\nfallback-archive=Morrowind.bsa\n";
+        let order: Vec<String> = ["Morrowind.esm", "A.esp", "B.esp"].iter().map(|s| s.to_string()).collect();
+        let b: HashSet<String> = ["b.esp".to_string()].into();
+        assert_eq!(cfg_with_order(cfg, &order, &b), "data=\"D\"\ncontent=Morrowind.esm\ncontent=A.esp\n# a note\n#content=B.esp\nfallback-archive=Morrowind.bsa\n");
     }
 
     #[test]
@@ -293,14 +448,22 @@ mod tests {
         for (n, at) in [("Morrowind.esm", 100), ("A.esp", 200), ("B.esp", 300)] {
             std::fs::File::options().write(true).open(data.join(n)).unwrap().set_modified(t(at)).unwrap();
         }
-        let dry = write(&ini, &got.order, None, &find, true, "s1").unwrap();
+        let dry = write(&ini, &got.order, &[], None, &find, true, "s1").unwrap();
         assert!(dry.iter().any(|l| l.contains("would be written")));
         assert!(std::fs::read_to_string(&ini).unwrap().contains("GameFile1=A.esp"));
-        write(&ini, &got.order, None, &find, false, "s1").unwrap();
+        write(&ini, &got.order, &[], None, &find, false, "s1").unwrap();
         assert!(std::fs::read_to_string(&ini).unwrap().contains("GameFile1=B.esp\r\nGameFile2=A.esp\r\n"));
         assert!(d.join("Morrowind.ini.bak-s1").is_file() && d.join("Morrowind.ini.dates-s1.json").is_file());
         let m = |n: &str| std::fs::metadata(data.join(n)).unwrap().modified().unwrap();
         assert!(m("B.esp") < m("A.esp"));
+        // Put back: the dates before the write, the kept file set aside.
+        assert!(restore_dates(&ini, true).unwrap()[0].contains("1 plugin date(s) would be put back"));
+        restore_dates(&ini, false).unwrap();
+        assert_eq!(m("B.esp"), t(300));
+        assert!(!d.join("Morrowind.ini.dates-s1.json").exists() && restore_dates(&ini, false).is_err());
+        // Switched off: out of [Game Files].
+        write(&ini, &got.order, &["A.esp".into()], None, &find, false, "s2").unwrap();
+        assert!(!std::fs::read_to_string(&ini).unwrap().contains("A.esp"));
         let _ = std::fs::remove_dir_all(&d);
     }
 }

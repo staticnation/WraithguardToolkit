@@ -4119,6 +4119,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             loadorder_export,
             loadorder_plain_sort,
             loadorder_plain_write,
+            loadorder_plain_restore_dates,
             loadorder_rule_ages,
             settings_seed,
             settings_write,
