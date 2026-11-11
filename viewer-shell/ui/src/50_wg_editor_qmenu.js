@@ -260,14 +260,8 @@ Object.assign(WgEditor, {
   async groupAction(a, group){
     const last=group[group.length-1], rest=group.slice(0, -1);
     const rnd=(lo, hi)=>lo+Math.random()*(hi-lo);
-    const each=async(fn)=>{
-      let ok=true;
-      for(const g of a==='pos'||a==='rot'||a==='scl'? rest : group){
-        const c=fn(g);
-        if(c && c.length && await this.sendRef(g.ref, c)===false) ok=false;
-      }
-      return ok;
-    };
+    // Every reference's change in one step (sendRefs), as a group's drag sends it.
+    const each=async(fn)=>this.sendRefs((a==='pos'||a==='rot'||a==='scl'? rest : group).map(g=>[g.ref, fn(g)]));
     if(a==='clear') return this.clearGroup();
     if(a==='transform') return this.showTransform();
     if(a==='prefab') return WgFlow.keepPrefab();
@@ -377,9 +371,13 @@ Object.assign(WgEditor, {
     }
     const changes=[];
     for(const [ref, c] of list) for(const [path, value] of c) changes.push(Object.assign(this.refBody(ref), {path, value}));
-    let ok=true;
-    try{ await this.ask('editRefsSet', {changes}); }
+    let ok=true, r=null;
+    try{ r=await this.ask('editRefsSet', {changes}); }
     catch(e){ ok=false; toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); }
+    // A new reference moved into the next exterior cell now belongs to that one (`cells`:
+    // each new one's cell after the step, [[uid, cell]]).
+    const cells=new Map(((r && r.cells)||[]).map(([uid, cell])=>[uid, cell]));
+    for(const [ref] of list) if(ref.uid && cells.has(ref.uid)) ref.cell=cells.get(ref.uid);
     await this.refreshPending();
     return ok;
   },

@@ -140,6 +140,16 @@
 
 ### Changed
 
+- **A group of objects dragged, or changed from the group menu, is one step.** Each object was
+  sent by itself, the pending list read and the scene drawn again after each: a box of about
+  600 objects dragged took some four minutes (gonzo, 2026-11-10). Now they go together
+  (`editRefsSet`, 600 references in about 0.3 s), and Ctrl+Z takes the whole move back. A
+  new reference moved over a cell's edge is told its new cell in the answer (`cells`).
+- **The Editor reads and writes plugins in the install's code page.** OpenMW's `encoding=`
+  (win1250, win1251, win1252), or the edition the game's own Morrowind.ini is in: a Russian
+  or Polish plugin's names show as its game shows them, and a name typed in Cyrillic is
+  written as the Russian game reads it. Through `Plugin::*_with_encoding` in our tes3 fork
+  (Greatness7/tes3#6); every byte of a plugin still goes back as it was read.
 - **Merge Lands' slope limiter goes over a cell again only when it changed.** A cell left
   as it was does what it did the pass before (nothing moved, the same steps refused), so its
   counts are taken again instead: the same terrain and report, pass for pass. Before, all 24

@@ -5176,7 +5176,8 @@
       "error": "'big' is not a number"
      },
      {
-      "changed": 2
+      "changed": 2,
+      "cells": []
      },
      {
       "cell": "Vault",
@@ -6544,7 +6545,13 @@
       ]
      },
      {
-      "changed": 2
+      "changed": 2,
+      "cells": [
+       [
+        "U2",
+        "(1, 1)"
+       ]
+      ]
      },
      {
       "error": "scale is 0.5 to 2.0"

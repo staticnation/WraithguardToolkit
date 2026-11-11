@@ -143,11 +143,10 @@ Object.assign(WgEditor, {
       end:async()=>{
         R.setStaticHighlight(items.map(it=>it.g.hit));
         if(!moved) return;
-        for(const it of items){
-          const w=it.g.hit.wpos;
-          await this.sendRef(it.g.ref, [['translation', [w[0]+d[0], w[1]+d[1], w[2]+d[2]]]]);
-        }
-        toast(items.length+' moved','ok',1500);
+        // One step for the whole group (`editRefsSet`): one at a time, each followed by the
+        // pending list and the scene built again, 600 objects took minutes (gonzo, 2026-11-10).
+        const ok=await this.sendRefs(items.map(it=>{ const w=it.g.hit.wpos; return [it.g.ref, [['translation', [w[0]+d[0], w[1]+d[1], w[2]+d[2]]]]]; }));
+        if(ok!==false) toast(items.length+' moved','ok',1500);
       },
       cancel:()=>R.setStaticHighlight(items.map(it=>it.g.hit)),
       state:{group:true},

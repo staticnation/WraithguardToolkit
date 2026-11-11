@@ -71,6 +71,20 @@ module.exports = async (t) => {
   const refs = p.posts.find(x => x[0] === 'refs');
   t.ok(refs && refs[1].changes.length === 4 && !p.posts.some(x => x[0] === 'ref1'), 'one step for all of them');
 
+  // A group action and a group dragged: one step too, not one per object (gonzo, 2026-11-10:
+  // a box of ~600 dragged took minutes, each object sent, then the pending list read).
+  const steps = () => p.posts.filter(x => x[0] === 'refs');
+  const n0 = steps().length;
+  await E.groupAction('rot0', group);
+  t.ok(steps().length === n0 + 1 && steps().pop()[1].changes.length === 2 && !p.posts.some(x => x[0] === 'ref1'), 'a group action: one step');
+  w.App.R.rayAt = (x, y) => ({ eye: [x, y, 1000], dir: [0, 0, -1] });
+  const drag = E.grabGroup({ clientX: 0, clientY: 0 }, group);
+  drag.move({ clientX: 10, clientY: 0 });
+  await drag.end();
+  const all = steps(), moved = all[all.length - 1][1].changes;
+  t.ok(all.length === n0 + 2 && moved.length === 2 && moved.every(c => c.path === 'translation') && moved[1].value[0] === 110 && !p.posts.some(x => x[0] === 'ref1'),
+    'a group dragged: one step, each moved by the same: ' + JSON.stringify(moved));
+
   // Selection sets, isolate, hide.
   w.App.R.pickables = group.map(g => g.hit);
   w.App.R.cam = { tx: 0, ty: 0, tz: 0 };

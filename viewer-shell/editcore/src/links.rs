@@ -968,6 +968,14 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
                 steps.push((target, path.to_string(), item.get("value").cloned().unwrap_or(Value::Null)));
             }
             let n = steps.len();
+            let mut news: Vec<String> = Vec::new();
+            for (t, _, _) in &steps {
+                if let Target::New(new) = t
+                    && !news.contains(&new.uid)
+                {
+                    news.push(new.uid.clone());
+                }
+            }
             edit(ed.batch(|ed| {
                 for (target, path, value) in &steps {
                     match target {
@@ -981,7 +989,10 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
                 }
                 Ok(())
             }))?;
-            Json(json!({"changed": n}))
+            // Each new reference's cell after the step, `[[uid, cell]]`: one moved over a cell's
+            // edge belongs to the next cell now, and the page names it by its cell.
+            let cells: Vec<Value> = news.iter().filter_map(|uid| ed.find_new(uid).map(|n| json!([uid, n.cell]))).collect();
+            Json(json!({"changed": n, "cells": cells}))
         }
         "editPlace" => {
             let place = body_of(body)?;
