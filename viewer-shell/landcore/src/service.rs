@@ -581,15 +581,22 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     }
     let mut objects: Vec<TES3Object> = texture_records.into_iter().map(TES3Object::LandscapeTexture).collect();
     objects.extend(lands.into_iter().map(TES3Object::Landscape));
+    let encoding = std::time::Instant::now();
     let bytes = match plugin_bytes(objects, &masters_sized) {
         Ok(b) => b,
         Err(e) => fail!("could not encode the merged plugin natively: {e}"),
     };
+    let encoded = encoding.elapsed();
     if let Some(parent) = target.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    let writing = std::time::Instant::now();
     if let Err(e) = std::fs::write(&target, &bytes) {
         fail!("could not encode the merged plugin natively: {e}");
+    }
+    // Verbose: the encoding and the disk apart (a real order's write took 4.4 s, 2026-11-10).
+    if opts.verbose {
+        say!("  encoded in {:.2} s, written to disk in {:.2} s", encoded.as_secs_f64(), writing.elapsed().as_secs_f64());
     }
     say!("wrote {} ({} bytes, {} records)", target.display(), bytes.len(), total + 1);
     match meta::write_merged_marker(&target) {

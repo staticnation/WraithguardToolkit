@@ -239,12 +239,12 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
         m.lock().unwrap_or_else(|p| p.into_inner())
     }
     // One worker's share of one pass: its report and how many steps it found too steep.
-    let work = |w: usize, barrier: &Barrier| -> (SlopeReport, usize) {
+    let work = |w: usize, n: usize, barrier: &Barrier| -> (SlopeReport, usize) {
         let mut r = SlopeReport::default();
         let mut excessive = 0usize;
         let mut moves: Vec<(usize, usize, Value)> = Vec::new();
         for lvl in &levels {
-            for &i in lvl.iter().skip(w).step_by(workers) {
+            for &i in lvl.iter().skip(w).step_by(n) {
                 use std::sync::atomic::Ordering::Relaxed;
                 if !dirty[i].swap(false, Relaxed) {
                     let (p, e, worst) = *seen[i].lock().unwrap_or_else(|p| p.into_inner());
@@ -319,22 +319,38 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
     };
     let mut r = SlopeReport::default();
     let mut settled = false;
+    let mut last_pinned = 0;
     for attempt in 1..=max_passes {
         r.passes = attempt;
-        let barrier = Barrier::new(workers);
-        let parts: Vec<(SlopeReport, usize)> = if workers <= 1 {
-            vec![work(0, &barrier)]
+        let changed = dirty.iter().filter(|d| d.load(std::sync::atomic::Ordering::Relaxed)).count();
+        /* Nothing changed since the pass before: this pass, and every one after it, is that
+           one again (each cell counts what it counted, nothing moves) - its refusals counted
+           for each pass left, as going over them would. On a real order a few steps that can
+           never settle kept all 24 passes going, each one waiting at every level on every
+           core (2026-11-10: slopes 2.2 s on Static's machine). */
+        if attempt > 1 && changed == 0 {
+            r.pinned += last_pinned * (max_passes - attempt + 1);
+            r.passes = max_passes;
+            break;
+        }
+        // Few cells to go over: one thread, in order, is the same answer without the waits.
+        let n = if changed < 64 { 1 } else { workers };
+        let barrier = Barrier::new(n);
+        let parts: Vec<(SlopeReport, usize)> = if n <= 1 {
+            vec![work(0, 1, &barrier)]
         } else {
             std::thread::scope(|s| {
-                let jobs: Vec<_> = (0..workers).map(|w| { let (work, barrier) = (&work, &barrier); s.spawn(move || work(w, barrier)) }).collect();
+                let jobs: Vec<_> = (0..n).map(|w| { let (work, barrier) = (&work, &barrier); s.spawn(move || work(w, n, barrier)) }).collect();
                 jobs.into_iter().map(|j| j.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
             })
         };
         let mut excessive = 0;
+        last_pinned = 0;
         for (p, e) in parts {
             excessive += e;
             r.adjusted += p.adjusted;
             r.pinned += p.pinned;
+            last_pinned += p.pinned;
             r.worst_excess = r.worst_excess.max(p.worst_excess);
             r.cells_touched.extend(p.cells_touched);
         }
@@ -478,5 +494,46 @@ mod tests {
         assert_eq!(ra, rb);
         assert_eq!(a, b);
         assert!(!ra.1 && ra.0.passes == MAX_PASSES && ra.0.adjusted > 0 && ra.0.pinned > 0, "{:?}", ra.0);
+    }
+
+    /// The real order's shape (2026-11-10: 4,640 merged cells and 714 borrowed round them,
+    /// slopes 2.2 s): a block of cells, steep spots here and there, and cliffs against the
+    /// borrowed ring that never settle. `cargo test --release -p landcore slope_bench -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn slope_bench() {
+        let mut seed = 5u64;
+        let mut rnd = |n: Value| {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as Value).rem_euclid(n)
+        };
+        let (w, h) = (80i64, 67i64);
+        let mut cells = BTreeMap::new();
+        let mut auth = BTreeSet::new();
+        for x in -1..=w {
+            for y in -1..=h {
+                let ring = x < 0 || y < 0 || x == w || y == h;
+                let mut g = vec![0; LAND_SIZE * LAND_SIZE];
+                for (i, v) in g.iter_mut().enumerate() {
+                    *v = ((i % LAND_SIZE) as Value) * 8;
+                }
+                if ring {
+                    // a cliff along the ring's inner edge: never fixed
+                    if rnd(4) == 0 {
+                        for i in 0..LAND_SIZE {
+                            g[i * LAND_SIZE + 1] += 6000;
+                        }
+                    }
+                    auth.insert((x, y));
+                } else if rnd(20) == 0 {
+                    let (cx, cy) = (rnd(60) as usize + 2, rnd(60) as usize + 2);
+                    g[cy * LAND_SIZE + cx] += 3000;
+                }
+                cells.insert((x, y), g);
+            }
+        }
+        let t = std::time::Instant::now();
+        let r = limit_slopes(&mut cells, &auth);
+        eprintln!("{} cells: {:?}, passes {}, adjusted {}, pinned {}", cells.len(), t.elapsed(), r.passes, r.adjusted, r.pinned);
     }
 }

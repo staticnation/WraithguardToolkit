@@ -1,6 +1,19 @@
 # Changelog
 
 
+## 5.0.5
+
+### Changed
+
+- **Merge Lands, faster on a real order** (Static's 619 plugins, 2026-11-10: the finish step
+  took 4 s, slopes 2.2 s of it, and the reference landmass 3.9 s). The slope limiter stops
+  going over the cells once nothing changes (a pass then is the one before it again: its
+  refusals counted for each pass left, the report the same), and goes over a handful of
+  changed cells on one thread instead of waiting at every level on every core. The masters'
+  terrain is decoded across the cores. The cell digests' loop is quicker (the same numbers).
+  The same `Merged Lands.esp` byte for byte. With Verbose the log now also splits the digests
+  from the cleaning, and the plugin's encoding from its write to disk.
+
 ## 5.0.4
 
 ### Added

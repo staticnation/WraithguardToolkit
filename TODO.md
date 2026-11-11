@@ -27,9 +27,13 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
   and finish 4.5 s - the finish is the larger part there, not on `big_order`. Verbose now
   says each finish step's time ("finished in neighbours ..., seams ..., slopes ..., normals
   ..., borders ..., cleaning ..."): a Verbose Merge Lands of the real order says which to
-  take next. Since then: the slope limiter goes over only the cells that changed (its 24
-  passes went over every cell each time, a step it can never fix keeping it from stopping);
-  the cleaning of 4,869 cells is the other likely one. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
+  take next. Static's Verbose run (2026-11-10): neighbours 0.03 s, seams 0.10, slopes 2.21,
+  normals 0.27, borders 0.15, cleaning 1.31; masters read 2.2 s, reference landmass 3.9 s, and
+  4.4 s between "declaring" and "wrote" (13.5 MB). Since (5.0.5): the slope passes stop once
+  nothing changes and run a few changed cells on one thread, the masters decode across the
+  cores, the digests are quicker. Verbose now splits digests from cleaning and the encoding
+  from the disk write: the next run says whether the 4.4 s is the disk (or a scanner on the
+  new file) or the encoding. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
   (Linux only) and the output's SHA-256 (`4d2e6cee...`, unchanged since 2026-11-02):
 
       cargo test --release -p landcore --test merge_cases -- --ignored --nocapture big_order
@@ -160,24 +164,15 @@ CI and SAST still running then); the five workflows in `.github/workflows` match
 `subset sort\workflows`; only `viewer-shell\gardenfell\target` is left of the per-crate
 `target` folders (Gardenfell keeps its own workspace, so that one is used).
 
-- Release 5.0.4 (v5.0.3 is the last published; `CHANGELOG.md` 5.0.4 is everything since; the
-  version is 5.0.4 in `viewer-shell/Cargo.toml`, `cli/Cargo.toml`, `tauri.conf.json` and
-  `Cargo.lock`):
-  1. `build-app.yml` has not run since the workspace (its last run, 2026-11-09 04:50 UTC,
-     was before it): run it by hand (Actions, "Build the app", Run workflow; or push a
-     `build/...` branch) and check each platform's archive, the AppImage and the
-     bundled-WebView2 Windows package, and that the command line comes from
-     `viewer-shell/target/release/wraithguard`.
-  2. Then tag `v5.0.4` (the tag's push builds the release) and publish it.
-  3. The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`;
-     `get_wraithguard` in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in
-     the Linux pack and the macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet
-     sent upstream). Move it to the release that is current when the merge request goes in
-     (its four archives' and the AppImage's sha256s from the release page), then open the
-     merge request.
-- OSV-Scanner has never run on a push: `osv-scanner.yml` listened to `master`, and the branch
-  is `main`. Fixed in `subset sort\workflows\osv-scanner.yml` (2026-11-10): copy it into
-  `.github\workflows`. It also runs on Mondays and by hand.
+- Releases: v5.0.4 is tagged and pushed (2026-11-10, everything to 2b84e38); the version is
+  5.0.5 now in `viewer-shell/Cargo.toml`, `cli/Cargo.toml`, `tauri.conf.json` and
+  `Cargo.lock`, and `CHANGELOG.md` 5.0.5 gathers what comes after.
+  - The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`;
+    `get_wraithguard` in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in
+    the Linux pack and the macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet
+    sent upstream). Move it to the release that is current when the merge request goes in
+    (its four archives' and the AppImage's sha256s from the release page), then open the
+    merge request.
 - The dependency audit (`audit.yml`) is clean as of 2026-11-09: SQLite through `rusqlite` 0.41,
   `paste` gone with merge_to_master's `lending-iterator`, `glib` and `proc-macro-error` patched
   (below), `tokio` 1.54.1 and `yoke-derive` 0.8.4 taken earlier. It runs weekly: a new advisory

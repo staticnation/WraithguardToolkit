@@ -79,26 +79,36 @@ fn mask_layers(l: &mut LandscapeLayers, allowed: u32) {
 /// (`_landscape_records`, `_decode_cell`); a record that will not decode is logged in
 /// `notes` and left out.
 pub(crate) fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<Value, Value>, notes: &mut Vec<String>) -> Result<Vec<LandscapeLayers>, String> {
-    let mut out = Vec::new();
-    for r in records {
-        let Record::Land { deleted, .. } = r else { continue };
-        if *deleted {
-            continue;
-        }
+    /* Each record decoded on its own, across the cores (2026-11-10: the reference landmass,
+       12,634 cells of 23 masters, took 3.9 s on one); then taken in the records' order, so
+       the cells, the notes and the first failure are the ones decoding in order gives. */
+    let lands: Vec<&Record> = records.iter().filter(|r| matches!(r, Record::Land { deleted: false, .. })).collect();
+    let each = crate::pipeline::par_each(lands, |r| decoded_one(plugin, r, mapping));
+    let mut out = Vec::with_capacity(each.len());
+    for got in each {
+        let (l, note) = got?;
+        notes.extend(note);
+        out.extend(l);
+    }
+    Ok(out)
+}
+
+/// One `LAND` record decoded (`decoded`'s work for a record): the cell, or none (a record
+/// with no terrain, or one left out, said in the note); `Err` for a failure that stops all.
+fn decoded_one(plugin: &str, r: &Record, mapping: &HashMap<Value, Value>) -> Result<(Option<LandscapeLayers>, Option<String>), String> {
+    let mut note = None;
+    {
         let mut l = match LandscapeLayers::from_record(r) {
             Ok(Some(l)) => l,
-            Ok(None) => continue,
-            Err(DecodeError::Skip(why)) => {
-                notes.push(format!("{plugin}: skipping an unreadable landscape record: {why}"));
-                continue;
-            }
+            Ok(None) => return Ok((None, None)),
+            Err(DecodeError::Skip(why)) => return Ok((None, Some(format!("{plugin}: skipping an unreadable landscape record: {why}")))),
             Err(DecodeError::Fatal(why)) => return Err(why),
         };
         if let Some(t) = l.textures.take() {
             let (values, unknown) = translate_indices(&t.to_vec(), mapping);
             if !unknown.is_empty() {
                 let listed: Vec<String> = unknown.keys().take(8).map(|v| v.to_string()).collect();
-                notes.push(format!(
+                note = Some(format!(
                     "{plugin}: cell ({}, {}) paints with {} texture index/indices no LTEX record defines ({}) -- left untranslated. A master is probably missing.",
                     l.coords.0,
                     l.coords.1,
@@ -108,9 +118,8 @@ pub(crate) fn decoded(plugin: &str, records: &[Record], mapping: &HashMap<Value,
             }
             l.textures = Some(crate::layers::pack_grid(values));
         }
-        out.push(l);
+        Ok((Some(l), note))
     }
-    Ok(out)
 }
 
 /// A cell's layers laid over a landmass, as the engine lays a later record over an earlier

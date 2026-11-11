@@ -33,24 +33,31 @@ pub fn digest(values: &[Value]) -> u64 {
 /// (2026-11-10: the digests were a fifth of the finish step): two values a step, each step
 /// folded through a 128-bit product, the count folded in last.
 pub fn digest_of(values: impl Iterator<Item = Value>) -> u64 {
-    const K: u64 = 0x9E37_79B9_7F4A_7C15;
-    const M: u64 = 0xBF58_476D_1CE4_E5B9;
-    let fold = |a: u64, b: u64| {
-        let p = u128::from(a) * u128::from(b);
-        (p as u64) ^ ((p >> 64) as u64)
-    };
-    let (mut h, mut n, mut pending): (u64, u64, Option<u32>) = (0x243F_6A88_85A3_08D3, 0, None);
-    for v in values {
-        n += 1;
-        match pending.take() {
-            None => pending = Some(v as u32),
-            Some(a) => h = fold(h ^ (u64::from(a) | (u64::from(v as u32) << 32)), K),
+    let mut values = values;
+    let (mut h, mut n): (u64, u64) = (0x243F_6A88_85A3_08D3, 0);
+    // Two values a step, read as they come (no state carried between them).
+    while let Some(a) = values.next() {
+        match values.next() {
+            Some(b) => {
+                n += 2;
+                h = digest_fold(h ^ (u64::from(a as u32) | (u64::from(b as u32) << 32)), DIGEST_K);
+            }
+            None => {
+                n += 1;
+                h = digest_fold(h ^ u64::from(a as u32) ^ (1 << 63), DIGEST_K);
+            }
         }
     }
-    if let Some(a) = pending {
-        h = fold(h ^ u64::from(a) ^ (1 << 63), K);
-    }
-    fold(h ^ n, M)
+    digest_fold(h ^ n, DIGEST_M)
+}
+
+const DIGEST_K: u64 = 0x9E37_79B9_7F4A_7C15;
+const DIGEST_M: u64 = 0xBF58_476D_1CE4_E5B9;
+
+#[inline]
+fn digest_fold(a: u64, b: u64) -> u64 {
+    let p = u128::from(a) * u128::from(b);
+    (p as u64) ^ ((p >> 64) as u64)
 }
 
 impl CellDigest {
@@ -176,5 +183,33 @@ mod tests {
         // (0,0) is what loads already; (1,0) carries colours the loaded cell lacks; (2,0) loads nothing.
         assert_eq!(keep, BTreeSet::from([(1, 0), (2, 0)]));
         assert_eq!((r.unmodified, r.kept, r.dropped()), (1, 2, 1));
+    }
+
+    /// The digest as it was first written (an `Option` carried between values): the faster
+    /// loop gives the same numbers, so what it compares is unchanged.
+    #[test]
+    fn the_digest_is_the_same_as_the_first_form() {
+        fn first(values: impl Iterator<Item = Value>) -> u64 {
+            let fold = |a: u64, b: u64| {
+                let p = u128::from(a) * u128::from(b);
+                (p as u64) ^ ((p >> 64) as u64)
+            };
+            let (mut h, mut n, mut pending): (u64, u64, Option<u32>) = (0x243F_6A88_85A3_08D3, 0, None);
+            for v in values {
+                n += 1;
+                match pending.take() {
+                    None => pending = Some(v as u32),
+                    Some(a) => h = fold(h ^ (u64::from(a) | (u64::from(v as u32) << 32)), 0x9E37_79B9_7F4A_7C15),
+                }
+            }
+            if let Some(a) = pending {
+                h = fold(h ^ u64::from(a) ^ (1 << 63), 0x9E37_79B9_7F4A_7C15);
+            }
+            fold(h ^ n, 0xBF58_476D_1CE4_E5B9)
+        }
+        for len in [0usize, 1, 2, 3, 4225, 12675] {
+            let v: Vec<Value> = (0..len).map(|i| (i as Value * 7919) % 6011 - 3000).collect();
+            assert_eq!(digest(&v), first(v.iter().copied()), "{len}");
+        }
     }
 }

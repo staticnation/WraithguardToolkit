@@ -341,7 +341,7 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usiz
 }
 
 /// `f` over `items` on every core, the answers in the items' order.
-fn par_each<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync) -> Vec<R> {
+pub(crate) fn par_each<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync) -> Vec<R> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(items.len().max(1));
     if threads <= 1 {
         return items.into_iter().map(f).collect();
@@ -459,6 +459,7 @@ pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Op
     let merged: BTreeMap<Coords, CellDigest> = par_each(outcome.cells.iter().collect(), |(c, cell)| (*c, digest_cell(cell))).into_iter().collect();
     let refs: BTreeMap<Coords, CellDigest> =
         par_each(outcome.cells.keys().filter_map(|c| reference.get(*c).map(|l| (*c, l))).collect(), |(c, l)| (c, digest_reference(l))).into_iter().collect();
+    lap("digests");
     let sources: BTreeMap<Coords, Vec<String>> = outcome.cells.iter().map(|(c, cell)| (*c, cell.editors.clone())).collect();
     let originals: BTreeMap<Coords, CellDigest> = outcome.cells.iter().map(|(c, cell)| (*c, cell.sole_source.clone())).collect();
     let (keep, report) = match loaded {
