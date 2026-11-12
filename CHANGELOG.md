@@ -38,6 +38,10 @@
   gets `generateWnam`'s: samples at 0, 7, 14 ... 56 on each axis (not every eighth vertex), a
   height above zero over 128 and any other over 16, truncated; a flat -1,024 reads -64, not -8.
   An authored `WNAM` is kept as it was.
+  The map it generates is then sunk where the terrain is under the sea by the vertex each entry
+  was sampled from (`sink_generated_underwater_land`); it was judged by the eighth-vertex height
+  beside it, which left a coast entry over sea at 0 when that vertex was land, and sank one over
+  land when that vertex was sea. An authored map is sunk by the eighth-vertex heights as before.
 
 - **Merge Lands keeps an authored normal only where all three heights it is made from are
   unchanged** (WG-A03). A normal comes from the vertex and its east and north neighbours (the last

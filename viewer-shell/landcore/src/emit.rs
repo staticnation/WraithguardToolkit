@@ -37,17 +37,23 @@ pub fn world_map_from_heights(heights: &[Value]) -> Vec<Value> {
     out
 }
 
+/// The height vertex, along one axis, that entry `i` of the generated world map reads: `i * 64 / 9`
+/// in `f32`, truncated (0, 7, 14 ... 56), as the engine computes it.
+fn generated_sample(i: usize) -> usize {
+    let step = (LAND_SIZE - 1) as f32 / WNAM_SIZE as f32;
+    (i as f32 * step) as usize
+}
+
 /// The 9x9 world map OpenMW generates for a `LAND` that has none (`generateWnam`,
 /// `components/esm3/loadland.cpp`, 0.51.0): each axis is sampled at `floor(i * 64 / 9)`, so at
 /// 0, 7, 14 ... 56, never at the cell's far edge; a height above zero is divided by 128 and any
 /// other by 16 (so the water below reads steeply), and the result is truncated, in `f32` as the
 /// engine does. A flat -1,024 gives -64.
 pub fn generated_world_map(heights: &[Value]) -> Vec<Value> {
-    let step = (LAND_SIZE - 1) as f32 / WNAM_SIZE as f32;
     let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
     for row in 0..WNAM_SIZE {
         for col in 0..WNAM_SIZE {
-            let at = (row as f32 * step) as usize * LAND_SIZE + (col as f32 * step) as usize;
+            let at = generated_sample(row) * LAND_SIZE + generated_sample(col);
             let mut h = heights[at] as f32;
             h /= if h > 0.0 { 128.0 } else { 16.0 };
             out.push(h.clamp(-128.0, 127.0) as Value);
@@ -63,6 +69,23 @@ pub fn sink_underwater_land(world_map: &[Value], heights: &[Value]) -> Vec<Value
     for gy in 0..WNAM_SIZE {
         for gx in 0..WNAM_SIZE {
             let h = heights[gy * WNAM_STEP * LAND_SIZE + gx * WNAM_STEP];
+            let w = world_map[gy * WNAM_SIZE + gx];
+            out.push(if h < 0 && w >= 0 { -1 } else { w });
+        }
+    }
+    out
+}
+
+/// [`sink_underwater_land`] for a world map [`generated_world_map`] made: the height an entry is
+/// judged by is the vertex it was sampled from, not the eighth-vertex one an authored map is
+/// judged by. Read from the other vertex, a coast entry whose own terrain is under the sea was
+/// left at 0 when the vertex beside it was land, and one over land was sunk when the vertex
+/// beside it was sea.
+pub fn sink_generated_underwater_land(world_map: &[Value], heights: &[Value]) -> Vec<Value> {
+    let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
+    for gy in 0..WNAM_SIZE {
+        for gx in 0..WNAM_SIZE {
+            let h = heights[generated_sample(gy) * LAND_SIZE + generated_sample(gx)];
             let w = world_map[gy * WNAM_SIZE + gx];
             out.push(if h < 0 && w >= 0 { -1 } else { w });
         }
@@ -126,10 +149,12 @@ pub fn build_landscape_record_for(
             }
         }
         flags |= LandscapeFlags::USES_VERTEX_HEIGHTS_AND_NORMALS;
-        if world.as_ref().is_none_or(|w| w.iter().all(|&v| v == 0)) {
-            world = Some(generated_world_map(h));
-        }
-        world = world.map(|w| sink_underwater_land(&w, h));
+        world = Some(match world.take() {
+            // An authored map is sunk as it always was, by the eighth-vertex heights.
+            Some(w) if !w.iter().all(|&v| v == 0) => sink_underwater_land(&w, h),
+            // One made here is sunk by the vertices it was made from.
+            _ => sink_generated_underwater_land(&generated_world_map(h), h),
+        });
     }
     if let Some(w) = &world {
         for (i, v) in w.iter().enumerate() {
@@ -242,6 +267,27 @@ mod tests {
         let Some(TES3Object::Landscape(l)) = back.objects.iter().find(|o| matches!(o, TES3Object::Landscape(_))) else { panic!("no LAND saved") };
         assert_eq!((l.grid, l.landscape_flags), ((1, 2), LandscapeFlags::USES_TEXTURES));
         assert_eq!(crate::layers::swizzle_texture_indices(&rows), *l.texture_indices.data);
+    }
+
+    /// A coast: the generated entry is judged by the vertex it reads. (The eighth-vertex sink
+    /// read the one beside it, and gave the opposite answer in both of these.)
+    #[test]
+    fn a_generated_entry_sinks_by_the_vertex_it_was_made_from() {
+        let mut under = vec![200; LAND_NUM_VERTS];
+        under[7] = -10; // read by entry 1 of row 0
+        under[8] = 400; // what the eighth-vertex sink reads for it
+        let w = generated_world_map(&under);
+        assert_eq!(w[1], 0, "-10 over 16 truncates to 0");
+        assert_eq!(sink_generated_underwater_land(&w, &under)[1], -1, "sea under the sampled vertex reads as water");
+        assert_eq!(sink_underwater_land(&w, &under)[1], 0, "(the eighth-vertex sink, for an authored map, does not)");
+        let mut over = vec![200; LAND_NUM_VERTS];
+        over[7] = 10;
+        over[8] = -400;
+        let w = generated_world_map(&over);
+        assert_eq!(sink_generated_underwater_land(&w, &over)[1], 0, "land under the sampled vertex stays land");
+        assert_eq!(sink_underwater_land(&w, &over)[1], -1);
+        // Nothing is pushed toward land.
+        assert_eq!(sink_generated_underwater_land(&vec![-5; 81], &vec![-10; LAND_NUM_VERTS]), vec![-5; 81]);
     }
 
     #[test]
