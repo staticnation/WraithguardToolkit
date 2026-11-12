@@ -142,41 +142,69 @@ fn normal_at(h: &dyn Fn(usize) -> f64, x: usize, y: usize) -> [Value; 3] {
     [to_signed_byte(nx / unit), to_signed_byte(ny / unit), to_signed_byte(nz / unit)]
 }
 
-/// One merged cell's normals (`resolve_cell_normals`): recomputed from its final heights,
-/// keeping the reference's own normal wherever the height did not move and that normal is not
-/// `(0, 0, 0)`. Returns the normals and how many were kept.
-pub fn resolve_cell_normals(heights: &[Value], original: Option<&[Value]>, base: Option<&[Value]>) -> (Vec<Value>, usize) {
-    let (o_at, b_at) = (|i: usize| original.map_or(0, |o| o[i]), |i: usize| base.map_or(0, |b| b[i]));
-    let o: Option<(usize, &dyn Fn(usize) -> Value)> = original.map(|o| (o.len(), &o_at as &dyn Fn(usize) -> Value));
-    let b: Option<(usize, &dyn Fn(usize) -> Value)> = base.map(|b| (b.len(), &b_at as &dyn Fn(usize) -> Value));
-    resolve_cell_normals_with(heights, o, b)
+/// The three vertices [`normal_at`] reads for the normal at (`x`, `y`): the vertex, its east and
+/// its north neighbour, the last row and column using the triangle before them.
+pub fn normal_triangle(x: usize, y: usize) -> [usize; 3] {
+    let limit = LAND_SIZE - 1;
+    let fy = if y == limit { y - 1 } else { y };
+    let fx = if x == limit { x - 1 } else { x };
+    [fy * LAND_SIZE + fx, fy * LAND_SIZE + fx + 1, (fy + 1) * LAND_SIZE + fx]
 }
 
-/// [`resolve_cell_normals`] reading the reference's normals and heights in place (`(len,
-/// value at)`, a packed layer unpacked by nobody); a normal is worked out only where the
-/// reference's is not kept (Merge Lands' finish step, 2026-11-10: the normals were a third of it).
-pub fn resolve_cell_normals_with(heights: &[Value], original: Option<(usize, &dyn Fn(usize) -> Value)>, base: Option<(usize, &dyn Fn(usize) -> Value)>) -> (Vec<Value>, usize) {
-    let mut normals = vec![0; heights.len() * 3];
-    let mut preserved = 0;
-    let keeps = match (original, base) {
-        (Some((olen, orig)), Some((blen, base))) if blen == heights.len() && olen >= normals.len() => Some((orig, base)),
+/// Where a cell's authored normals may be kept from: a record's normals and the heights they
+/// were made for, read in place (`len` the values held; a source whose heights are not the
+/// cell's size or whose normals are fewer than three a vertex has none to give).
+#[derive(Clone, Copy)]
+pub struct NormalSource<'a> {
+    pub normals: &'a dyn Fn(usize) -> Value,
+    pub normals_len: usize,
+    pub heights: &'a dyn Fn(usize) -> Value,
+    pub heights_len: usize,
+}
+
+/// One merged cell's normals (`resolve_cell_normals`): recomputed from its final heights,
+/// keeping the reference's own normal wherever the terrain it describes did not move and that
+/// normal is not `(0, 0, 0)`. Returns the normals and how many were kept.
+pub fn resolve_cell_normals(heights: &[Value], original: Option<&[Value]>, base: Option<&[Value]>) -> (Vec<Value>, usize) {
+    let (o_at, b_at) = (|i: usize| original.map_or(0, |o| o[i]), |i: usize| base.map_or(0, |b| b[i]));
+    let source = match (original, base) {
+        (Some(o), Some(b)) => Some(NormalSource { normals: &o_at, normals_len: o.len(), heights: &b_at, heights_len: b.len() }),
         _ => None,
     };
+    resolve_cell_normals_from(heights, source.as_slice())
+}
+
+/// [`resolve_cell_normals`] over any number of `sources`, tried in order (the record the engine
+/// loads first, then the masters'). A normal is kept from a source only where all three heights
+/// it is worked out from ([`normal_triangle`]) are the cell's own, so a neighbour that moved
+/// re-lights the vertex beside it, and the reused edge triangle is checked as the one it is. A
+/// source's heights are compared as they would be saved (floored to the eight-unit grid) as well
+/// as exactly. A normal is worked out only where no source's is kept (Merge Lands' finish step,
+/// 2026-11-10: the normals were a third of it).
+pub fn resolve_cell_normals_from(heights: &[Value], sources: &[NormalSource]) -> (Vec<Value>, usize) {
+    let mut normals = vec![0; heights.len() * 3];
+    let mut preserved = 0;
+    let usable: Vec<&NormalSource> = sources.iter().filter(|s| s.heights_len == heights.len() && s.normals_len >= normals.len()).collect();
     let h = |i: usize| heights[i] as f64;
     for y in 0..LAND_SIZE {
         for x in 0..LAND_SIZE {
             let i = y * LAND_SIZE + x;
-            if let Some((orig, base)) = keeps
-                && heights[i] == base(i)
-            {
-                let t = [orig(i * 3), orig(i * 3 + 1), orig(i * 3 + 2)];
-                if t != [0, 0, 0] {
+            let triangle = normal_triangle(x, y);
+            let kept = usable.iter().find_map(|s| {
+                let same = triangle.iter().all(|&v| {
+                    let theirs = (s.heights)(v);
+                    heights[v] == theirs || heights[v] == quantize_height(theirs)
+                });
+                let t = [(s.normals)(i * 3), (s.normals)(i * 3 + 1), (s.normals)(i * 3 + 2)];
+                (same && t != [0, 0, 0]).then_some(t)
+            });
+            match kept {
+                Some(t) => {
                     normals[i * 3..i * 3 + 3].copy_from_slice(&t);
                     preserved += 1;
-                    continue;
                 }
+                None => normals[i * 3..i * 3 + 3].copy_from_slice(&normal_at(&h, x, y)),
             }
-            normals[i * 3..i * 3 + 3].copy_from_slice(&normal_at(&h, x, y));
         }
     }
     (normals, preserved)
@@ -223,6 +251,96 @@ mod tests {
         let (_, d, clamped) = encode_vertex_heights(&h);
         assert_eq!((d[1], d[2]), (127, -128));
         assert_eq!(clamped, vec![(1, 0), (2, 0)]);
+    }
+
+    /// A ramp of heights, the normal marked at every vertex: what a source says it kept.
+    fn marked(base: &[Value], marker: [Value; 3]) -> (Vec<Value>, Vec<Value>) {
+        (base.to_vec(), (0..LAND_NUM_VERTS).flat_map(|_| marker).collect())
+    }
+
+    fn resolve(heights: &[Value], sources: &[(&[Value], &[Value])]) -> (Vec<Value>, usize) {
+        let closures: Vec<_> = sources.iter().map(|(h, n)| (move |i: usize| h[i], move |i: usize| n[i], h.len(), n.len())).collect();
+        let list: Vec<NormalSource> = closures.iter().map(|(h, n, hl, nl)| NormalSource { normals: n, normals_len: *nl, heights: h, heights_len: *hl }).collect();
+        resolve_cell_normals_from(heights, &list)
+    }
+
+    fn marker_at(n: &[Value], x: usize, y: usize) -> bool {
+        let i = (y * LAND_SIZE + x) * 3;
+        n[i..i + 3] == [5, 6, 100]
+    }
+
+    /// WG-A03: a normal is made from the vertex, its east and its north neighbour, so a vertex
+    /// whose own height did not move is re-lit when a neighbour it reads did.
+    #[test]
+    fn a_neighbour_that_moved_relights_a_vertex_that_did_not() {
+        let base: Vec<Value> = (0..LAND_NUM_VERTS).map(|i| ((i % LAND_SIZE) * 8 + (i / LAND_SIZE) * 16) as Value).collect();
+        let (bh, bn) = marked(&base, [5, 6, 100]);
+        let mut moved = base.clone();
+        moved[20 * LAND_SIZE + 10] += 80; // (10, 20)
+        let (n, kept) = resolve(&moved, &[(&bh, &bn)]);
+        // (10, 20) itself, (9, 20) whose east it is, and (10, 19) whose north it is: re-lit.
+        for (x, y) in [(10, 20), (9, 20), (10, 19)] {
+            assert!(!marker_at(&n, x, y), "({x}, {y})");
+        }
+        // Everything else is the source's, and the count says so.
+        assert!(marker_at(&n, 11, 20) && marker_at(&n, 10, 21) && marker_at(&n, 0, 0) && marker_at(&n, 64, 64));
+        assert_eq!(kept, LAND_NUM_VERTS - 3);
+    }
+
+    /// The last row and column reuse the triangle before them: the edge normal follows the
+    /// vertex at 63 (and, in the last row, the row below it), and the corner at 64, 64, which
+    /// no normal reads, moves nothing.
+    #[test]
+    fn the_reused_edge_triangles_are_checked_as_they_are() {
+        let base: Vec<Value> = (0..LAND_NUM_VERTS).map(|i| ((i % LAND_SIZE) * 8 + (i / LAND_SIZE) * 16) as Value).collect();
+        let (bh, bn) = marked(&base, [5, 6, 100]);
+        // (63, 30) moved: (64, 30) reuses the triangle at 63 and is re-lit with it.
+        let mut m = base.clone();
+        m[30 * LAND_SIZE + 63] += 80;
+        let (n, _) = resolve(&m, &[(&bh, &bn)]);
+        // (64, 29) too: its triangle is the one at 63, whose north is the vertex that moved.
+        for (x, y) in [(63, 30), (62, 30), (63, 29), (64, 30), (64, 29)] {
+            assert!(!marker_at(&n, x, y), "({x}, {y})");
+        }
+        assert!(marker_at(&n, 64, 31) && marker_at(&n, 61, 30));
+        // (64, 64) is read by no normal.
+        let mut m = base.clone();
+        m[LAND_NUM_VERTS - 1] += 80;
+        let (n, kept) = resolve(&m, &[(&bh, &bn)]);
+        assert_eq!(kept, LAND_NUM_VERTS);
+        assert!(marker_at(&n, 64, 64));
+        // (63, 63) is: the last row and column all read the triangle it starts.
+        let mut m = base.clone();
+        m[63 * LAND_SIZE + 63] += 80;
+        let (n, _) = resolve(&m, &[(&bh, &bn)]);
+        for (x, y) in [(63, 63), (64, 63), (63, 64), (64, 64)] {
+            assert!(!marker_at(&n, x, y), "({x}, {y})");
+        }
+    }
+
+    /// The first source whose triangle still holds gives the normal; a zero normal gives none.
+    #[test]
+    fn sources_are_tried_in_order_and_a_zero_normal_is_no_normal() {
+        let base: Vec<Value> = vec![0; LAND_NUM_VERTS];
+        let winner = (base.clone(), (0..LAND_NUM_VERTS).flat_map(|_| [5, 6, 100]).collect::<Vec<Value>>());
+        let master = (base.clone(), (0..LAND_NUM_VERTS).flat_map(|_| [1, 2, 120]).collect::<Vec<Value>>());
+        let (n, kept) = resolve(&base, &[(&winner.0, &winner.1), (&master.0, &master.1)]);
+        assert!(marker_at(&n, 3, 3) && kept == LAND_NUM_VERTS);
+        // The winner's heights are not the cell's: the master's normal is the one kept.
+        let mut other = base.clone();
+        other[3 * LAND_SIZE + 3] = 800;
+        let (n, _) = resolve(&base, &[(&other, &winner.1), (&master.0, &master.1)]);
+        assert_eq!(&n[(3 * LAND_SIZE + 3) * 3..][..3], &[1, 2, 120]);
+        // A zero normal is not kept: it is worked out (flat ground, straight up).
+        let zeros = vec![0; LAND_NUM_VERTS * 3];
+        let (n, kept) = resolve(&base, &[(&base, &zeros)]);
+        assert_eq!((kept, &n[..3]), (0, &[0, 0, 127][..]));
+        // A finalized height is the source's own height floored: it still counts as the same.
+        let mut raw = base.clone();
+        raw.iter_mut().for_each(|v| *v = 13);
+        let floored: Vec<Value> = raw.iter().map(|&v| quantize_height(v)).collect();
+        let (_, kept) = resolve(&floored, &[(&raw, &winner.1)]);
+        assert_eq!(kept, LAND_NUM_VERTS);
     }
 
     #[test]

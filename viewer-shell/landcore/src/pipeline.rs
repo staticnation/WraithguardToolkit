@@ -319,21 +319,28 @@ pub fn merge_landmass(
     Ok(outcome)
 }
 
-/// Each written cell's normals from its final heights, the reference's kept where the
-/// height did not move (`resolve_normals`). Answers how many were kept.
-pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass) -> usize {
+/// Each written cell's normals from its final heights, an authored normal kept where the
+/// three heights it is made from did not move (`resolve_normals`): first the record the engine
+/// loads at the cell (`loaded`, when the merge is judged against the load order), then the
+/// masters'. Answers how many were kept.
+pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>) -> usize {
     // Each cell on its own: shared out over the cores.
     let cells: Vec<(&Coords, &mut MergedCell)> = outcome.cells.iter_mut().collect();
     par_each(cells, |(coords, cell)| {
         let Some(h) = &cell.heights else { return 0 };
-        let l = reference.get(*coords);
-        let (original, base) = (l.and_then(|l| l.normals.as_deref()), l.and_then(|l| l.heights.as_deref()));
-        let (orig_at, base_at) = (|i: usize| original.and_then(|o| o.at(i)).unwrap_or(0), |i: usize| base.and_then(|b| b.at(i)).unwrap_or(0));
-        let (original, base) = match (original, base) {
-            (Some(o), Some(b)) if b.len() == h.len() => (Some((o.len(), &orig_at as &dyn Fn(usize) -> Value)), Some((b.len(), &base_at as &dyn Fn(usize) -> Value))),
-            _ => (None, None),
+        let read = |l: Option<&LandscapeLayers>| {
+            let (normals, heights) = (l.and_then(|l| l.normals.clone()), l.and_then(|l| l.heights.clone()));
+            normals.zip(heights)
         };
-        let (n, kept) = crate::heights::resolve_cell_normals_with(h, original, base);
+        let (winner, base) = (read(loaded.and_then(|l| l.get(*coords))), read(reference.get(*coords)));
+        let at = |g: &crate::layers::Grid| {
+            let g = g.clone();
+            move |i: usize| g.at(i).unwrap_or(0)
+        };
+        let closures: Vec<_> = [&winner, &base].into_iter().flatten().map(|(n, hh)| (at(n), n.len(), at(hh), hh.len())).collect();
+        let sources: Vec<crate::heights::NormalSource> =
+            closures.iter().map(|(n, nl, hh, hl)| crate::heights::NormalSource { normals: n, normals_len: *nl, heights: hh, heights_len: *hl }).collect();
+        let (n, kept) = crate::heights::resolve_cell_normals_from(h, &sources);
         cell.normals = Some(n);
         kept
     })
@@ -467,7 +474,7 @@ pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Op
     for (c, h) in heights {
         outcome.cells.get_mut(&c).unwrap().heights = Some(h);
     }
-    resolve_normals(outcome, reference);
+    resolve_normals(outcome, reference, loaded);
     lap("normals");
     check_borders(outcome, reference, &borrowed);
     lap("borders");

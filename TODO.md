@@ -53,7 +53,7 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 
 ## Terrain audit (`TERRAIN_AUDIT_2026-11-11.md`, against 5.0.5)
 
-Done in `Unreleased` (see `CHANGELOG.md`): WG-A07 (OpenMW's world map), WG-A05 (configured order), WG-A01 (heights finalized before normals), WG-A04
+Done in `Unreleased` (see `CHANGELOG.md`): WG-A03 (normals kept by their three heights), WG-A07 (OpenMW's world map), WG-A05 (configured order), WG-A01 (heights finalized before normals), WG-A04
 (slope limiter at VHGT's real bounds), WG-A02 (what loads is the last whole record; absent colours
 are white; layers the merge has nothing to say about come from the winning record) and WG-A06
 (texture-only records written; a cell that cannot be written stops the merge). Open:
@@ -74,10 +74,13 @@ are white; layers the merge has nothing to say about come from the winning recor
 - A01 has no fixture for input offsets with a fractional phase (a reference `VHGT` offset that is
   not a whole number): the cleaning and border checks compare on the finalized grid, but only the
   aligned case is tested.
-- WG-A03: preserved normals are checked against one height of three (the vertex, east and north
-  samples), and only the masters' normals are a source. Needs the neighbour-only, edge-triangle
-  (local 63 and 64), authored-normal and normal-only-patch fixtures; selected normals belong in
-  the retention digests. Follows A01, which is done.
+- WG-A03, what is left: normals are not in the cleaning digests. The loaded record's authored
+  normals are kept first, so a merged cell's normals differ from the loaded cell's only where its
+  heights do and the heights already decide; a case where an authored normal alone should keep a
+  cell would need them in. Cleaning by the Python's rule (no load-order cleaning) has no loaded
+  record, so only the masters' normals are kept there. Not covered: a normal-only patch followed by
+  a later plugin that moves some of the heights (the later record's own normals win, as the engine
+  loads them).
 - WG-A05, what is left: an order that *starts* with a mod (no leading run of masters) still
   takes every `.esm` as a master, so a late master there can still go under the mods before it.
   Only an order like that has it; decide whether such an order should instead stop the merge.
@@ -94,7 +97,7 @@ are white; layers the merge has nothing to say about come from the winning recor
   and their neighbours with the borrowed ones held fixed (39). Do not reduce record counts by
   suppressing small border mismatches; known intentional discontinuities go in as cell exceptions.
 - `tests/fixtures/land_merge_cases.json` (recorded from the Python) is no longer the whole truth:
-  two of its five cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
+  its cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
   whether to retire `tools/gen_land_merge_cases.py` and record all five from the engine.
 
 ## After 5.0

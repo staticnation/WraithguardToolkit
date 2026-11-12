@@ -39,10 +39,18 @@
   height above zero over 128 and any other over 16, truncated; a flat -1,024 reads -64, not -8.
   An authored `WNAM` is kept as it was.
 
+- **Merge Lands keeps an authored normal only where all three heights it is made from are
+  unchanged** (WG-A03). A normal comes from the vertex and its east and north neighbours (the last
+  row and column from the triangle before them), but was kept when the vertex's own height had not
+  moved, so a neighbour that moved left the normal beside it stale. And the only source was the
+  masters': a normal authored by the record the engine loads at the cell (a later plugin's, or a
+  normal-only patch) is now kept first, wherever its own heights still hold, and the master's after
+  it. A zero normal is still worked out.
+
 ### Changed
 
 - The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
-  the engine to the Python's bytes where the two fixes above change them (three of the five
+  the engine to the Python's bytes where the fixes above change them (all five
   cases); `landcore/tests/fixtures/land_merge_cases_audit.json` records what the engine
   answers there, and says how to re-record it.
 

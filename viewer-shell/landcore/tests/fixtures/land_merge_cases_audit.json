@@ -36,7 +36,7 @@
       "slopes": 5168,
       "textures": 3
     },
-    "sha256": "f04ab55a29fb3fb6b12605fb5b26799b4c4c0de5dbbd22a744bba6e018e2587d",
+    "sha256": "79d69f701c8934aed522e8e7d2446910e569fb866c4005c155184cfae595d9ce",
     "size": 156405
   },
   "a mod painting with a texture no LTEX defines, passed through": {
@@ -67,7 +67,7 @@
       "slopes": 0,
       "textures": 1
     },
-    "sha256": "315899985894f2f67e610609f8f3c70874838979b6c63ae1bd38e9933e80f94b",
+    "sha256": "b7227a29adb952c30f35cf059642d6f7e95a17aa8b1ad7d2f3dab87412a0f14f",
     "size": 18058
   },
   "per-layer strategies: curvature, ignore, colours blended, world map overwritten": {
@@ -97,7 +97,7 @@
       "slopes": 0,
       "textures": 0
     },
-    "sha256": "93a2ac477376fd7e1ca0d7d3a59998f685437152fc661ac82e9a4da8e3743fd2",
+    "sha256": "d617376a853bd989d5d0413f15bd2fa466fdbe6877eca153d4280d0a67c06552",
     "size": 59925
   }
 }

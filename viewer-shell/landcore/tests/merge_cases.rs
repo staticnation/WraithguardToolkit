@@ -72,10 +72,11 @@ fn land(r: &Value) -> Vec<u8> {
     let stored = r.get("heights").map(|h| heights_of(&ints(h)));
     let world: Option<Vec<i32>> = stored.as_ref().map(|s| s.iter().map(|v| v * 8).collect());
     if let (Some(stored), Some(world)) = (&stored, &world) {
-        let normals: Vec<i32> = if r.get("normals").and_then(Value::as_str).unwrap_or("auto") == "auto" {
-            normals_from_heights(&world.iter().map(|&v| v as f64).collect::<Vec<_>>())
-        } else {
-            vec![0; 3 * SIZE * SIZE]
+        let normals: Vec<i32> = match r.get("normals") {
+            // One vector at every vertex: normals authored on their own (a normal-only patch).
+            Some(v) if v.is_array() => ints(v).iter().copied().cycle().take(3 * SIZE * SIZE).collect(),
+            n if n.and_then(Value::as_str).unwrap_or("auto") == "auto" => normals_from_heights(&world.iter().map(|&v| v as f64).collect::<Vec<_>>()),
+            _ => vec![0; 3 * SIZE * SIZE],
         };
         body.extend(sub(b"VNML", &normals.iter().map(|&v| v as i8 as u8).collect::<Vec<_>>()));
         let mut vhgt = (stored[0] as f32).to_le_bytes().to_vec();
@@ -579,5 +580,34 @@ fn a_late_master_still_wins_over_an_earlier_mod() {
     let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
     let heights = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap();
     assert!(heights.iter().all(|&h| h == 64), "{:?}", &heights[..4]);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// WG-A03: B, the last record at the cell, authors normals of its own over its heights. A's hill
+/// is not in B's record, so the merge (both hills) differs from what loads and is written; the
+/// normals B authored stay wherever the three heights each is made from are still B's, and are
+/// worked out only round A's hill. The master's normals were once the only ones kept.
+#[test]
+fn authored_normals_of_the_winning_record_are_kept() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let flat = json!([400, 1, 1, 9, 0, 0, -1, 0]);
+    let data = setup(
+        "authored normals",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 20, 20, 6, 60]}]},
+            {"name": "B.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 48, 48, 5, 40], "normals": [3, 4, 120]}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let Some(TES3Object::Landscape(l)) = plugin.objects.iter().find(|o| matches!(o, TES3Object::Landscape(_))) else { panic!("no LAND") };
+    let authored = |x: usize, y: usize| l.vertex_normals.data[y][x] == [3, 4, 120];
+    let kept = (0..SIZE).flat_map(|y| (0..SIZE).map(move |x| (x, y))).filter(|&(x, y)| authored(x, y)).count();
+    assert!(kept > 3500, "B's authored normals away from A's hill: {kept}");
+    assert!(!authored(20, 20) && !authored(24, 20), "worked out where A's hill moved the heights");
+    assert!(authored(60, 5) && authored(48, 48));
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
