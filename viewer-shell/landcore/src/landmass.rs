@@ -136,6 +136,17 @@ pub fn layer_onto(land: &mut Landmass, l: LandscapeLayers, source: &str) {
     land.sources.insert(coords, source.to_string());
 }
 
+/// A cell's whole record laid over a landmass, as the engine loads it: the later record
+/// replaces the earlier one at its coordinate, layers it omits included (OpenMW's
+/// `Store<ESM::Land>::load`). This is the loaded terrain the load-order cleaning compares
+/// against; [`layer_onto`] is the merge's own composition, which keeps an earlier layer a
+/// later record omits and so is not what loads.
+pub fn replace_onto(land: &mut Landmass, l: LandscapeLayers, source: &str) {
+    let coords = l.coords;
+    land.cells.insert(coords, l);
+    land.sources.insert(coords, source.to_string());
+}
+
 /// A cell's layers with those `allowed` leaves out removed (`_mask_layers`).
 pub fn masked(mut l: LandscapeLayers, allowed: u32) -> LandscapeLayers {
     if allowed != ALL_LAYERS {
@@ -158,7 +169,7 @@ pub fn build_reference(masters: &[PluginRecords], known: &mut KnownTextures, met
         }
         let allowed = meta.map(PluginMeta::allowed_layers).unwrap_or(ALL_LAYERS);
         for l in decode_plugin(master, known, notes)? {
-            layer_onto(&mut loaded, l.clone(), &master.name);
+            replace_onto(&mut loaded, l.clone(), &master.name);
             layer_onto(&mut land, masked(l, allowed), &master.name);
         }
     }

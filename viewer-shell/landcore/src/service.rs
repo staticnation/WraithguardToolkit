@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use tes3::esp::TES3Object;
 
-use crate::emit::{attach_texture_indices, build_landscape_record, build_texture_records, plugin_bytes};
+use crate::emit::{attach_texture_indices, build_landscape_record_for, build_texture_records, plugin_bytes};
 use crate::landmass::{build_reference, Landmass, PluginRecords};
 use crate::meta::{self, PluginMeta, Strategy, LAYER_NAMES};
 use crate::pipeline::{finish_timed, merge_landmass, DiffModel, MergeOutcome};
@@ -103,15 +103,26 @@ fn coords(c: (i64, i64)) -> String {
 }
 
 /// Masters and mods, each in load order; `.omwscripts` in neither (`_split_order`).
+///
+/// The masters are the reference terrain: the run of `.esm` / `.omwgame` files the order
+/// starts with. A master that comes after a mod is a mod to the merge, taken in its place in
+/// the order, because OpenMW's precedence is the order and not the file's extension (WG-A05):
+/// splitting every `.esm` off to the reference put a late master under the mods before it.
+/// An order that starts with a mod has no such run, and then every `.esm` is a master as
+/// before, so the merge has a reference to work from.
 pub fn split_order(names: &[String]) -> (Vec<String>, Vec<String>) {
     let plugins: Vec<&String> = names.iter().filter(|n| !n.to_lowercase().ends_with(".omwscripts")).collect();
     let is_master = |n: &str| {
         let l = n.to_lowercase();
         l.ends_with(".esm") || l.ends_with(".omwgame")
     };
-    let masters = plugins.iter().filter(|n| is_master(n)).map(|n| (*n).clone()).collect();
-    let mods = plugins.iter().filter(|n| !is_master(n)).map(|n| (*n).clone()).collect();
-    (masters, mods)
+    let leading = plugins.iter().take_while(|n| is_master(n)).count();
+    if leading == 0 {
+        let masters = plugins.iter().filter(|n| is_master(n)).map(|n| (*n).clone()).collect();
+        let mods = plugins.iter().filter(|n| !is_master(n)).map(|n| (*n).clone()).collect();
+        return (masters, mods);
+    }
+    (plugins[..leading].iter().map(|n| (*n).clone()).collect(), plugins[leading..].iter().map(|n| (*n).clone()).collect())
 }
 
 /// The data folder holding a plugin, the *last* that does, as OpenMW resolves it, matching
@@ -513,7 +524,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     let mut clamped = 0;
     let mut clamped_cells: Vec<(i64, i64)> = Vec::new();
     for (c, cell) in &outcome.cells {
-        match build_landscape_record(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref()) {
+        match build_landscape_record_for(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref(), cell.textures.is_some()) {
             Ok((record, clamps)) => {
                 clamped += clamps.len();
                 if !clamps.is_empty() {
@@ -525,7 +536,9 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
                 }
                 lands.push(record);
             }
-            Err(e) => say!("  cell {} could not be written: {e}", coords(*c)),
+            // A cell the merge kept and cannot write is a merge that did not finish: carrying on
+            // would save a plugin missing terrain the load order needs, and say it had worked.
+            Err(e) => fail!("cell {} could not be written: {e} Nothing was written.", coords(*c)),
         }
     }
     if clamped > 0 && !opts.allow_clamping {

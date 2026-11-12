@@ -513,3 +513,71 @@ fn saved_normals_describe_the_saved_heights() {
     assert!(checked > 300, "{checked}");
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// WG-A02: what loads is the *last whole record* at a coordinate. B, after A, carries the same
+/// heights but no vertex colours, so the engine draws A's colours away (white); the merge
+/// restores them, so the cell must be written, with its colours, rather than dropped as if A's
+/// colours still loaded under B's heights.
+#[test]
+fn a_later_record_that_omits_colors_is_what_loads() {
+    use serde_json::json;
+    use tes3::esp::{LandscapeFlags, Plugin, TES3Object};
+    let flat = json!([400, 1, 1, 9, 0, 0, -1, 0]);
+    let hill = json!([400, 1, 1, 9, 20, 20, 6, 60]);
+    let data = setup(
+        "later record omits colours",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 3, "heights": hill, "colors": [10, 20, 30, 1]}]},
+            {"name": "B.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": hill}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!((r.cells_written, r.dropped), (1, 0), "{:#?}", r.lines);
+    let out = data.parent().unwrap().join("out").join(DEFAULT_NAME);
+    let plugin = Plugin::from_path(&out).unwrap();
+    let lands: Vec<_> = plugin.objects.iter().filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).collect();
+    assert_eq!(lands.len(), 1);
+    assert!(lands[0].landscape_flags.contains(LandscapeFlags::USES_VERTEX_COLORS));
+    assert_eq!(lands[0].vertex_colors.data[0][0], [10, 20, 30]);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+
+    // A white restoration is no change to a cell whose later record has no colours: nothing to write.
+    let data = setup(
+        "white restoration",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 3, "heights": hill, "colors": [255, 255, 255, 0]}]},
+            {"name": "B.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": hill}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions { dry_run: true, ..Default::default() });
+    assert_eq!((r.cells_written, r.dropped), (0, 1), "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// WG-A05: the order decides, not the extension. `Late.esm` comes after `Early.esp`, so its
+/// ground (64 units) is what loads over Early's (256); the merge must give it too.
+#[test]
+fn a_late_master_still_wins_over_an_earlier_mod() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |stored: i32| json!([stored, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "late master",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": level(0)}]},
+            {"name": "Early.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": level(32)}]},
+            {"name": "Late.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": level(8)}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "Early.esp", "Late.esm"], MergeOptions { clean_against_load_order: false, ..Default::default() });
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    assert!(r.lines.contains(&"masters: Base.esm".to_string()), "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let Some(TES3Object::Landscape(l)) = plugin.objects.iter().find(|o| matches!(o, TES3Object::Landscape(_))) else { panic!("no LAND") };
+    let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+    let heights = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap();
+    assert!(heights.iter().all(|&h| h == 64), "{:?}", &heights[..4]);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

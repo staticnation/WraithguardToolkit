@@ -36,8 +36,39 @@
       "slopes": 5168,
       "textures": 3
     },
-    "sha256": "2e861df489cffc0425737787f3ffa1dac29ea776421b2c4380b547e9684021c2",
+    "sha256": "f04ab55a29fb3fb6b12605fb5b26799b4c4c0de5dbbd22a744bba6e018e2587d",
     "size": 156405
+  },
+  "a mod painting with a texture no LTEX defines, passed through": {
+    "lines": [
+      "masters: Base.esm",
+      "mods:    2",
+      "reading masters ...",
+      "  reference landmass: 1 cell(s), 1 land texture(s)",
+      "reading mods ...",
+      "merging ...",
+      "  1 modified cell(s)",
+      "  seam repair moved 0 vertex/vertices (widest gap 0 units)",
+      "  cleaning dropped 0 redundant cell(s)",
+      "  land textures: 1 known, 1 painted by the merge",
+      "  1 texture index/indices no LTEX defines: passed through unchanged, so the plugin carries a dangling index -- a missing master",
+      "  declaring 3 master(s): the plugins that actually contributed",
+      "wrote <root>/out/Merged Lands.esp (18058 bytes, 3 records)",
+      "wrote Merged Lands.mergedlands.toml so a later merge ignores this file"
+    ],
+    "result": {
+      "borrowed": 0,
+      "cells": 1,
+      "clamped": 0,
+      "contested": 0,
+      "dropped": 0,
+      "major": 0,
+      "seams": 0,
+      "slopes": 0,
+      "textures": 1
+    },
+    "sha256": "315899985894f2f67e610609f8f3c70874838979b6c63ae1bd38e9933e80f94b",
+    "size": 18058
   },
   "per-layer strategies: curvature, ignore, colours blended, world map overwritten": {
     "lines": [

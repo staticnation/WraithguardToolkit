@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::cleaning::{clean_against_loaded, clean_landmass, CellDigest, CleaningReport};
 use crate::grid::RelativeGrid;
 
-use crate::landmass::{differences, layer_onto, masked, Coords, Landmass, PluginRecords};
+use crate::landmass::{differences, layer_onto, masked, replace_onto, Coords, Landmass, PluginRecords};
 use crate::layers::{LandscapeDiff, LandscapeLayers, Layer, ALL_LAYERS};
 use crate::merge::{self, merge_layer, ConflictParams};
 use crate::meta::{layer, PluginMeta, Strategy};
@@ -259,7 +259,8 @@ pub fn merge_landmass(
                 }
             }
             if let (Some(l), Some(c)) = (here.as_mut(), c.take()) {
-                layer_onto(l, c, &plugin.name);
+                // What loads: the whole record of the last plugin to carry the cell.
+                replace_onto(l, c, &plugin.name);
             }
         }
         Ok((cell.map(|c| (c, grids)), here.and_then(|mut l| l.cells.remove(&coords))))
@@ -486,6 +487,20 @@ pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Op
     };
     outcome.cleaning = report;
     outcome.cells.retain(|c, _| keep.contains(c));
+    // A cell written replaces the record the engine would otherwise load, whole. A layer the
+    // merge has nothing to say about is then the winning record's own, or the saved record
+    // would drop it (heights are not filled: the merge always has its own where it has any).
+    if let Some(loaded) = loaded {
+        for (c, cell) in outcome.cells.iter_mut() {
+            let Some(winner) = loaded.get(*c) else { continue };
+            for which in [Layer::Textures, Layer::WorldMap, Layer::Colors] {
+                let slot = slot(cell, which);
+                if slot.is_none() {
+                    *slot = winner.get(which).as_deref().map(crate::layers::Packed::to_vec);
+                }
+            }
+        }
+    }
     lap("cleaning");
     Ok(times)
 }

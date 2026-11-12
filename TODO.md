@@ -51,6 +51,52 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
   plugins, recorded once. Wraithguard takes it as a git dependency (as merge_to_master) and the
   Tools page drops the staging and the external program as each command lands.
 
+## Terrain audit (`TERRAIN_AUDIT_2026-11-11.md`, against 5.0.5)
+
+Done in `Unreleased` (see `CHANGELOG.md`): WG-A07 (OpenMW's world map), WG-A05 (configured order), WG-A01 (heights finalized before normals), WG-A04
+(slope limiter at VHGT's real bounds), WG-A02 (what loads is the last whole record; absent colours
+are white; layers the merge has nothing to say about come from the winning record) and WG-A06
+(texture-only records written; a cell that cannot be written stops the merge). Open:
+
+- **Decision: a step VHGT cannot store stops the merge** ("Nothing was written"), as the audit's
+  acceptance list says; `MergeOptions::allow_clamping` is the old clamp-and-warn, and the
+  Python-recorded cases use it. The audit's real run clamped zero vertices, so a real load order
+  should be fine, but none has been run since. Run one; if it stops, the cell named is a step the
+  limiter could not move (against terrain outside the merge). Then choose: keep the default, or
+  flip it to warn. Either way the Tools page and the CLI have no setting for it yet.
+- **Decision: a layer a plugin's settings exclude, where the masters have none.** A written cell
+  now takes colours, textures and the world map the merge has none of from the winning record, so
+  a layer excluded in `.mergedlands.toml` for a new cell (no vanilla LAND) comes back from the
+  excluded plugin. Heights are not filled. Keep, or leave such a layer out as the settings say.
+- Run the audit's geometry probe (`geometry_probe.rs`, its inputs in `geometry/inputs.json`) against
+  this build: it should find no stale normal (637 in 38 cells before), no slope change to a
+  representable array (five before), and the 39 cells' heights unchanged by the encoder. Not run.
+- A01 has no fixture for input offsets with a fractional phase (a reference `VHGT` offset that is
+  not a whole number): the cleaning and border checks compare on the finalized grid, but only the
+  aligned case is tested.
+- WG-A03: preserved normals are checked against one height of three (the vertex, east and north
+  samples), and only the masters' normals are a source. Needs the neighbour-only, edge-triangle
+  (local 63 and 64), authored-normal and normal-only-patch fixtures; selected normals belong in
+  the retention digests. Follows A01, which is done.
+- WG-A05, what is left: an order that *starts* with a mod (no leading run of masters) still
+  takes every `.esm` as a master, so a late master there can still go under the mods before it.
+  Only an order like that has it; decide whether such an order should instead stop the merge.
+- WG-A06, what is left: the saved texture-only record's `LTEX` identities are not checked, and no
+  test stops a CLI run (exit status) on a record that cannot be written.
+- WG-A02, what is left: a present zero-valued layer that differs from the engine's effective result,
+  and the world map of a loaded cell that has none (see A07), are not handled apart.
+- WG-A07, what is left: an authored `WNAM` is kept as it is even where seam repair or the slope
+  limiter then moved the heights it was made from (the audit does not say every authored `WNAM`
+  should be regenerated: decide the policy), and `sink_underwater_land` (a world-map vertex over
+  terrain below sea level made -1) is still the Python's rule on top of OpenMW's formula.
+- Repair scope and feathering stay separate from the correctness fixes: Merged Lands repairs the
+  whole working terrain (303 `LAND` records on the audit's list), Wraithguard the changed cells
+  and their neighbours with the borrowed ones held fixed (39). Do not reduce record counts by
+  suppressing small border mismatches; known intentional discontinuities go in as cell exceptions.
+- `tests/fixtures/land_merge_cases.json` (recorded from the Python) is no longer the whole truth:
+  two of its five cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
+  whether to retire `tools/gen_land_merge_cases.py` and record all five from the engine.
+
 ## After 5.0
 
 Decided (Static, 2026-10-26): the command line stays, in Rust; translations keep the `.po`
@@ -185,6 +231,18 @@ CI and SAST still running then); the five workflows in `.github/workflows` match
   changes, then re-pin.
 - Tauri pins gtk 0.18 (glib patched, above), string_cache 0.9 and jsonptr 0.7 (Aikido: waiting
   on upstream); recheck each Tauri release.
+
+### AppImage catalog PR (`appimage.github.io#11424`, test of 2026-11-10 on v5.0.3)
+
+- Name: the catalog wants no "linux" in it. `wraithguard-linux-x86_64.AppImage` is in
+  `build-app.yml` (copy, chmod, ls, artifact path, release attach) and the README table; the
+  proposal is `Wraithguard_Toolkit-x86_64.AppImage`, from the next release (not on a tag already
+  released), and the catalog PR's data file may name the asset too. Not changed.
+- Theme: the window starts in the dark palette on a light system, which the catalog flags. A
+  light default only when the system is light (`redoran`, the one pale theme, through
+  `prefers-color-scheme` where no theme has been chosen) would also flip light-system users on
+  Windows and macOS; the alternative is to do it only when run as an AppImage (`APPIMAGE`).
+  Undecided; the test passed with this as a warning.
 
 ## Forks: LUAL, Clippy
 

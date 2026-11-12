@@ -117,7 +117,8 @@ pub fn clean_landmass(
             report.unmodified += 1;
             continue;
         }
-        let editors = sources.get(coords).map(|s| s.iter().filter(|n| is_mod(n)).count()).unwrap_or(0);
+        // Every name is a plugin the merge treated as a mod, a late `.esm` among them.
+        let editors = sources.get(coords).map_or(0, Vec::len);
         if editors == 1 {
             let original = originals.get(coords);
             if let Some(o) = original
@@ -137,6 +138,13 @@ pub fn clean_landmass(
     (keep, report)
 }
 
+/// The digest of a colour layer that is all white, which is what the engine draws where a
+/// loaded `LAND` carries no `VCLR`.
+fn white_colors() -> u64 {
+    static WHITE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *WHITE.get_or_init(|| digest(&vec![255; crate::grid::LAND_NUM_VERTS * 3]))
+}
+
 /// The cells worth writing, judged against what the load order already loads (the OpenMW
 /// fork's `clean_landmass_diff`): a merged cell is kept when a layer it carries differs from
 /// the loaded cell's, or the loaded cell lacks it; a cell that comes out exactly as the game
@@ -153,9 +161,16 @@ pub fn clean_against_loaded(merged: &BTreeMap<Coords, CellDigest>, loaded: &BTre
             (Some(a), Some(b)) => a != b,
         };
         let there = loaded.get(coords);
+        // A loaded cell with no colours is drawn white: an all-white layer is no change to it
+        // (a missing LAND is not that, and nor is colour over colour, or a white override of
+        // terrain that has colours - those still differ).
+        let colors_differ = match (grid.colors, there) {
+            (Some(mine), Some(d)) if d.colors.is_none() => mine != white_colors(),
+            _ => differs_layer(&grid.colors, there.map(|d| &d.colors)),
+        };
         let differs = differs_layer(&grid.heights, there.map(|d| &d.heights))
             || differs_layer(&grid.world_map, there.map(|d| &d.world_map))
-            || differs_layer(&grid.colors, there.map(|d| &d.colors))
+            || colors_differ
             || differs_layer(&grid.textures, there.map(|d| &d.textures));
         if differs {
             keep.insert(*coords);
@@ -187,6 +202,30 @@ mod tests {
 
     /// The digest as it was first written (an `Option` carried between values): the faster
     /// loop gives the same numbers, so what it compares is unchanged.
+    /// WG-A02: the loaded cell's missing colours are white. All white over them is no change;
+    /// any other colour is, and so is white over colours the loaded cell has.
+    #[test]
+    fn absent_loaded_colors_are_white() {
+        let white = vec![255; crate::grid::LAND_NUM_VERTS * 3];
+        let mut tint = white.clone();
+        tint[7] = 3;
+        let merged = BTreeMap::from([
+            ((0, 0), d(Some(vec![1]), Some(white.clone()))),
+            ((1, 0), d(Some(vec![1]), Some(tint))),
+            ((2, 0), d(Some(vec![1]), Some(white.clone()))),
+            ((3, 0), d(Some(vec![1]), Some(white.clone()))),
+        ]);
+        let loaded = BTreeMap::from([
+            ((0, 0), d(Some(vec![1]), None)),
+            ((1, 0), d(Some(vec![1]), None)),
+            ((2, 0), d(Some(vec![1]), Some(vec![9]))),
+        ]);
+        let (keep, _) = clean_against_loaded(&merged, &loaded);
+        // (0,0) white on none: nothing; (1,0) tinted on none: kept; (2,0) white over colours: kept;
+        // (3,0) no LAND loaded at all: kept.
+        assert_eq!(keep, BTreeSet::from([(1, 0), (2, 0), (3, 0)]));
+    }
+
     #[test]
     fn the_digest_is_the_same_as_the_first_form() {
         fn first(values: impl Iterator<Item = Value>) -> u64 {

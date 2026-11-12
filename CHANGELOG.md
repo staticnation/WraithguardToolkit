@@ -18,10 +18,31 @@
   (five of the audit's cells). It now works to those bounds, in whole eight-unit moves on the
   finalized heights.
 
+- **Merge Lands drops a cell only when the engine already loads it** (WG-A02). What loads is the
+  last whole `LAND` record at a coordinate, not the earlier layers laid under it, so a later
+  record that omits colours or textures (the audit's Bloodmoon colours and Sand_02 textures)
+  no longer hides a restoration: the cell is written. A loaded cell with no colours counts as
+  white, so an all-white layer over it is no change, and colours over a missing `LAND` are one.
+  A cell written takes the layers the merge has nothing to say about from the winning record.
+- **A cell of textures alone is written** (WG-A06): it used to be refused for having neither
+  heights nor colours. A cell the merge keeps and cannot write now stops it, where the line
+  said so and the plugin was saved without that cell.
+
+- **Merge Lands follows the configured order, not the extension** (WG-A05). Only the `.esm` /
+  `.omwgame` files the order starts with are the reference terrain; one that comes after a mod is
+  merged as a mod in its place, so `Base.esm`, `Early.esp`, `Late.esm` gives `Late.esm`'s ground
+  as OpenMW loads it (it gave `Early.esp`'s). Orders with every `.esm` first are unchanged. An
+  order that starts with a mod keeps the old split, so the merge still has a reference.
+
+- **The world map Merge Lands generates is OpenMW's** (WG-A07). A cell with no authored `WNAM`
+  gets `generateWnam`'s: samples at 0, 7, 14 ... 56 on each axis (not every eighth vertex), a
+  height above zero over 128 and any other over 16, truncated; a flat -1,024 reads -64, not -8.
+  An authored `WNAM` is kept as it was.
+
 ### Changed
 
 - The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
-  the engine to the Python's bytes where the two fixes above change them (two of the five
+  the engine to the Python's bytes where the two fixes above change them (three of the five
   cases); `landcore/tests/fixtures/land_merge_cases_audit.json` records what the engine
   answers there, and says how to re-record it.
 

@@ -23,14 +23,34 @@ fn round_half_even(v: f64) -> f64 {
     if (v - v.trunc()).abs() == 0.5 { 2.0 * (v / 2.0).round() } else { r }
 }
 
-/// The 9x9 world map from a cell's heights (`world_map_from_heights`): every eighth vertex
-/// over 128, as the engine and the Construction Set derive it.
+/// The 9x9 world map the Python derived from a cell's heights (`world_map_from_heights`):
+/// every eighth vertex over 128, rounded. Not what OpenMW generates ([`generated_world_map`],
+/// which the merge writes); kept because the recorded cases build their input plugins with it.
 pub fn world_map_from_heights(heights: &[Value]) -> Vec<Value> {
     let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
     for gy in 0..WNAM_SIZE {
         for gx in 0..WNAM_SIZE {
             let h = heights[gy * WNAM_STEP * LAND_SIZE + gx * WNAM_STEP] as f64;
             out.push((round_half_even(h / WNAM_HEIGHT_SCALE) as Value).clamp(-128, 127));
+        }
+    }
+    out
+}
+
+/// The 9x9 world map OpenMW generates for a `LAND` that has none (`generateWnam`,
+/// `components/esm3/loadland.cpp`, 0.51.0): each axis is sampled at `floor(i * 64 / 9)`, so at
+/// 0, 7, 14 ... 56, never at the cell's far edge; a height above zero is divided by 128 and any
+/// other by 16 (so the water below reads steeply), and the result is truncated, in `f32` as the
+/// engine does. A flat -1,024 gives -64.
+pub fn generated_world_map(heights: &[Value]) -> Vec<Value> {
+    let step = (LAND_SIZE - 1) as f32 / WNAM_SIZE as f32;
+    let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
+    for row in 0..WNAM_SIZE {
+        for col in 0..WNAM_SIZE {
+            let at = (row as f32 * step) as usize * LAND_SIZE + (col as f32 * step) as usize;
+            let mut h = heights[at] as f32;
+            h /= if h > 0.0 { 128.0 } else { 16.0 };
+            out.push(h.clamp(-128.0, 127.0) as Value);
         }
     }
     out
@@ -61,7 +81,21 @@ pub fn build_landscape_record(
     world_map: Option<&[Value]>,
     colors: Option<&[Value]>,
 ) -> Result<(Landscape, Vec<(usize, usize)>), String> {
-    if heights.is_none() && colors.is_none() {
+    build_landscape_record_for(coords, heights, normals, world_map, colors, false)
+}
+
+/// [`build_landscape_record`] for a cell that may also carry textures (`has_textures`, which
+/// [`attach_texture_indices`] then supplies): a record of textures alone is a record to write
+/// (a restoration of the textures a later `LAND` leaves out), not an empty one.
+pub fn build_landscape_record_for(
+    coords: (i64, i64),
+    heights: Option<&[Value]>,
+    normals: Option<&[Value]>,
+    world_map: Option<&[Value]>,
+    colors: Option<&[Value]>,
+    has_textures: bool,
+) -> Result<(Landscape, Vec<(usize, usize)>), String> {
+    if heights.is_none() && colors.is_none() && !has_textures {
         return Err(format!(
             "cell ({}, {}) was given no layers to write. An empty LAND record would replace whatever the load order had there with nothing.",
             coords.0, coords.1
@@ -93,7 +127,7 @@ pub fn build_landscape_record(
         }
         flags |= LandscapeFlags::USES_VERTEX_HEIGHTS_AND_NORMALS;
         if world.as_ref().is_none_or(|w| w.iter().all(|&v| v == 0)) {
-            world = Some(world_map_from_heights(h));
+            world = Some(generated_world_map(h));
         }
         world = world.map(|w| sink_underwater_land(&w, h));
     }
@@ -167,6 +201,47 @@ mod tests {
         let w = world_map_from_heights(&h);
         assert_eq!(&w[..3], &[0, 2, 0]);
         assert_eq!(&sink_underwater_land(&w, &h)[..3], &[0, 2, -1]);
+    }
+
+    /// WG-A06: a record of textures alone is built, declares them, and reads back as written.
+    /// WG-A07: OpenMW's `generateWnam`, sample for sample.
+    #[test]
+    fn the_world_map_is_what_openmw_generates() {
+        // Flat -1,024: OpenMW reads -64 (the old way -8).
+        assert!(generated_world_map(&vec![-1024; LAND_NUM_VERTS]).iter().all(|&v| v == -64));
+        // Columns sampled at 0, 7, 14 ... 56 (the old way 0, 8 ... 64): a ramp of 128 a column.
+        let ramp: Vec<Value> = (0..LAND_NUM_VERTS).map(|i| (i % LAND_SIZE) as Value * 128).collect();
+        let w = generated_world_map(&ramp);
+        assert_eq!(&w[..9], &[0, 7, 14, 21, 28, 35, 42, 49, 56]);
+        // And rows alike.
+        let rows: Vec<Value> = (0..LAND_NUM_VERTS).map(|i| (i / LAND_SIZE) as Value * 128).collect();
+        let w = generated_world_map(&rows);
+        assert_eq!((0..9).map(|r| w[r * 9]).collect::<Vec<_>>(), [0, 7, 14, 21, 28, 35, 42, 49, 56]);
+        // Above zero over 128, truncated (100 is 0, not 1); at or below over 16 (-15 is 0, -16 is -1).
+        let mut h = vec![0; LAND_NUM_VERTS];
+        h[0] = 100;
+        h[7] = -15;
+        h[14] = -16;
+        h[21] = 128 * 130; // past a signed byte: clamped
+        h[28] = -16 * 200;
+        assert_eq!(&generated_world_map(&h)[..5], &[0, 0, -1, 127, -128]);
+    }
+
+    #[test]
+    fn a_texture_only_record_is_written() {
+        assert!(build_landscape_record((1, 2), None, None, None, None).is_err());
+        assert!(build_landscape_record_for((1, 2), None, None, None, None, false).is_err());
+        let (mut record, clamped) = build_landscape_record_for((1, 2), None, None, None, None, true).unwrap();
+        assert!(clamped.is_empty());
+        let rows: Vec<Value> = (0..256).map(|i| (i % 5) as Value).collect();
+        attach_texture_indices(&mut record, &rows);
+        assert_eq!(record.landscape_flags, LandscapeFlags::USES_TEXTURES);
+        let bytes = plugin_bytes(vec![TES3Object::Landscape(record)], &[("Morrowind.esm".into(), 79837557)]).unwrap();
+        let mut back = Plugin { objects: Vec::new() };
+        back.load_bytes(&bytes).unwrap();
+        let Some(TES3Object::Landscape(l)) = back.objects.iter().find(|o| matches!(o, TES3Object::Landscape(_))) else { panic!("no LAND saved") };
+        assert_eq!((l.grid, l.landscape_flags), ((1, 2), LandscapeFlags::USES_TEXTURES));
+        assert_eq!(crate::layers::swizzle_texture_indices(&rows), *l.texture_indices.data);
     }
 
     #[test]
