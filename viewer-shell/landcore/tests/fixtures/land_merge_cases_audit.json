@@ -1,0 +1,72 @@
+{
+  "a load order with overlapping, new, resolved and redundant terrain": {
+    "lines": [
+      "masters: Base.esm, Second.esm",
+      "mods:    11",
+      "reading masters ...",
+      "  reference landmass: 10 cell(s), 3 land texture(s)",
+      "reading mods ...",
+      "  1 plugin(s) could not be read:",
+      "    Missing.esp (not found)",
+      "  2 plugin(s) carry .mergedlands.toml settings: Blend.esp, Painter.esp",
+      "    Blend.esp: meta_type=Patch; height_map: on/Resolve; vertex_colors: on/Auto; texture_indices: on/Auto; world_map_data: on/Auto",
+      "    Painter.esp: meta_type=Patch; height_map: OFF/Auto; vertex_colors: on/Auto; texture_indices: on/Auto; world_map_data: on/Auto",
+      "merging ...",
+      "  skipped Old Merged Lands.esp: a previous merge",
+      "  8 modified cell(s)",
+      "  seam repair moved 910 vertex/vertices (widest gap 5456 units)",
+      "  brought in 3 untouched cell(s) to reconcile their borders",
+      "  slope limiter moved 5168 vertex/vertices in 24 pass(es)",
+      "  96 adjustment(s) refused: the vertex is shared with terrain outside the merge",
+      "  cleaning dropped 5 redundant cell(s)",
+      "  4 vertex/vertices could not be expressed in VHGT and were clamped",
+      "  land textures: 5 known, 3 painted by the merge",
+      "  declaring 7 master(s): the plugins that actually contributed",
+      "wrote <root>/out/Merged Lands.esp (156405 bytes, 10 records)",
+      "wrote Merged Lands.mergedlands.toml so a later merge ignores this file"
+    ],
+    "result": {
+      "borrowed": 3,
+      "cells": 6,
+      "clamped": 4,
+      "contested": 221,
+      "dropped": 5,
+      "major": 147,
+      "seams": 910,
+      "slopes": 5168,
+      "textures": 3
+    },
+    "sha256": "2e861df489cffc0425737787f3ffa1dac29ea776421b2c4380b547e9684021c2",
+    "size": 156405
+  },
+  "per-layer strategies: curvature, ignore, colours blended, world map overwritten": {
+    "lines": [
+      "masters: Base.esm",
+      "mods:    3",
+      "reading masters ...",
+      "  reference landmass: 2 cell(s), 0 land texture(s)",
+      "reading mods ...",
+      "  2 plugin(s) carry .mergedlands.toml settings: B.esp, C.esp",
+      "merging ...",
+      "  2 modified cell(s)",
+      "  seam repair moved 67 vertex/vertices (widest gap 120 units)",
+      "  cleaning dropped 0 redundant cell(s)",
+      "  declaring 4 master(s): the plugins that actually contributed",
+      "wrote <root>/out/Merged Lands.esp (59925 bytes, 3 records)",
+      "wrote Merged Lands.mergedlands.toml so a later merge ignores this file"
+    ],
+    "result": {
+      "borrowed": 0,
+      "cells": 2,
+      "clamped": 0,
+      "contested": 192,
+      "dropped": 0,
+      "major": 128,
+      "seams": 67,
+      "slopes": 0,
+      "textures": 0
+    },
+    "sha256": "93a2ac477376fd7e1ca0d7d3a59998f685437152fc661ac82e9a4da8e3743fd2",
+    "size": 59925
+  }
+}

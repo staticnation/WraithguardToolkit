@@ -394,7 +394,8 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
                 continue;
             }
             if let Some(h) = reference.get(o).and_then(|l| l.heights.as_deref().map(crate::layers::Packed::to_vec)) {
-                nearby.insert(o, h);
+                // As a record of it would be saved, like the cells beside it.
+                nearby.insert(o, crate::heights::finalized(&h));
             }
         }
     }
@@ -411,7 +412,11 @@ fn digest_cell(cell: &MergedCell) -> CellDigest {
 fn digest_reference(l: &LandscapeLayers) -> CellDigest {
     {
         let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(crate::layers::Packed::digest);
-        CellDigest { heights: d(&l.heights), normals: None, world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
+        // Heights as a record of them would be saved: the merged cell's are finalized, so a
+        // reference off the eight-unit grid is compared on the grid too (a cell the merge
+        // did not change is then not kept for the encoder's rounding alone).
+        let heights = l.heights.as_deref().map(|h| crate::cleaning::digest(&crate::heights::finalized(&h.to_vec())));
+        CellDigest { heights, normals: None, world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
     }
 }
 
@@ -446,6 +451,15 @@ pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Op
         let anchor = |c: Coords, i: usize| reference.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i));
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
         lap("seams");
+        // What is saved is heights on VHGT's eight-unit grid, so that is what everything
+        // after this reads: the slopes (a step is legal or not as it will be stored), the
+        // normals (worked out from the stored terrain, not from terrain the encoder then
+        // moves under them), the border check and the cleaning. Equal heights stay equal, so
+        // every copy of a shared vertex still agrees.
+        for h in heights.values_mut() {
+            crate::heights::finalize_heights(h);
+        }
+        lap("finalize");
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
         lap("slopes");
     }

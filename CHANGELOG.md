@@ -1,6 +1,30 @@
 # Changelog
 
 
+## Unreleased
+
+### Fixed
+
+- **Merge Lands saves the heights its normals were made from** (terrain audit 2026-11-11,
+  WG-A01). The heights are put on VHGT's eight-unit grid right after the seams are repaired,
+  and the slopes, the normals, the border check and the cleaning all read them from there; the
+  encoder used to floor them afterwards, which left 637 generated normals in 38 of the audit's
+  39 cells describing terrain that was not the one saved. Equal heights stay equal, so every
+  copy of a shared border vertex still agrees. A step the merge could not repair now stops it
+  (`Nothing was written`) instead of being clamped by the encoder; `MergeOptions::allow_clamping`
+  is the old way.
+- **The slope limiter moves only what VHGT cannot store** (WG-A04). Its limit was a symmetric
+  1,008 world units; the byte holds -1,024 to +1,016, so legal steps were moved for nothing
+  (five of the audit's cells). It now works to those bounds, in whole eight-unit moves on the
+  finalized heights.
+
+### Changed
+
+- The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
+  the engine to the Python's bytes where the two fixes above change them (two of the five
+  cases); `landcore/tests/fixtures/land_merge_cases_audit.json` records what the engine
+  answers there, and says how to re-record it.
+
 ## 5.0.5
 
 ### Changed

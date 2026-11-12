@@ -44,6 +44,26 @@ pub fn decode_heights(raw: &[u8], offset: f64) -> Result<Vec<Value>, String> {
     Ok(out)
 }
 
+/// The height `VHGT` can store at or below `v`: the encoder's own floor onto the eight-unit grid.
+pub fn quantize_height(v: Value) -> Value {
+    v.div_euclid(HEIGHT_SCALE) * HEIGHT_SCALE
+}
+
+/// Put every height on the grid [`encode_vertex_heights`] writes, in place. Equal heights stay
+/// equal, so every copy of a vertex shared between cells keeps agreeing with the others.
+/// Everything that reads the terrain after the merge (normals, seams checked, cleaning) is to
+/// read it from here, so it sees what is saved and not what the encoder later makes of it.
+pub fn finalize_heights(heights: &mut [Value]) {
+    for v in heights {
+        *v = quantize_height(*v);
+    }
+}
+
+/// `heights` as [`finalize_heights`] leaves them.
+pub fn finalized(heights: &[Value]) -> Vec<Value> {
+    heights.iter().map(|&v| quantize_height(v)).collect()
+}
+
 /// `encode_vertex_heights`: the offset, the 65x65 deltas, and the vertices whose step had
 /// to be clamped to fit a signed byte. Heights are whole world units here.
 pub fn encode_vertex_heights(heights: &[Value]) -> (f32, Vec<i8>, Vec<(usize, usize)>) {
@@ -175,6 +195,25 @@ mod tests {
         assert_eq!(decode_heights(&raw, offset as f64).unwrap(), heights);
         // Python's // floors: -3 // 8 is -1.
         assert_eq!(encode_vertex_heights(&vec![-3; LAND_NUM_VERTS]).0, -1.0);
+    }
+
+    /// Finalized heights are what a decode of their own encoding gives back, so nothing
+    /// computed from them (normals above all) can go stale in the encoder.
+    #[test]
+    fn finalized_heights_survive_the_encoder() {
+        // Rough (every vertex off the grid) but with steps a byte can hold.
+        let rough: Vec<Value> = (0..LAND_NUM_VERTS).map(|i| ((i * 7919) % 801) as Value - 400).collect();
+        let fin = finalized(&rough);
+        assert!(fin.iter().all(|v| v % HEIGHT_SCALE == 0));
+        assert!(fin.iter().zip(&rough).all(|(f, r)| f <= r && r - f < HEIGHT_SCALE));
+        let (offset, deltas, clamped) = encode_vertex_heights(&fin);
+        assert!(clamped.is_empty());
+        let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();
+        assert_eq!(decode_heights(&raw, offset as f64).unwrap(), fin);
+        // Equal in, equal out: a vertex two cells share cannot come apart.
+        assert_eq!(quantize_height(-3), quantize_height(-3));
+        assert_eq!(quantize_height(-3), -8);
+        assert_eq!(quantize_height(13), 8);
     }
 
     #[test]

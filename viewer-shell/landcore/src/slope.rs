@@ -14,10 +14,52 @@ use crate::grid::Value;
 
 pub type Coords = (i64, i64);
 
-/// The largest step `VHGT` stores, in world units.
+/// The largest step up `VHGT` stores, in world units.
 pub const MAX_STEP: Value = 127 * HEIGHT_SCALE;
-/// Kept back from the limit, so rounding cannot push a fixed step over again.
-const SAFETY: Value = HEIGHT_SCALE;
+/// The largest step down it stores (a signed byte reaches one further down than up).
+pub const MIN_STEP: Value = -128 * HEIGHT_SCALE;
+
+/// What a step may be, and in what pieces a too-steep one is moved.
+///
+/// The real `VHGT` bounds are asymmetric (-1,024 to +1,016 world units) and every stored
+/// height is a whole number of eight-unit steps. The limiter works to exactly those, on
+/// heights already finalized to that grid (`heights::finalize_heights`): a step the byte can
+/// hold is left as it is, and one it cannot is moved in whole grid steps, so what it leaves
+/// is still representable and nothing needs rounding (or clamping) afterwards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Bounds {
+    /// The largest step up, in world units.
+    pub up: Value,
+    /// The largest step down, as a positive number of world units.
+    pub down: Value,
+    /// A move is a multiple of this many world units.
+    pub grain: Value,
+}
+
+impl Bounds {
+    /// Exactly what `VHGT` can store.
+    pub const VHGT: Bounds = Bounds { up: MAX_STEP, down: -MIN_STEP, grain: HEIGHT_SCALE };
+
+    /// `limit` either way, moved in single units (`limit_slopes_with`).
+    pub const fn symmetric(limit: Value) -> Bounds {
+        Bounds { up: limit, down: limit, grain: 1 }
+    }
+
+    fn holds(&self, step: Value) -> bool {
+        -self.down <= step && step <= self.up
+    }
+
+    /// How far `step` is past what is held (0 when it is held).
+    fn excess(&self, step: Value) -> Value {
+        if step > self.up {
+            step - self.up
+        } else if step < -self.down {
+            -step - self.down
+        } else {
+            0
+        }
+    }
+}
 const STRUCTURE_WEIGHT: f64 = 12.0;
 pub const MAX_PASSES: usize = 24;
 const LAST: usize = LAND_SIZE - 1;
@@ -138,35 +180,40 @@ fn split(a: f64, b: f64, excess: Value) -> (Value, Value) {
     (share_a, excess - share_a)
 }
 
-/// How many steps exceed what `VHGT` can store (`count_unencodable`).
-pub fn count_unencodable<'a>(cells: impl IntoIterator<Item = &'a Vec<Value>>, limit: Value) -> usize {
+/// How many steps `bounds` does not hold.
+pub fn count_outside<'a>(cells: impl IntoIterator<Item = &'a Vec<Value>>, bounds: Bounds) -> usize {
     let all = pairs();
     cells
         .into_iter()
-        .map(|g| {
-            all.iter()
-                .filter(|&&((ax, ay), (bx, by))| {
-                    let step = g[bx + by * LAND_SIZE] - g[ax + ay * LAND_SIZE];
-                    step > limit || step < -limit
-                })
-                .count()
-        })
+        .map(|g| all.iter().filter(|&&((ax, ay), (bx, by))| !bounds.holds(g[bx + by * LAND_SIZE] - g[ax + ay * LAND_SIZE])).count())
         .sum()
 }
 
-/// `limit_slopes`, in place, with the Python's defaults (`limit` 1008, no curvature).
+/// How many steps exceed `limit` either way.
+pub fn count_unencodable<'a>(cells: impl IntoIterator<Item = &'a Vec<Value>>, limit: Value) -> usize {
+    count_outside(cells, Bounds::symmetric(limit))
+}
+
+/// `limit_slopes`, in place: exactly what `VHGT` can store (see [`Bounds::VHGT`]), no curvature.
+/// The heights are expected finalized (`heights::finalize_heights`) first.
 pub fn limit_slopes(cells: &mut BTreeMap<Coords, Vec<Value>>, authoritative: &BTreeSet<Coords>) -> SlopeReport {
-    limit_slopes_with(cells, MAX_STEP - SAFETY, false, authoritative)
+    limit_slopes_bounded(cells, Bounds::VHGT, false, authoritative)
+}
+
+/// [`limit_slopes`] with `limit` either way and moves of one unit (the Python's own
+/// symmetric limit, which kept a margin back from the real one).
+pub fn limit_slopes_with(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Value, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> SlopeReport {
+    limit_slopes_bounded(cells, Bounds::symmetric(limit), use_curvature, authoritative)
 }
 
 /// `limit_slopes`: every too-steep step shared out until none is left, or `MAX_PASSES`.
-pub fn limit_slopes_with(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Value, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> SlopeReport {
+pub fn limit_slopes_bounded(cells: &mut BTreeMap<Coords, Vec<Value>>, bounds: Bounds, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> SlopeReport {
     if cells.is_empty() {
         return SlopeReport::default();
     }
-    let (mut r, settled) = limit_slopes_passes(cells, limit, MAX_PASSES, use_curvature, authoritative);
+    let (mut r, settled) = limit_slopes_passes(cells, bounds, MAX_PASSES, use_curvature, authoritative);
     if !settled {
-        r.converged = count_unencodable(cells.values(), MAX_STEP) == 0;
+        r.converged = count_outside(cells.values(), Bounds::VHGT) == 0;
     }
     r
 }
@@ -184,7 +231,7 @@ pub fn limit_slopes_with(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Value,
 /// earlier has done its work, and none that comes later has started, exactly as in order.
 /// Additions of integers in any order give the same sum; the report's counts are sums,
 /// its worst a maximum and its cells a set.
-pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Value, max_passes: usize, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> (SlopeReport, bool) {
+pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, bounds: Bounds, max_passes: usize, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> (SlopeReport, bool) {
     use std::collections::HashMap;
     use std::sync::{Barrier, Mutex};
     let keys: Vec<Coords> = cells.keys().copied().collect();
@@ -279,25 +326,28 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
                     let first = ax + ay * LAND_SIZE;
                     let second = bx + by * LAND_SIZE;
                     let step = grid[second] - grid[first];
-                    if -limit <= step && step <= limit {
+                    if bounds.holds(step) {
                         continue;
                     }
                     excessive += 1;
-                    let excess = step.abs() - limit;
+                    let excess = bounds.excess(step);
                     r.worst_excess = r.worst_excess.max(excess);
                     worst = worst.max(excess);
                     let ma = may_move(coords, ax, ay, authoritative);
                     let mb = may_move(coords, bx, by, authoritative);
+                    // Moved in whole grains, so a finalized height stays on the grid.
+                    let units = (excess + bounds.grain - 1) / bounds.grain;
                     let (share_a, share_b) = if ma && mb {
-                        split(shape[first], shape[second], excess)
+                        split(shape[first], shape[second], units)
                     } else if ma {
-                        (excess, 0)
+                        (units, 0)
                     } else if mb {
-                        (0, excess)
+                        (0, units)
                     } else {
                         r.pinned += 1;
                         continue;
                     };
+                    let (share_a, share_b) = (share_a * bounds.grain, share_b * bounds.grain);
                     let direction = if step > 0 { 1 } else { -1 };
                     shift(&mut grid, ax, ay, direction * share_a, &mut r);
                     shift(&mut grid, bx, by, -direction * share_b, &mut r);
@@ -367,7 +417,7 @@ pub fn limit_slopes_passes(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Valu
 
 /// The passes one cell after another, as the Python runs them: the reference
 /// [`limit_slopes_passes`] is checked against (`across_cores_is_the_same_as_in_order`).
-pub fn limit_slopes_passes_in_order(cells: &mut BTreeMap<Coords, Vec<Value>>, limit: Value, max_passes: usize, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> (SlopeReport, bool) {
+pub fn limit_slopes_passes_in_order(cells: &mut BTreeMap<Coords, Vec<Value>>, bounds: Bounds, max_passes: usize, use_curvature: bool, authoritative: &BTreeSet<Coords>) -> (SlopeReport, bool) {
     let mut r = SlopeReport::default();
     let structure: BTreeMap<Coords, Vec<f64>> =
         if use_curvature { cells.iter().map(|(c, g)| (*c, structure_map(g))).collect() } else { BTreeMap::new() };
@@ -385,24 +435,26 @@ pub fn limit_slopes_passes_in_order(cells: &mut BTreeMap<Coords, Vec<Value>>, li
                 let second = bx + by * LAND_SIZE;
                 let grid = &cells[&coords];
                 let step = grid[second] - grid[first];
-                if -limit <= step && step <= limit {
+                if bounds.holds(step) {
                     continue;
                 }
                 excessive += 1;
-                let excess = step.abs() - limit;
+                let excess = bounds.excess(step);
                 r.worst_excess = r.worst_excess.max(excess);
                 let ma = movable(cells, coords, ax, ay, authoritative);
                 let mb = movable(cells, coords, bx, by, authoritative);
+                let units = (excess + bounds.grain - 1) / bounds.grain;
                 let (share_a, share_b) = if ma && mb {
-                    split(shape[first], shape[second], excess)
+                    split(shape[first], shape[second], units)
                 } else if ma {
-                    (excess, 0)
+                    (units, 0)
                 } else if mb {
-                    (0, excess)
+                    (0, units)
                 } else {
                     r.pinned += 1;
                     continue;
                 };
+                let (share_a, share_b) = (share_a * bounds.grain, share_b * bounds.grain);
                 let direction = if step > 0 { 1 } else { -1 };
                 shift(cells, coords, ax, ay, direction * share_a, &mut r);
                 shift(cells, coords, bx, by, -direction * share_b, &mut r);
@@ -428,9 +480,76 @@ mod tests {
         cells.insert((0, 0), g);
         let r = limit_slopes(&mut cells, &BTreeSet::new());
         assert!(r.adjusted > 0 && r.converged);
-        assert_eq!(count_unencodable(cells.values(), MAX_STEP - SAFETY), 0);
+        assert_eq!(count_outside(cells.values(), Bounds::VHGT), 0);
         assert_eq!(split(0.0, 0.0, 5), (2, 3));
         assert_eq!(split(0.0, 0.0, 3), (2, 1));
+    }
+
+    /// A row of eight-unit steps with `step` between the two vertices at (31, 32) and (32, 32),
+    /// and nothing else but the staircase the rest of the row needs.
+    fn stepped(step: Value) -> Vec<Value> {
+        let mut g = vec![0; LAND_SIZE * LAND_SIZE];
+        // Not the first and last row: their vertices touch cells that are not there, which
+        // the limiter will not move, so a step there could never be repaired.
+        for y in 1..LAST {
+            for x in 32..LAND_SIZE {
+                g[y * LAND_SIZE + x] = step;
+            }
+        }
+        g
+    }
+
+    /// What `VHGT` stores is left alone: +127 up and -128 down are legal steps, which the
+    /// old symmetric limit with its margin moved.
+    #[test]
+    fn legal_steps_are_left_alone() {
+        for step in [127 * 8, -128 * 8, 126 * 8, -127 * 8] {
+            let mut cells = BTreeMap::new();
+            cells.insert((0, 0), stepped(step));
+            let before = cells.clone();
+            let r = limit_slopes(&mut cells, &BTreeSet::new());
+            assert_eq!(cells, before, "step {step}");
+            assert!(r.adjusted == 0 && r.converged && r.cells_touched.is_empty());
+        }
+    }
+
+    /// One grain past either bound is repaired, exactly to the bound, in whole grains.
+    #[test]
+    fn real_overflow_is_repaired_to_the_bound() {
+        for (step, widest) in [(128 * 8, 127 * 8), (-129 * 8, -128 * 8)] as [(Value, Value); 2] {
+            let mut cells = BTreeMap::new();
+            cells.insert((0, 0), stepped(step));
+            let r = limit_slopes(&mut cells, &BTreeSet::new());
+            let g = &cells[&(0, 0)];
+            assert!(r.adjusted > 0 && r.converged, "step {step}");
+            assert_eq!(count_outside(cells.values(), Bounds::VHGT), 0);
+            assert!(g.iter().all(|v| v % HEIGHT_SCALE == 0), "stays on the grid");
+            // Shared out between its two ends: neither end moved the whole eight units.
+            let at = |x: usize| g[32 * LAND_SIZE + x];
+            assert_eq!((at(32) - at(31)).abs(), widest.abs(), "step {step}");
+        }
+    }
+
+    /// A vertex two cells share moves in both, by the same amount, so they still agree.
+    #[test]
+    fn a_shared_vertex_moves_in_both_cells() {
+        let mut a = vec![0; LAND_SIZE * LAND_SIZE];
+        let mut b = vec![0; LAND_SIZE * LAND_SIZE];
+        // A cliff at the border: the last column of `a` is the first of `b`.
+        for y in 1..LAST {
+            a[y * LAND_SIZE + LAST] = 1500 / 8 * 8;
+            b[y * LAND_SIZE] = 1500 / 8 * 8;
+        }
+        let mut cells = BTreeMap::new();
+        cells.insert((0, 0), a);
+        cells.insert((1, 0), b);
+        let r = limit_slopes(&mut cells, &BTreeSet::new());
+        assert!(r.converged && r.adjusted > 0);
+        for y in 0..LAND_SIZE {
+            assert_eq!(cells[&(0, 0)][y * LAND_SIZE + LAST], cells[&(1, 0)][y * LAND_SIZE]);
+        }
+        assert!(cells.values().all(|g| g.iter().all(|v| v % HEIGHT_SCALE == 0)));
+        assert_eq!(count_outside(cells.values(), Bounds::VHGT), 0);
     }
 
     /// A rough field of cells, some authoritative: the levels' answer is the in-order one.
@@ -455,8 +574,8 @@ mod tests {
         for curvature in [false, true] {
             let mut a = cells.clone();
             let mut b = cells.clone();
-            let ra = limit_slopes_passes(&mut a, MAX_STEP - SAFETY, 6, curvature, &auth);
-            let rb = limit_slopes_passes_in_order(&mut b, MAX_STEP - SAFETY, 6, curvature, &auth);
+            let ra = limit_slopes_passes(&mut a, Bounds::VHGT, 6, curvature, &auth);
+            let rb = limit_slopes_passes_in_order(&mut b, Bounds::VHGT, 6, curvature, &auth);
             assert_eq!(ra, rb);
             assert_eq!(a, b);
             assert!(ra.0.adjusted > 0);
@@ -489,8 +608,8 @@ mod tests {
         cells.insert((6, 0), pinned);
         let auth: BTreeSet<Coords> = [(6, 0)].into();
         let (mut a, mut b) = (cells.clone(), cells.clone());
-        let ra = limit_slopes_passes(&mut a, MAX_STEP - SAFETY, MAX_PASSES, false, &auth);
-        let rb = limit_slopes_passes_in_order(&mut b, MAX_STEP - SAFETY, MAX_PASSES, false, &auth);
+        let ra = limit_slopes_passes(&mut a, Bounds::VHGT, MAX_PASSES, false, &auth);
+        let rb = limit_slopes_passes_in_order(&mut b, Bounds::VHGT, MAX_PASSES, false, &auth);
         assert_eq!(ra, rb);
         assert_eq!(a, b);
         assert!(!ra.1 && ra.0.passes == MAX_PASSES && ra.0.adjusted > 0 && ra.0.pinned > 0, "{:?}", ra.0);

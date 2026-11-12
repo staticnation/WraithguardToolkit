@@ -14,6 +14,14 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 const CASES: &str = include_str!("../../../tests/fixtures/land_merge_cases.json");
+/// What the engine now answers where the audit of 2026-11-11 (`TERRAIN_AUDIT_2026-11-11.md`,
+/// WG-A01 and WG-A04) made it differ from the Python these cases were recorded from: heights
+/// finalized to VHGT's grid before normals, and slopes limited to what VHGT really stores.
+/// A case named here is held to this record instead of the Python's for the lines, the counts
+/// and the plugin's bytes (the inputs still must match the Python's hashes). Re-record with
+/// `LANDCORE_RECORD_AUDIT=1 cargo test -p landcore --test merge_cases`, after checking the
+/// difference is one the audit asks for.
+const AUDIT: &str = include_str!("fixtures/land_merge_cases_audit.json");
 const SIZE: usize = 65;
 
 fn ints(v: &Value) -> Vec<i32> {
@@ -159,9 +167,18 @@ fn stem(name: &str) -> &str {
 #[test]
 fn a_whole_merge_gives_the_recorded_plugin_and_report() {
     let doc: Value = serde_json::from_str(CASES).unwrap();
+    let audit: Value = serde_json::from_str(AUDIT).unwrap();
+    let recording = std::env::var_os("LANDCORE_RECORD_AUDIT").is_some();
+    let mut recorded = serde_json::Map::new();
     for case in doc["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
-        let expect = &case["expect"];
+        let mut merged_expect = case["expect"].clone();
+        if let Some(over) = audit.get(name).and_then(Value::as_object) {
+            for (k, v) in over {
+                merged_expect[k.as_str()] = v.clone();
+            }
+        }
+        let expect = &merged_expect;
         let root = root_for(name);
         let data = root.join("data");
         for p in case["plugins"].as_array().unwrap() {
@@ -184,6 +201,8 @@ fn a_whole_merge_gives_the_recorded_plugin_and_report() {
             verbose: case.get("verbose").and_then(Value::as_bool).unwrap_or(false),
             // The Python's model and cleaning, which these cases were recorded from.
             clean_against_load_order: false,
+            // Recorded before the engine stopped at a step it cannot repair.
+            allow_clamping: true,
             ..Default::default()
         };
         let mut said = Vec::new();
@@ -196,6 +215,43 @@ fn a_whole_merge_gives_the_recorded_plugin_and_report() {
         let want_lines: Vec<String> = expect["lines"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
         // The read progress ("  read n/m plugin(s)") is said for the page only, not the Python's.
         said.retain(|l| !(l.starts_with("  read ") && l.ends_with(" plugin(s)")));
+        if recording {
+            let mut rec = serde_json::Map::new();
+            rec.insert("lines".into(), Value::from(un(&said)));
+            match &got {
+                Err((message, _)) => {
+                    rec.insert("error".into(), Value::from(message.clone()));
+                }
+                Ok(result) => {
+                    let mut counts = serde_json::Map::new();
+                    for (k, v) in ["cells", "textures", "contested", "major", "seams", "slopes", "clamped", "dropped", "borrowed"].iter().zip([
+                        result.cells_written, result.textures_written, result.contested, result.major, result.seam_vertices,
+                        result.slope_vertices, result.clamped, result.dropped, result.borrowed,
+                    ]) {
+                        counts.insert((*k).into(), Value::from(v as u64));
+                    }
+                    rec.insert("result".into(), Value::Object(counts));
+                    if result.output.is_some() {
+                        let body = std::fs::read(&out).unwrap();
+                        rec.insert("sha256".into(), Value::from(hex(&body)));
+                        rec.insert("size".into(), Value::from(body.len() as u64));
+                    }
+                }
+            }
+            // Only a case the engine now answers differently from the Python is recorded.
+            let same = {
+                let py = &case["expect"];
+                rec.get("lines") == py.get("lines")
+                    && rec.get("result") == py.get("result")
+                    && rec.get("sha256") == py.get("sha256")
+                    && rec.get("error").map(|e| e.as_str()) == Some(py["error"].as_str())
+            } || (rec.get("error").is_none() && rec.get("lines") == case["expect"].get("lines") && rec.get("result") == case["expect"].get("result") && rec.get("sha256") == case["expect"].get("sha256"));
+            if !same {
+                recorded.insert(name.to_string(), Value::Object(rec));
+            }
+            let _ = std::fs::remove_dir_all(&root);
+            continue;
+        }
         assert_eq!(un(&said), want_lines, "{name}: the lines said");
         match got {
             Err((message, lines)) => {
@@ -231,6 +287,11 @@ fn a_whole_merge_gives_the_recorded_plugin_and_report() {
             }
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+    if recording {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/land_merge_cases_audit.json");
+        std::fs::write(&path, serde_json::to_string_pretty(&Value::Object(recorded)).unwrap() + "\n").unwrap();
+        eprintln!("recorded {}", path.display());
     }
 }
 
@@ -402,5 +463,53 @@ fn a_cancelled_merge_stops_and_writes_nothing() {
     let opts = MergeOptions { output: Some(out.clone()), cancel: Some(Arc::new(AtomicBool::new(false))), ..Default::default() };
     build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |_| {}).unwrap_or_else(|(e, _)| panic!("{e}"));
     assert!(out.exists());
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// WG-A01 (`TERRAIN_AUDIT_2026-11-11.md`): the heights are finalized to what `VHGT` stores
+/// *before* the normals are worked out, so every normal the merge generated describes the
+/// terrain saved. Two neighbours each bumped differently so that seam repair feathers a shared
+/// border to heights off the eight-unit grid; read back from the plugin written, no vertex
+/// whose height the merge moved may carry a normal other than the one its saved heights give.
+#[test]
+fn saved_normals_describe_the_saved_heights() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let flat = json!([400, 1, 1, 9, 0, 0, -1, 0]);
+    let data = setup(
+        "saved normals",
+        json!([
+            {"name": "Base.esm", "land": [
+                {"grid": [0, 0], "flags": 1, "heights": flat}, {"grid": [1, 0], "flags": 1, "heights": flat}, {"grid": [2, 0], "flags": 1, "heights": flat}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 62, 30, 9, 83]}]},
+            {"name": "B.esp", "land": [{"grid": [1, 0], "flags": 1, "heights": [400, 1, 1, 9, 3, 30, 11, -61]}]},
+        ]),
+    );
+    let order = ["Base.esm", "A.esp", "B.esp"];
+    let r = run(&data, &order, MergeOptions { clean_against_load_order: false, ..Default::default() });
+    assert!(r.seam_vertices > 0, "the case must make the seam repair move heights: {:#?}", r.lines);
+    assert_eq!(r.clamped, 0);
+    let out = data.parent().unwrap().join("out").join(DEFAULT_NAME);
+    let plugin = Plugin::from_path(&out).unwrap();
+    let base_heights: Vec<i32> = heights_of(&[400, 1, 1, 9, 0, 0, -1, 0]).iter().map(|v| v * 8).collect();
+    let mut checked = 0;
+    for object in &plugin.objects {
+        let TES3Object::Landscape(l) = object else { continue };
+        let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+        let heights = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap();
+        // Decoding what was saved gives the finalized grid: nothing left for the encoder to move.
+        assert!(heights.iter().all(|v| v % 8 == 0), "cell {:?}", l.grid);
+        let want = normals_from_heights(&heights.iter().map(|&v| v as f64).collect::<Vec<_>>());
+        for i in 0..SIZE * SIZE {
+            let got: Vec<i32> = (0..3).map(|k| l.vertex_normals.data[i / SIZE][i % SIZE][k] as i32).collect();
+            // The master's own normal is kept where the merge left the height as it was.
+            if heights[i] == base_heights[i] {
+                continue;
+            }
+            assert_eq!(got, want[i * 3..i * 3 + 3], "cell {:?} vertex {}: a normal that is not the saved heights'", l.grid, i);
+            checked += 1;
+        }
+    }
+    assert!(checked > 300, "{checked}");
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }

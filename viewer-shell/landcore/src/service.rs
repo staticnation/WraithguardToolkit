@@ -64,6 +64,10 @@ pub struct MergeOptions {
     /// each batch of mods read, before and after the merge, before the write), and a merge
     /// stopped writes nothing.
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Write terrain whose steps `VHGT` cannot hold, clamping them (the Python's way), instead
+    /// of stopping. Off by default: a step clamped in the encoder is terrain the merge did not
+    /// choose, and normals worked out beforehand would no longer describe it.
+    pub allow_clamping: bool,
 }
 
 /// The fork's starting `ignore_plugins`: generated or non-land plugins, expensive to read and
@@ -89,6 +93,7 @@ impl Default for MergeOptions {
             clean_against_load_order: true,
             ignore: DEFAULT_IGNORE.iter().map(|s| s.to_string()).collect(),
             cancel: None,
+            allow_clamping: false,
         }
     }
 }
@@ -506,10 +511,14 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     let mut pending: Vec<(usize, Vec<Value>)> = Vec::new();
     let mut used: BTreeSet<Value> = BTreeSet::new();
     let mut clamped = 0;
+    let mut clamped_cells: Vec<(i64, i64)> = Vec::new();
     for (c, cell) in &outcome.cells {
         match build_landscape_record(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref()) {
             Ok((record, clamps)) => {
                 clamped += clamps.len();
+                if !clamps.is_empty() {
+                    clamped_cells.push(*c);
+                }
                 if let Some(t) = &cell.textures {
                     used.extend(t.iter().copied());
                     pending.push((lands.len(), t.clone()));
@@ -518,6 +527,16 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
             }
             Err(e) => say!("  cell {} could not be written: {e}", coords(*c)),
         }
+    }
+    if clamped > 0 && !opts.allow_clamping {
+        // The heights were finalized and the slopes limited to what VHGT holds before this, so a
+        // step left over is one the merge could not move (against terrain outside it): saved,
+        // the encoder would change heights the normals were already worked out from.
+        let first = clamped_cells.iter().take(5).map(|c| coords(*c)).collect::<Vec<_>>().join(", ");
+        fail!(
+            "{clamped} vertex/vertices in {} cell(s) (first: {first}) have a step VHGT cannot store and the slope limiter could not repair it. Nothing was written: saving it would make the encoder clamp the terrain after its normals were worked out. Please report it.",
+            clamped_cells.len()
+        );
     }
     if clamped > 0 {
         say!("  {clamped} vertex/vertices could not be expressed in VHGT and were clamped");
