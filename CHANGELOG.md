@@ -10,9 +10,9 @@
   and the slopes, the normals, the border check and the cleaning all read them from there; the
   encoder used to floor them afterwards, which left 637 generated normals in 38 of the audit's
   39 cells describing terrain that was not the one saved. Equal heights stay equal, so every
-  copy of a shared border vertex still agrees. A step the merge could not repair now stops it
-  (`Nothing was written`) instead of being clamped by the encoder; `MergeOptions::allow_clamping`
-  is the old way.
+  copy of a shared border vertex still agrees. A step the merge could not repair is still clamped by the encoder and the plugin is
+  written, as before; the log now names the first cells and says the normals were worked out
+  before it. `MergeOptions::allow_clamping` (on by default) off stops the merge instead.
 - **The slope limiter moves only what VHGT cannot store** (WG-A04). Its limit was a symmetric
   1,008 world units; the byte holds -1,024 to +1,016, so legal steps were moved for nothing
   (five of the audit's cells). It now works to those bounds, in whole eight-unit moves on the

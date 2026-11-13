@@ -64,9 +64,12 @@ pub struct MergeOptions {
     /// each batch of mods read, before and after the merge, before the write), and a merge
     /// stopped writes nothing.
     pub cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    /// Write terrain whose steps `VHGT` cannot hold, clamping them (the Python's way), instead
-    /// of stopping. Off by default: a step clamped in the encoder is terrain the merge did not
-    /// choose, and normals worked out beforehand would no longer describe it.
+    /// Write terrain whose steps `VHGT` cannot hold, clamping them in the encoder, and say so
+    /// (the Python's way), instead of stopping. On by default. Off, a step the slope limiter
+    /// could not repair stops the merge before anything is written: a step clamped in the
+    /// encoder is terrain the merge did not choose, and normals worked out beforehand would no
+    /// longer describe it. The audit's acceptance list asks for the stop; the default is a
+    /// choice to warn.
     pub allow_clamping: bool,
 }
 
@@ -93,7 +96,7 @@ impl Default for MergeOptions {
             clean_against_load_order: true,
             ignore: DEFAULT_IGNORE.iter().map(|s| s.to_string()).collect(),
             cancel: None,
-            allow_clamping: false,
+            allow_clamping: true,
         }
     }
 }
@@ -552,7 +555,8 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         );
     }
     if clamped > 0 {
-        say!("  {clamped} vertex/vertices could not be expressed in VHGT and were clamped");
+        let first = clamped_cells.iter().take(5).map(|c| coords(*c)).collect::<Vec<_>>().join(", ");
+        say!("  {clamped} vertex/vertices in {} cell(s) (first: {first}) have a step VHGT cannot store that the slope limiter could not repair, and were clamped; their normals were worked out before it", clamped_cells.len());
     }
     result.clamped = clamped;
     if lands.is_empty() {

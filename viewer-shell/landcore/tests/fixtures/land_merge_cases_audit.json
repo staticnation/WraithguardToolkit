@@ -19,7 +19,7 @@
       "  slope limiter moved 5168 vertex/vertices in 24 pass(es)",
       "  96 adjustment(s) refused: the vertex is shared with terrain outside the merge",
       "  cleaning dropped 5 redundant cell(s)",
-      "  4 vertex/vertices could not be expressed in VHGT and were clamped",
+      "  4 vertex/vertices in 2 cell(s) (first: (2, 0), (3, 0)) have a step VHGT cannot store that the slope limiter could not repair, and were clamped; their normals were worked out before it",
       "  land textures: 5 known, 3 painted by the merge",
       "  declaring 7 master(s): the plugins that actually contributed",
       "wrote <root>/out/Merged Lands.esp (156405 bytes, 10 records)",

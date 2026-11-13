@@ -58,19 +58,24 @@ Done in `Unreleased` (see `CHANGELOG.md`): WG-A03 (normals kept by their three h
 are white; layers the merge has nothing to say about come from the winning record) and WG-A06
 (texture-only records written; a cell that cannot be written stops the merge). Open:
 
-- **Decision: a step VHGT cannot store stops the merge** ("Nothing was written"), as the audit's
-  acceptance list says; `MergeOptions::allow_clamping` is the old clamp-and-warn, and the
-  Python-recorded cases use it. The audit's real run clamped zero vertices, so a real load order
-  should be fine, but none has been run since. Run one; if it stops, the cell named is a step the
-  limiter could not move (against terrain outside the merge). Then choose: keep the default, or
-  flip it to warn. Either way the Tools page and the CLI have no setting for it yet.
+- **Decided (2026-11-12): a step VHGT cannot store warns and the plugin is written.** The audit's
+  acceptance list says to fail; `MergeOptions::allow_clamping` is on by default and off it stops the
+  merge ("Nothing was written"), which is the audit's reading. The log names the first cells. Left:
+  the setting has no place on the Tools page or the CLI, and the stopping path has no test.
 - **Decision: a layer a plugin's settings exclude, where the masters have none.** A written cell
   now takes colours, textures and the world map the merge has none of from the winning record, so
   a layer excluded in `.mergedlands.toml` for a new cell (no vanilla LAND) comes back from the
   excluded plugin. Heights are not filled. Keep, or leave such a layer out as the settings say.
-- Run the audit's geometry probe (`geometry_probe.rs`, its inputs in `geometry/inputs.json`) against
-  this build: it should find no stale normal (637 in 38 cells before), no slope change to a
-  representable array (five before), and the 39 cells' heights unchanged by the encoder. Not run.
+- The audit's decoded inputs replay through the build (`audit1.7z` `decoded/inputs`, numbered as
+  `geometry/inputs.json`'s plugins, not as the config's content list; 74 reduced plugins, LAND and
+  LTEX only), and 5.0.5 on them writes the audit's 39 cells exactly. This build writes 37: seven
+  dropped (three by finalizing before cleaning, four that were only the 1,008-unit slope margin
+  moving ground), five added (whole-record loaded state: three texture restorations and two colour
+  ones, all of which Merged Lands writes). No effective seam differs from 5.0.5's (228 borders,
+  7,023 vertices left open in both, none beside a dropped cell), no clamped vertex, no slope move,
+  and every normal is either a kept authored one (155,548 of 156,325 the winning record's, 31 an
+  earlier one's) or the formula on the saved heights; 5.0.5 had 2,452 that were neither. Left: the
+  real order itself, and the 303-against-36 record count, which is repair scope (below).
 - A01 has no fixture for input offsets with a fractional phase (a reference `VHGT` offset that is
   not a whole number): the cleaning and border checks compare on the finalized grid, but only the
   aligned case is tested.
@@ -90,8 +95,9 @@ are white; layers the merge has nothing to say about come from the winning recor
   and the world map of a loaded cell that has none (see A07), are not handled apart.
 - WG-A07, what is left: an authored `WNAM` is kept as it is even where seam repair or the slope
   limiter then moved the heights it was made from (the audit does not say every authored `WNAM`
-  should be regenerated: decide the policy), and `sink_underwater_land` (a world-map vertex over
-  terrain below sea level made -1) is still the Python's rule on top of OpenMW's formula.
+  should be regenerated: decide the policy), and an authored map is still sunk where the terrain is
+  under the sea by the eighth-vertex heights (the Python's rule). A map generated here is sunk by the
+  vertices it was made from (`sink_generated_underwater_land`).
 - Repair scope and feathering stay separate from the correctness fixes: Merged Lands repairs the
   whole working terrain (303 `LAND` records on the audit's list), Wraithguard the changed cells
   and their neighbours with the borrowed ones held fixed (39). Do not reduce record counts by
