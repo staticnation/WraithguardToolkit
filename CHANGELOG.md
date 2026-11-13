@@ -33,6 +33,19 @@
   merged as a mod in its place, so `Base.esm`, `Early.esp`, `Late.esm` gives `Late.esm`'s ground
   as OpenMW loads it (it gave `Early.esp`'s). Orders with every `.esm` first are unchanged. An
   order that starts with a mod keeps the old split, so the merge still has a reference.
+  That is OpenMW's rule, where the `content=` lines are the order. A plain Morrowind install is
+  ordered by the dates of its plugin files (next entry), masters first, so there a master is
+  never after a plugin.
+
+- **A plain Morrowind install is ordered by the dates of its plugin files, not by
+  `Morrowind.ini`** (`ordercore::install::by_date`, `from_layout_for`; the viewer's connect). The
+  game takes the plugins `[Game Files]` names and sorts them by file date, the masters first; the
+  ini says *which* load, not in what order. Every page read the `GameFileN` order as the load
+  order (conflicts, the Load order page, Merge Lands, the Editor's setup, and the viewer's own
+  world), so a hand-edited ini, or one whose files had been re-dated, gave a different "last one
+  wins" from the game's. The list is now sorted by date (masters, then plugins; the ini's order
+  for equal dates; a plugin not on disk last of its kind) and says, as a warning, how many it
+  moved. An MO2 profile's list and an OpenMW `openmw.cfg` are still the order as written.
 
 - **The world map Merge Lands generates is OpenMW's** (WG-A07). A cell with no authored `WNAM`
   gets `generateWnam`'s: samples at 0, 7, 14 ... 56 on each axis (not every eighth vertex), a
@@ -50,6 +63,15 @@
   masters': a normal authored by the record the engine loads at the cell (a later plugin's, or a
   normal-only patch) is now kept first, wherever its own heights still hold, and the master's after
   it. A zero normal is still worked out.
+
+### Added
+
+- **Merge Lands can repair the seams the terrain already has, opt-in** (`--merge-repair-seams [GAP]`,
+  `--merge-seam-except X,Y`; `MergeOptions::existing_seams`). Off by default, the merge repairs only
+  the borders of cells a plugin changed, as before. On, neighbouring cells no plugin changed that
+  disagree about their shared vertices by at most GAP units (24 if none is given) are repaired
+  too; a wider gap is left as meant, and a cell's borders can be excepted. Vertices that touch
+  terrain the merge leaves out stay as the terrain has them.
 
 ### Changed
 

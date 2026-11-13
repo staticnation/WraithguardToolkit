@@ -13,7 +13,7 @@ use tes3::esp::TES3Object;
 use crate::emit::{attach_texture_indices, build_landscape_record_for, build_texture_records, plugin_bytes};
 use crate::landmass::{build_reference, Landmass, PluginRecords};
 use crate::meta::{self, PluginMeta, Strategy, LAYER_NAMES};
-use crate::pipeline::{finish_timed, merge_landmass, DiffModel, MergeOutcome};
+use crate::pipeline::{merge_landmass, DiffModel, MergeOutcome};
 use crate::read::{read_terrain_records, Record};
 use crate::textures::{compact_textures, KnownTextures};
 use crate::grid::Value;
@@ -71,6 +71,9 @@ pub struct MergeOptions {
     /// longer describe it. The audit's acceptance list asks for the stop; the default is a
     /// choice to warn.
     pub allow_clamping: bool,
+    /// Repair the seams the terrain already has as well as the ones the merge makes (`None`:
+    /// only the borders of cells a plugin changed). See [`crate::pipeline::ExistingSeams`].
+    pub existing_seams: Option<crate::pipeline::ExistingSeams>,
 }
 
 /// The fork's starting `ignore_plugins`: generated or non-land plugins, expensive to read and
@@ -97,6 +100,7 @@ impl Default for MergeOptions {
             ignore: DEFAULT_IGNORE.iter().map(|s| s.to_string()).collect(),
             cancel: None,
             allow_clamping: true,
+            existing_seams: None,
         }
     }
 }
@@ -478,7 +482,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         say!("  skipped {name}: {why}");
     }
     say!("  {} modified cell(s)", outcome.cells.len());
-    let times = match finish_timed(&mut outcome, &reference, opts.clean_against_load_order.then_some(&loaded)) {
+    let times = match crate::pipeline::finish_with(&mut outcome, &reference, opts.clean_against_load_order.then_some(&loaded), opts.existing_seams.as_ref()) {
         Ok(t) => t,
         Err(e) => fail!("{e}"),
     };
@@ -489,6 +493,9 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         say!("  finished in {}", times.iter().map(|(n, d)| format!("{n} {:.2} s", d.as_secs_f64())).collect::<Vec<_>>().join(", "));
     }
     say!("  seam repair moved {} vertex/vertices (widest gap {} units)", outcome.seams.total(), outcome.seams.largest_gap);
+    if let Some(rule) = &opts.existing_seams {
+        say!("  repaired the seams the terrain already had (up to {} units wide) in {} cell(s)", rule.max_gap, outcome.existing_seam_cells);
+    }
     if outcome.borrowed > 0 {
         say!("  brought in {} untouched cell(s) to reconcile their borders", outcome.borrowed);
     }

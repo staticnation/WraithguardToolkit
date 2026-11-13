@@ -164,6 +164,36 @@ pub fn game_files(ini: &Path) -> Vec<String> {
     indexed.into_iter().map(|(_, s)| s).collect()
 }
 
+/// A plain Morrowind install's plugins in the order the game loads them. `Morrowind.ini` says
+/// *which* plugins load (`[Game Files]`), not in what order: the game sorts them by the dates of
+/// the files, the masters (`.esm`) first and then the plugins, and the ini lists them as the
+/// launcher last wrote them. So the ini's order is only the tie-break here, for files with one
+/// date. A file is looked for in the data folders (the last holding it, as a cfg's are read);
+/// one that is not there cannot be dated, and goes last of its kind.
+pub fn by_date(names: &[String], data: &[PathBuf]) -> Vec<String> {
+    let mut found: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+    for d in data {
+        let Ok(entries) = std::fs::read_dir(d) else { continue };
+        for e in entries.flatten() {
+            found.insert(e.file_name().to_string_lossy().to_lowercase(), e.path());
+        }
+    }
+    let master = |n: &str| {
+        let l = n.to_lowercase();
+        l.ends_with(".esm") || l.ends_with(".omwgame")
+    };
+    let mut keyed: Vec<(bool, bool, Option<std::time::SystemTime>, usize)> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let at = found.get(&n.to_lowercase()).and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+            (!master(n), at.is_none(), at, i)
+        })
+        .collect();
+    keyed.sort();
+    keyed.into_iter().map(|(_, _, _, i)| names[i].clone()).collect()
+}
+
 /// An MO2 or Morrowind.ini install in a cfg's shape: its `[Game Files]` as the content, its
 /// overlay's roots as the data folders (lowest priority first, as a cfg lists them), the
 /// archives the engine loads (`Morrowind.bsa` first, which it always loads).
@@ -175,8 +205,19 @@ pub fn from_layout(l: &gardenfell_install::layout::Layout) -> OpenmwCfg {
 /// exported cfg): its grass from the cfg, OpenMW's own files not warned of, and a cfg that
 /// no longer has the profile's plugins said (export again, or write both from here).
 pub fn from_layout_for(l: &gardenfell_install::layout::Layout, openmw: Option<&OpenmwCfg>) -> OpenmwCfg {
-    let content = game_files(&l.order_file);
+    let listed = game_files(&l.order_file);
     let mut warnings = l.warnings.clone();
+    let data: Vec<PathBuf> = l.roots.iter().rev().filter(|d| d.is_dir()).cloned().collect();
+    // A plain install (not MO2, whose list is its own, and not an OpenMW cfg) loads by the dates
+    // of its plugins, whatever order the ini names them in.
+    let plain = l.mo2_base.is_none() && openmw.is_none() && !l.order_file.extension().is_some_and(|e| e.eq_ignore_ascii_case("cfg"));
+    let content = if plain { by_date(&listed, &data) } else { listed.clone() };
+    if plain && content != listed {
+        let moved = content.iter().zip(&listed).filter(|(a, b)| a != b).count();
+        warnings.push(format!(
+            "Morrowind.ini lists {moved} plugin(s) in another order than the game loads them: it loads by the dates of the files, masters first, and the ini only says which load"
+        ));
+    }
     match openmw {
         None => {
             // OpenMW's own files: the game's engine does not load them, whatever the ini lists.
@@ -198,7 +239,7 @@ pub fn from_layout_for(l: &gardenfell_install::layout::Layout, openmw: Option<&O
     }
     OpenmwCfg {
         files: vec![l.order_file.clone()],
-        data: l.roots.iter().rev().filter(|d| d.is_dir()).cloned().collect(),
+        data,
         missing_data: l.roots.iter().rev().filter(|d| !d.is_dir()).cloned().collect(),
         content,
         archives: gardenfell_bsa::bsa::archives_loaded(&l.order_file).names,
@@ -263,6 +304,34 @@ mod tests {
         let ini = d.join("Morrowind.ini");
         std::fs::write(&ini, b"[Game Files]\r\nGameFile1=B.esp\r\nGameFile0=Morrowind.esm\r\ngamefile2 = C\xe9.esp\r\nGameFile3=\r\n").unwrap();
         assert_eq!(game_files(&ini), ["Morrowind.esm", "B.esp", "C\u{e9}.esp"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A plain install loads by file date, masters first; the ini names what loads. MO2's list and
+    /// an OpenMW cfg are the order as they are listed.
+    #[test]
+    fn a_plain_installs_order_is_the_dates_not_the_inis() {
+        let d = std::env::temp_dir().join(format!("wg_bydate_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let data = d.join("Data Files");
+        std::fs::create_dir_all(&data).unwrap();
+        let at = |s: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(s);
+        // Listed: Morrowind, A, B, Late.esm - the dates say Late.esm is a master, B older than A.
+        for (n, s) in [("Morrowind.esm", 100), ("A.esp", 500), ("B.esp", 400), ("Late.esm", 200)] {
+            std::fs::File::create(data.join(n)).unwrap().set_modified(at(s)).unwrap();
+        }
+        std::fs::write(d.join("Morrowind.ini"), b"[Game Files]\r\nGameFile0=Morrowind.esm\r\nGameFile1=A.esp\r\nGameFile2=B.esp\r\nGameFile3=Late.esm\r\nGameFile4=Gone.esp\r\n").unwrap();
+        let cfg = read(&d.join("Morrowind.ini").to_string_lossy()).unwrap();
+        assert_eq!(cfg.content, ["Morrowind.esm", "Late.esm", "B.esp", "A.esp", "Gone.esp"]);
+        assert!(cfg.warnings.iter().any(|w| w.contains("loads by the dates of the files")), "{:?}", cfg.warnings);
+        // As the ini lists them when the dates agree: no warning, the same list.
+        for (n, s) in [("Morrowind.esm", 100), ("Late.esm", 150), ("A.esp", 300), ("B.esp", 400)] {
+            std::fs::File::options().write(true).open(data.join(n)).unwrap().set_modified(at(s)).unwrap();
+        }
+        std::fs::write(d.join("Morrowind.ini"), b"[Game Files]\r\nGameFile0=Morrowind.esm\r\nGameFile1=Late.esm\r\nGameFile2=A.esp\r\nGameFile3=B.esp\r\n").unwrap();
+        let cfg = read(&d.join("Morrowind.ini").to_string_lossy()).unwrap();
+        assert_eq!(cfg.content, ["Morrowind.esm", "Late.esm", "A.esp", "B.esp"]);
+        assert!(!cfg.warnings.iter().any(|w| w.contains("loads by the dates")), "{:?}", cfg.warnings);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

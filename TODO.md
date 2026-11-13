@@ -89,6 +89,16 @@ are white; layers the merge has nothing to say about come from the winning recor
 - WG-A05, what is left: an order that *starts* with a mod (no leading run of masters) still
   takes every `.esm` as a master, so a late master there can still go under the mods before it.
   Only an order like that has it; decide whether such an order should instead stop the merge.
+- Plain Morrowind order (not an audit finding; Static, 2026-11-11): the ini only says which plugins
+  load, and the game sorts them by file date, masters first. `ordercore::install` and the
+  viewer's connect now sort that way; left as they were, and worth a look: (1)
+  `gardenfell-install`'s `plugins::arrange` still says a hand-edited ini "loads in the order it
+  states" and slots plugins missing from the ini in by date around the ini's own order - the
+  comment is wrong for the game, and the logic may need the same date sort; (2)
+  `gardenfell-world::read_load_order` itself still returns the ini's order (the connect sorts
+  after it); (3) whether an MO2 profile's list should be taken as the order as it is - its
+  `plain.rs` comment says MO2 owns the dates, so it is; (4) "masters first" is by extension
+  (`.esm`, `.omwgame`), not the TES3 header's master flag - check which the game uses.
 - WG-A06, what is left: the saved texture-only record's `LTEX` identities are not checked, and no
   test stops a CLI run (exit status) on a record that cannot be written.
 - WG-A02, what is left: a present zero-valued layer that differs from the engine's effective result,
@@ -98,10 +108,16 @@ are white; layers the merge has nothing to say about come from the winning recor
   should be regenerated: decide the policy), and an authored map is still sunk where the terrain is
   under the sea by the eighth-vertex heights (the Python's rule). A map generated here is sunk by the
   vertices it was made from (`sink_generated_underwater_land`).
-- Repair scope and feathering stay separate from the correctness fixes: Merged Lands repairs the
-  whole working terrain (303 `LAND` records on the audit's list), Wraithguard the changed cells
-  and their neighbours with the borrowed ones held fixed (39). Do not reduce record counts by
-  suppressing small border mismatches; known intentional discontinuities go in as cell exceptions.
+- **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
+  already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`). Left:
+  the Tools page has no setting for it (a box, a gap, a list of cells), and no ceiling above 24 has
+  been shown safe (600 on the audit's order made three borders worse and clamped two vertices).
+  Twelve borders of 24 units or less stay open at 24. Eleven are one corner vertex shared with a cell
+  the merge does not have (a vertex it cannot move, so the cells either side of it keep differing; the
+  fix would be to bring in the fourth cell too, which then has to meet its other borders), and one is
+  between two cells the merge already had. Decide whether a single corner step is worth that. The audit's own note
+  stands: do not cut record counts by suppressing small mismatches; known intentional discontinuities
+  go in as exceptions. Record counts against Merged Lands (303 against 114 at 24) are not a measure.
 - `tests/fixtures/land_merge_cases.json` (recorded from the Python) is no longer the whole truth:
   its cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
   whether to retire `tools/gen_land_merge_cases.py` and record all five from the engine.

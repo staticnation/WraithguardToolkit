@@ -134,6 +134,27 @@ fn command() -> Command {
                 .help("With --merge-lands: measure each plugin's change against the masters, or against the load order before it"),
         )
         .arg(
+            Arg::new("merge-repair-seams")
+                .long("merge-repair-seams")
+                .num_args(0..=1)
+                .default_missing_value("24")
+                .value_name("GAP")
+                .value_parser(clap::value_parser!(i32).range(1..))
+                .help(
+                    "With --merge-lands: also repair the seams the terrain already has (neighbouring cells that disagree about the \
+                     vertices they share, in cells no plugin changed), where the gap is at most GAP world units (default 24; a wider \
+                     one is taken to be meant). Off by default: only the borders of cells a plugin changed are repaired",
+                ),
+        )
+        .arg(
+            Arg::new("merge-seam-except")
+                .long("merge-seam-except")
+                .num_args(1..)
+                .allow_hyphen_values(true)
+                .value_name("X,Y")
+                .help("With --merge-repair-seams: cells whose borders are never repaired, as X,Y (a cell the load order means to have a cliff or an edge at)"),
+        )
+        .arg(
             Arg::new("merge-ignore")
                 .long("merge-ignore")
                 .num_args(0..)
@@ -172,6 +193,10 @@ struct Args {
     /// `--merge-lands`: `Some("")` for the default folder.
     merge_lands: Option<String>,
     merge_model: String,
+    /// `--merge-repair-seams`: the widest gap to repair, when given.
+    merge_repair_seams: Option<i32>,
+    /// `--merge-seam-except`: cells left alone by it.
+    merge_seam_except: Vec<(i64, i64)>,
     /// `--merge-ignore`, when given (else the default list).
     merge_ignore: Option<Vec<String>>,
     unused: Vec<&'static str>,
@@ -241,6 +266,8 @@ impl Args {
             trace: m.get_one::<String>("trace").cloned(),
             merge_lands: m.get_one::<String>("merge-lands").map(|v| if v.is_empty() { String::new() } else { py_path(v) }),
             merge_model: m.get_one::<String>("merge-model").cloned().unwrap_or_else(|| "masters".into()),
+            merge_repair_seams: m.get_one::<i32>("merge-repair-seams").copied(),
+            merge_seam_except: list("merge-seam-except").iter().filter_map(|c| c.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))).collect(),
             merge_ignore: m.contains_id("merge-ignore").then(|| list("merge-ignore")),
             unused,
             verbose,
@@ -468,6 +495,9 @@ fn merge_lands(args: &Args, folder: &str, log: &Log, trace: &Trace) -> Result<()
     if let Some(ignore) = &args.merge_ignore {
         opts.ignore = ignore.clone();
     }
+    if let Some(gap) = args.merge_repair_seams {
+        opts.existing_seams = Some(landcore::pipeline::ExistingSeams { max_gap: gap, except: args.merge_seam_except.iter().copied().collect() });
+    }
     let started = std::time::Instant::now();
     let mut say = |line: &str| {
         println!("  {line}");
@@ -686,6 +716,21 @@ mod tests {
         assert_eq!(a.merge_lands, Some(py_path("out/")));
         assert_eq!((a.merge_model.as_str(), a.merge_ignore), ("loadorder", Some(Vec::new())));
         assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-model", "odd", "--merge-lands"]).is_err());
+    }
+
+    #[test]
+    fn the_seam_repair_flags() {
+        let off = Args::read(&command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands"]).unwrap());
+        assert!(off.merge_repair_seams.is_none() && off.merge_seam_except.is_empty());
+        let bare = Args::read(&command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "--merge-repair-seams"]).unwrap());
+        assert_eq!(bare.merge_repair_seams, Some(24));
+        let set = Args::read(
+            &command()
+                .try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "--merge-repair-seams", "40", "--merge-seam-except", "-10,-47", "3,4", "odd"])
+                .unwrap(),
+        );
+        assert_eq!((set.merge_repair_seams, set.merge_seam_except), (Some(40), vec![(-10, -47), (3, 4)]));
+        assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "--merge-repair-seams", "0"]).is_err());
     }
 
     #[test]

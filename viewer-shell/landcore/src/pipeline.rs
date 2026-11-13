@@ -12,7 +12,7 @@ use crate::landmass::{differences, layer_onto, masked, replace_onto, Coords, Lan
 use crate::layers::{LandscapeDiff, LandscapeLayers, Layer, ALL_LAYERS};
 use crate::merge::{self, merge_layer, ConflictParams};
 use crate::meta::{layer, PluginMeta, Strategy};
-use crate::seams::{find_tears, repair_seams, SeamReport, DEFAULT_FEATHER};
+use crate::seams::{repair_seams, SeamReport, DEFAULT_FEATHER};
 use crate::slope::{limit_slopes, SlopeReport};
 use crate::textures::KnownTextures;
 use crate::grid::Value;
@@ -45,6 +45,12 @@ pub struct MergeOutcome {
     pub cleaning: CleaningReport,
     pub skipped_plugins: Vec<(String, String)>,
     pub borrowed: usize,
+    /// Cells brought in to repair a seam the load order already has ([`ExistingSeams`]).
+    pub existing_seam_cells: usize,
+    /// Which cells those were: their borders with terrain outside the merge are not checked.
+    pub existing_seam_set: BTreeSet<Coords>,
+    /// Those cells' heights as the terrain had them, finalized.
+    pub existing_seam_original: BTreeMap<Coords, Vec<Value>>,
     /// What the Python logs and does not report: records left out, and why.
     pub notes: Vec<String>,
 }
@@ -367,6 +373,83 @@ pub(crate) fn par_each<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Syn
     })
 }
 
+/// Seams the terrain already has, repaired as well as those the merge makes (off unless
+/// asked for): two neighbouring cells that disagree about the vertices they share, in terrain
+/// no plugin of the merge changed. Both are brought in free to move, and the border is feathered
+/// like any other. Merged Lands does this for the whole working terrain; Wraithguard by default
+/// repairs only the borders of cells a plugin changed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExistingSeams {
+    /// The widest gap, in world units, a border may have and still be repaired. A wider one is
+    /// taken to be meant (a cliff, a map edge): 24 is three eight-unit steps, the few units
+    /// of disagreement a stray rounding leaves.
+    pub max_gap: Value,
+    /// Cells whose borders are never repaired, either side of them.
+    pub except: BTreeSet<Coords>,
+}
+
+impl Default for ExistingSeams {
+    fn default() -> Self {
+        ExistingSeams { max_gap: 24, except: BTreeSet::new() }
+    }
+}
+
+/// How many world units the shared vertices of two neighbours disagree by at most, `a` the cell
+/// to the west (or south) of `b`; `None` if either has no heights.
+fn border_gap(a: &LandscapeLayers, b: &LandscapeLayers, east: bool) -> Option<Value> {
+    let (ha, hb) = (a.heights.as_deref()?, b.heights.as_deref()?);
+    let last = crate::grid::LAND_SIZE - 1;
+    let mut widest = 0;
+    for t in 0..crate::grid::LAND_SIZE {
+        let (ia, ib) = if east { (t * crate::grid::LAND_SIZE + last, t * crate::grid::LAND_SIZE) } else { (last * crate::grid::LAND_SIZE + t, t) };
+        widest = widest.max((ha.at(ia)? - hb.at(ib)?).abs());
+    }
+    Some(widest)
+}
+
+/// The cells either side of every existing seam [`ExistingSeams`] allows, brought into the merge
+/// from `base` (what loads, or the masters), unmoved. A seam between a cell the merge has and a
+/// neighbour is left to the borders it repairs anyway, except against one it only borrowed
+/// (`borrowed`, held fixed): the neighbour beyond it is brought in, free to move, to meet it.
+/// Answers how many were brought in.
+pub fn add_existing_seam_cells(outcome: &mut MergeOutcome, base: &Landmass, rule: &ExistingSeams, borrowed: &BTreeSet<Coords>) -> usize {
+    let mut wanted: BTreeSet<Coords> = BTreeSet::new();
+    let has = |c: &Coords| outcome.cells.contains_key(c);
+    for (&(x, y), l) in &base.cells {
+        for (east, other) in [(true, (x + 1, y)), (false, (x, y + 1))] {
+            let here = (x, y);
+            if rule.except.contains(&here) || rule.except.contains(&other) {
+                continue;
+            }
+            // Neither in the merge, or exactly one a borrowed cell and the other free.
+            let free_here = !has(&here);
+            let free_there = !has(&other);
+            let against_borrowed = (free_here && borrowed.contains(&other)) || (free_there && borrowed.contains(&here));
+            if !((free_here && free_there) || against_borrowed) {
+                continue;
+            }
+            let Some(n) = base.get(other) else { continue };
+            if matches!(border_gap(l, n, east), Some(g) if g > 0 && g <= rule.max_gap) {
+                for c in [here, other] {
+                    if !has(&c) {
+                        wanted.insert(c);
+                    }
+                }
+            }
+        }
+    }
+    for &c in &wanted {
+        let Some(h) = base.get(c).and_then(|l| l.heights.as_deref()) else { continue };
+        outcome.existing_seam_original.insert(c, crate::heights::finalized(&h.to_vec()));
+        let mut cell = MergedCell { coords: c, heights: Some(h.to_vec()), ..Default::default() };
+        inherit_reference_layers(&mut cell, base);
+        outcome.cells.insert(c, cell);
+    }
+    outcome.existing_seam_cells = wanted.len();
+    outcome.existing_seam_set = wanted.clone();
+    wanted.len()
+}
+
 /// The untouched reference cells bordering the merge, brought in so their borders can be
 /// reconciled (`add_reference_neighbours`); they are authoritative - never moved.
 pub fn add_reference_neighbours(outcome: &mut MergeOutcome, reference: &Landmass) -> BTreeSet<Coords> {
@@ -407,7 +490,7 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
             }
         }
     }
-    outcome.seams.tears = find_tears(&written, Some(&nearby), borrowed);
+    outcome.seams.tears = crate::seams::find_tears_except(&written, Some(&nearby), borrowed, &outcome.existing_seam_set, &outcome.existing_seam_original);
 }
 
 fn digest_cell(cell: &MergedCell) -> CellDigest {
@@ -442,6 +525,11 @@ pub type FinishTimes = Vec<(&'static str, std::time::Duration)>;
 
 /// [`finish`], answering how long each of its steps took.
 pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>) -> Result<FinishTimes, String> {
+    finish_with(outcome, reference, loaded, None)
+}
+
+/// [`finish_timed`], also repairing the seams the terrain already has where `existing` says to.
+pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>, existing: Option<&ExistingSeams>) -> Result<FinishTimes, String> {
     let mut times: FinishTimes = Vec::new();
     let mut at = std::time::Instant::now();
     let mut lap = |name: &'static str| {
@@ -449,8 +537,15 @@ pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Op
         times.push((name, now - at));
         at = now;
     };
+    // The ring round the cells the merge changed first; the cells of an existing seam come after
+    // and have none of their own: their other borders, with neighbours the merge leaves out, stay
+    // as the terrain has them (a wider gap there is taken to be meant).
     let borrowed = add_reference_neighbours(outcome, reference);
     lap("neighbours");
+    if let Some(rule) = existing {
+        add_existing_seam_cells(outcome, loaded.unwrap_or(reference), rule, &borrowed);
+        lap("existing seams");
+    }
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
     if !heights.is_empty() {
@@ -470,6 +565,7 @@ pub fn finish_timed(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Op
         lap("finalize");
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
         lap("slopes");
+        crate::seams::restore_pinned(&mut heights, &outcome.existing_seam_set, &outcome.existing_seam_original);
     }
     for (c, h) in heights {
         outcome.cells.get_mut(&c).unwrap().heights = Some(h);

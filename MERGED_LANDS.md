@@ -160,6 +160,21 @@ following Zhao, Jiang and Guo (2022) §2.3. A +500 bulk shift introduces 0.000
 radians of structure; a −60 road cut introduces 0.297. Magnitude alone gives the
 shift eight times the say.
 
+**Existing seams, opt-in** (`--merge-repair-seams [GAP]`, `MergeOptions::existing_seams`).
+By default only the borders of cells a plugin changed are repaired, with the untouched
+ring held fixed. Merged Lands repairs the whole working terrain, which on the audit's
+load order is 303 records against 39, and needed four hand-made exceptions where it moved
+ground by over ten thousand units. With the option on, any two neighbouring cells no
+plugin changed that disagree about their shared vertices by at most GAP world units
+(default 24, three eight-unit steps) are brought in and feathered like any other seam;
+a wider gap is taken to be meant. `--merge-seam-except X,Y` leaves a cell's borders
+alone. Vertices of such a cell that touch terrain the merge leaves out stay as the
+terrain has them, so nothing is pulled across a border it was not asked to repair. On
+that load order, 24 units writes 114 records instead of 37, closes about 75 borders and
+makes none worse (a dozen single corner vertices, which belong to cells the merge
+does not have, stay as they were); 600 units closes more but made three borders worse and clamped two
+vertices, which is why the ceiling is small by default.
+
 ## Where the code has moved on since this was written
 
 The audit above is a statement about *behaviour*, and the behaviour is

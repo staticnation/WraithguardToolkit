@@ -611,3 +611,104 @@ fn authored_normals_of_the_winning_record_are_kept() {
     assert!(authored(60, 5) && authored(48, 48));
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// The seams the terrain already has, repaired only when asked (`MergeOptions::existing_seams`):
+/// `Base.esm`'s own neighbouring cells (0,0) and (1,0) are 8 units apart along their border, (1,0)
+/// and (2,0) 392, (5,5) and (6,5) 8 again but excepted; one mod changes a cell far from all of them.
+#[test]
+fn existing_seams_are_repaired_when_asked_and_only_within_the_ceiling() {
+    use landcore::pipeline::ExistingSeams;
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |v: i32| json!([v, 0, 0, 1, 0, 0, -1, 0]);
+    let build = |name: &str| {
+        setup(
+            name,
+            json!([
+                {"name": "Base.esm", "land": [
+                    {"grid": [0, 0], "flags": 1, "heights": level(400)}, {"grid": [1, 0], "flags": 1, "heights": level(401)},
+                    {"grid": [2, 0], "flags": 1, "heights": level(450)},
+                    {"grid": [5, 5], "flags": 1, "heights": level(400)}, {"grid": [6, 5], "flags": 1, "heights": level(401)},
+                    {"grid": [20, 20], "flags": 1, "heights": level(400)}]},
+                // Two mods, each with its own hill, so the merge is neither's record and is written.
+                {"name": "A.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 20, 20, 6, 60]}]},
+                {"name": "B.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 48, 48, 5, 40]}]},
+            ]),
+        )
+    };
+    let written = |data: &Path| -> std::collections::BTreeMap<(i32, i32), Vec<i32>> {
+        let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+        plugin
+            .objects
+            .iter()
+            .filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None })
+            .map(|l| {
+                let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+                (l.grid, landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap())
+            })
+            .collect()
+    };
+    let order = ["Base.esm", "A.esp", "B.esp"];
+    // Off (the default): only the cell the mod changed.
+    let data = build("existing seams off");
+    let r = run(&data, &order, MergeOptions::default());
+    assert_eq!(written(&data).keys().copied().collect::<Vec<_>>(), vec![(20, 20)], "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+    // On, up to 24 units, (5,5) left alone.
+    let data = build("existing seams on");
+    let rule = ExistingSeams { max_gap: 24, except: [(5, 5)].into_iter().collect() };
+    let r = run(&data, &order, MergeOptions { existing_seams: Some(rule), ..Default::default() });
+    let cells = written(&data);
+    // (1,0) is written, taken down to (0,0)'s 400 stored units (the shared vertices settle on the
+    // 8-unit step between the two, and (0,0) already has it, so it needs no record); (2,0), 392 units
+    // away, and the excepted (5,5)/(6,5) are not touched.
+    assert_eq!(cells.keys().copied().collect::<Vec<_>>(), vec![(1, 0), (20, 20)], "{:#?}", r.lines);
+    assert_eq!(r.clamped, 0);
+    let east = &cells[&(1, 0)];
+    assert!((1..SIZE - 1).all(|y| east[y * SIZE] == 400 * 8), "the shared border agrees with (0,0)'s");
+    // Its two end vertices touch cells the merge leaves out: they stay as the terrain has them.
+    assert!(east[0] == 401 * 8 && east[(SIZE - 1) * SIZE] == 401 * 8);
+    // The far side of (1,0), against terrain the merge leaves out, is the terrain's own.
+    assert!((1..SIZE - 1).all(|y| east[y * SIZE + SIZE - 1] == 401 * 8));
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// A seam against a cell the merge only borrowed: (20,20) is the merged cell, (21,20) its borrowed
+/// neighbour (held fixed), and (22,20) is 8 units off (21,20) and no neighbour of the merged cell. With
+/// existing seams on, (22,20) is brought in to meet (21,20) - which does not move.
+#[test]
+fn a_seam_beyond_a_borrowed_cell_is_repaired_to_meet_it() {
+    use landcore::pipeline::ExistingSeams;
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |v: i32| json!([v, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "seam beyond borrowed",
+        json!([
+            {"name": "Base.esm", "land": [
+                {"grid": [20, 20], "flags": 1, "heights": level(400)}, {"grid": [21, 20], "flags": 1, "heights": level(400)},
+                {"grid": [22, 20], "flags": 1, "heights": level(401)}]},
+            {"name": "A.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 20, 20, 6, 60]}]},
+            {"name": "B.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 48, 48, 5, 40]}]},
+        ]),
+    );
+    let order = ["Base.esm", "A.esp", "B.esp"];
+    let heights = |data: &Path| {
+        let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+        plugin
+            .objects
+            .iter()
+            .filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None })
+            .map(|l| {
+                let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+                (l.grid, landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap())
+            })
+            .collect::<std::collections::BTreeMap<(i32, i32), Vec<i32>>>()
+    };
+    let r = run(&data, &order, MergeOptions { existing_seams: Some(ExistingSeams::default()), ..Default::default() });
+    let cells = heights(&data);
+    assert_eq!(cells.keys().copied().collect::<Vec<_>>(), vec![(20, 20), (22, 20)], "{:#?}", r.lines);
+    let far = &cells[&(22, 20)];
+    assert!((0..SIZE).all(|y| far[y * SIZE] == 400 * 8), "(22,20) meets the borrowed (21,20), which stayed at 400");
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

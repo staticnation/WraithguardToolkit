@@ -266,6 +266,15 @@ fn open_overlay(kind: &str, path: &str, profile: Option<&str>) -> Result<Opened,
 
     let order_file = l.order_file.to_string_lossy().to_string();
     let mut order = read_load_order(&l.order_file);
+    /* Wraithguard: a plain Morrowind install loads its plugins by the dates of the files, masters
+       first; its ini says which load, not in what order, and `read_load_order` gives the ini's
+       `GameFileN` order. Every other page reads the setup through `ordercore::install`, which
+       sorts it by date (`by_date`); the world has to be built in the same order or it draws
+       what the game does not load. MO2's list and an OpenMW cfg are the order as written. */
+    if l.mo2_base.is_none() && !viewcore::luascan::is_openmw_cfg(&l.order_file) {
+        let data: Vec<PathBuf> = l.roots.iter().rev().filter(|d| d.is_dir()).cloned().collect();
+        order = viewcore::ordercore::install::by_date(&order, &data);
+    }
     /* Wraithguard: and the `groundcover=` plugins after them, as OpenMW loads them - their
        references are the grass the viewer draws (`World::groundcover`, addGroundcoverRuns).
        Gardenfell's `read_load_order` reads `content=` only (it makes its own grass), and

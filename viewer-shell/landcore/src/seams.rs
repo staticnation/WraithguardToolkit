@@ -98,12 +98,58 @@ fn compare_border(low: &[Value], high: &[Value], vertical: bool) -> Option<(usiz
 
 /// The borders that still disagree (`find_tears`), worst first.
 pub fn find_tears(cells: &BTreeMap<Coords, Vec<Value>>, reference: Option<&BTreeMap<Coords, Vec<Value>>>, untouched: &BTreeSet<Coords>) -> Vec<Tear> {
+    find_tears_except(cells, reference, untouched, &BTreeSet::new(), &BTreeMap::new())
+}
+
+/// The vertex of a cell at step `t` along its `(dx, dy)` side, and the same vertex in the neighbour
+/// across it.
+fn side_vertex(dx: i64, dy: i64, t: usize) -> (usize, usize) {
+    match (dx, dy) {
+        (1, 0) => (t * LAND_SIZE + LAST, t * LAND_SIZE),
+        (-1, 0) => (t * LAND_SIZE, t * LAND_SIZE + LAST),
+        (0, 1) => (LAST * LAND_SIZE + t, t),
+        _ => (t, LAST * LAND_SIZE + t),
+    }
+}
+
+/// [`find_tears`], where `settled` cells (brought in only to repair a seam the terrain already
+/// had) are held to what they moved: a vertex of theirs that is still what the terrain had
+/// (`original`) is no tear of the merge's, whoever it disagrees with; one it moved must agree.
+pub fn find_tears_except(
+    cells: &BTreeMap<Coords, Vec<Value>>,
+    reference: Option<&BTreeMap<Coords, Vec<Value>>>,
+    untouched: &BTreeSet<Coords>,
+    settled: &BTreeSet<Coords>,
+    original: &BTreeMap<Coords, Vec<Value>>,
+) -> Vec<Tear> {
+    // Vertices of `mine` along its (dx, dy) side that disagree with `theirs` and that `mine` moved
+    // (or, `both`, that either moved): how many, and by how much at most.
+    let moved_gap = |mine: Coords, theirs: Coords, dx: i64, dy: i64, other: &Vec<Value>, both: bool| -> Option<(usize, Value)> {
+        let (g, o) = (&cells[&mine], original.get(&mine)?);
+        let (mut count, mut worst) = (0, 0);
+        for t in 0..LAND_SIZE {
+            let (a, b) = side_vertex(dx, dy, t);
+            let moved = g[a] != o[a] || (both && original.get(&theirs).is_some_and(|ot| ot[b] != other[b]));
+            if g[a] != other[b] && moved {
+                count += 1;
+                worst = worst.max((g[a] - other[b]).abs());
+            }
+        }
+        (count > 0).then_some((count, worst))
+    };
     let mut tears = Vec::new();
     for (left, right) in border_pairs(cells) {
         if untouched.contains(&left) && untouched.contains(&right) {
             continue;
         }
-        if let Some((count, worst)) = compare_border(&cells[&left], &cells[&right], left.0 == right.0) {
+        let vertical = left.0 == right.0;
+        let found = if settled.contains(&left) && settled.contains(&right) {
+            let (dx, dy) = if vertical { (0, 1) } else { (1, 0) };
+            moved_gap(left, right, dx, dy, &cells[&right], true)
+        } else {
+            compare_border(&cells[&left], &cells[&right], vertical)
+        };
+        if let Some((count, worst)) = found {
             tears.push(Tear { left, right: Some(right), vertices: count, worst });
         }
     }
@@ -118,9 +164,14 @@ pub fn find_tears(cells: &BTreeMap<Coords, Vec<Value>>, reference: Option<&BTree
                     continue;
                 }
                 let Some(outside) = reference.get(&other) else { continue };
-                let forward = matches!((dx, dy), (1, 0) | (0, 1));
-                let (low, high) = if forward { (grid, outside) } else { (outside, grid) };
-                if let Some((count, worst)) = compare_border(low, high, dx == 0) {
+                let found = if settled.contains(&coords) {
+                    moved_gap(coords, other, dx, dy, outside, false)
+                } else {
+                    let forward = matches!((dx, dy), (1, 0) | (0, 1));
+                    let (low, high) = if forward { (grid, outside) } else { (outside, grid) };
+                    compare_border(low, high, dx == 0)
+                };
+                if let Some((count, worst)) = found {
                     tears.push(Tear { left: coords, right: None, vertices: count, worst });
                 }
             }
@@ -128,6 +179,35 @@ pub fn find_tears(cells: &BTreeMap<Coords, Vec<Value>>, reference: Option<&BTree
     }
     tears.sort_by_key(|t| -t.worst);
     tears
+}
+
+/// Put back the vertices of `settled` cells that touch a cell outside the merge, where every cell
+/// of the map that shares the vertex is settled too: terrain the merge leaves out is not moved to
+/// meet, and each copy keeps its own original (a gap there is the terrain's, not a new one).
+pub fn restore_pinned(cells: &mut BTreeMap<Coords, Vec<Value>>, settled: &BTreeSet<Coords>, original: &BTreeMap<Coords, Vec<Value>>) {
+    let mut puts: Vec<(Coords, usize, Value)> = Vec::new();
+    for &c in settled {
+        for o in boundary_offsets() {
+            let (x, y) = (o % LAND_SIZE, o / LAND_SIZE);
+            let sharing = shared_cells(c, x, y);
+            if sharing.iter().all(|t| cells.contains_key(t)) || !sharing.iter().filter(|t| cells.contains_key(*t)).all(|t| settled.contains(t)) {
+                continue;
+            }
+            for t in sharing.iter().filter(|t| cells.contains_key(*t)) {
+                let tx = if t.0 < c.0 { LAST } else if t.0 > c.0 { 0 } else { x };
+                let ty = if t.1 < c.1 { LAST } else if t.1 > c.1 { 0 } else { y };
+                let i = ty * LAND_SIZE + tx;
+                if let Some(orig) = original.get(t) {
+                    puts.push((*t, i, orig[i]));
+                }
+            }
+        }
+    }
+    for (c, i, v) in puts {
+        if let Some(g) = cells.get_mut(&c) {
+            g[i] = v;
+        }
+    }
 }
 
 /// The terrain outside the merge: a cell's height at a vertex index, where there is one.
