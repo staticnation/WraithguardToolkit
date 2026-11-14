@@ -565,7 +565,11 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
         lap("finalize");
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
         lap("slopes");
-        crate::seams::restore_pinned(&mut heights, &outcome.existing_seam_set, &outcome.existing_seam_original);
+        // The terrain outside the merge as it loads, on the saved grid, for a corner that can be mended.
+        let base = loaded.unwrap_or(reference);
+        let outside = |c: Coords, i: usize| base.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i)).map(crate::heights::quantize_height);
+        let ceiling = existing.map_or(0, |r| r.max_gap);
+        crate::seams::restore_pinned(&mut heights, &outcome.existing_seam_set, &outcome.existing_seam_original, Some(&outside), ceiling);
     }
     for (c, h) in heights {
         outcome.cells.get_mut(&c).unwrap().heights = Some(h);

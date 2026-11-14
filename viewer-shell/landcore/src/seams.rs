@@ -184,7 +184,13 @@ pub fn find_tears_except(
 /// Put back the vertices of `settled` cells that touch a cell outside the merge, where every cell
 /// of the map that shares the vertex is settled too: terrain the merge leaves out is not moved to
 /// meet, and each copy keeps its own original (a gap there is the terrain's, not a new one).
-pub fn restore_pinned(cells: &mut BTreeMap<Coords, Vec<Value>>, settled: &BTreeSet<Coords>, original: &BTreeMap<Coords, Vec<Value>>) {
+pub fn restore_pinned(
+    cells: &mut BTreeMap<Coords, Vec<Value>>,
+    settled: &BTreeSet<Coords>,
+    original: &BTreeMap<Coords, Vec<Value>>,
+    outside: Option<Anchor>,
+    max_gap: Value,
+) {
     let mut puts: Vec<(Coords, usize, Value)> = Vec::new();
     for &c in settled {
         for o in boundary_offsets() {
@@ -193,11 +199,28 @@ pub fn restore_pinned(cells: &mut BTreeMap<Coords, Vec<Value>>, settled: &BTreeS
             if sharing.iter().all(|t| cells.contains_key(t)) || !sharing.iter().filter(|t| cells.contains_key(*t)).all(|t| settled.contains(t)) {
                 continue;
             }
-            for t in sharing.iter().filter(|t| cells.contains_key(*t)) {
+            // The vertex of cell `t` that is this one.
+            let at = |t: &Coords| {
                 let tx = if t.0 < c.0 { LAST } else if t.0 > c.0 { 0 } else { x };
                 let ty = if t.1 < c.1 { LAST } else if t.1 > c.1 { 0 } else { y };
-                let i = ty * LAND_SIZE + tx;
-                if let Some(orig) = original.get(t) {
+                ty * LAND_SIZE + tx
+            };
+            let present: Vec<&Coords> = sharing.iter().filter(|t| cells.contains_key(*t)).collect();
+            // A corner where the cells we have disagree among themselves (a seam of ours) and every
+            // cell outside the merge that has it says the same height, within the ceiling of what
+            // we mend: take that height. It is the one value that agrees with all of them, so no
+            // seam is made or moved; anything else is left as the terrain has it.
+            let ours: Vec<Value> = present.iter().filter_map(|t| original.get(*t).map(|g| g[at(t)])).collect();
+            let theirs: Vec<Value> = sharing.iter().filter(|t| !cells.contains_key(*t)).filter_map(|t| outside.and_then(|f| f(*t, at(t)))).collect();
+            let snap = match theirs.first() {
+                Some(&v) if present.len() >= 2 && theirs.iter().all(|&w| w == v) && ours.iter().any(|&w| w != ours[0]) && ours.iter().all(|&w| (w - v).abs() <= max_gap) => Some(v),
+                _ => None,
+            };
+            for t in present {
+                let i = at(t);
+                if let Some(v) = snap {
+                    puts.push((*t, i, v));
+                } else if let Some(orig) = original.get(t) {
                     puts.push((*t, i, orig[i]));
                 }
             }

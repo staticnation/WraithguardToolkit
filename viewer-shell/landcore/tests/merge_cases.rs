@@ -712,3 +712,45 @@ fn a_seam_beyond_a_borrowed_cell_is_repaired_to_meet_it() {
     assert!((0..SIZE).all(|y| far[y * SIZE] == 400 * 8), "(22,20) meets the borrowed (21,20), which stayed at 400");
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// A corner of an existing seam where the cells we mend disagree and the one cell outside the merge
+/// that has the vertex agrees with one of them: that height is the one value that agrees with all
+/// three, so both take it. (0,0) and (1,0) are 8 units apart (3,200 against 3,208); (1,-1), left out
+/// because it is level with (1,0), says 3,208 at the shared corner. The other end of the border has
+/// no cell beside it to ask, and stays as the terrain has it.
+#[test]
+fn a_corner_that_the_outside_agrees_on_is_mended() {
+    use landcore::pipeline::ExistingSeams;
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |v: i32| json!([v, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "corner snap",
+        json!([
+            {"name": "Base.esm", "land": [
+                {"grid": [0, 0], "flags": 1, "heights": level(400)}, {"grid": [1, 0], "flags": 1, "heights": level(401)},
+                {"grid": [1, -1], "flags": 1, "heights": level(401)}, {"grid": [20, 20], "flags": 1, "heights": level(400)}]},
+            {"name": "A.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 20, 20, 6, 60]}]},
+            {"name": "B.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 48, 48, 5, 40]}]},
+        ]),
+    );
+    run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions { existing_seams: Some(ExistingSeams::default()), ..Default::default() });
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let cells: std::collections::BTreeMap<(i32, i32), Vec<i32>> = plugin
+        .objects
+        .iter()
+        .filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None })
+        .map(|l| {
+            let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+            (l.grid, landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap())
+        })
+        .collect();
+    let (west, east) = (&cells[&(0, 0)], &cells[&(1, 0)]);
+    // The corner both cells share with (1,-1): all three say 3,208 now.
+    assert_eq!((west[SIZE - 1], east[0]), (401 * 8, 401 * 8));
+    // The far end of the border (no cell beside it): as the terrain has it.
+    assert_eq!((west[(SIZE - 1) * SIZE + SIZE - 1], east[(SIZE - 1) * SIZE]), (400 * 8, 401 * 8));
+    // And the rest of the border is mended as before.
+    assert!((1..SIZE - 1).all(|y| west[y * SIZE + SIZE - 1] == east[y * SIZE]));
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

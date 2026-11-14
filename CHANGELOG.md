@@ -50,11 +50,10 @@
 - **The world map Merge Lands generates is OpenMW's** (WG-A07). A cell with no authored `WNAM`
   gets `generateWnam`'s: samples at 0, 7, 14 ... 56 on each axis (not every eighth vertex), a
   height above zero over 128 and any other over 16, truncated; a flat -1,024 reads -64, not -8.
-  An authored `WNAM` is kept as it was.
-  The map it generates is then sunk where the terrain is under the sea by the vertex each entry
-  was sampled from (`sink_generated_underwater_land`); it was judged by the eighth-vertex height
-  beside it, which left a coast entry over sea at 0 when that vertex was land, and sank one over
-  land when that vertex was sea. An authored map is sunk by the eighth-vertex heights as before.
+  An authored `WNAM` is kept as it was. Nothing is done to either after that: the Python's rule
+  that sank a world-map entry to -1 where the terrain at an eighth vertex was under the sea is
+  gone (`sink_underwater_land`, and the generated-map variant added for it), because OpenMW has no
+  such rule - it reads a stored map back unchanged and generates one with `generateWnam` alone.
 
 - **Merge Lands keeps an authored normal only where all three heights it is made from are
   unchanged** (WG-A03). A normal comes from the vertex and its east and north neighbours (the last
@@ -76,7 +75,7 @@
 ### Changed
 
 - The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
-  the engine to the Python's bytes where the fixes above change them (all five
+  the engine to the Python's bytes where the fixes above change them (three of the five
   cases); `landcore/tests/fixtures/land_merge_cases_audit.json` records what the engine
   answers there, and says how to re-record it.
 

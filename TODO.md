@@ -105,21 +105,21 @@ are white; layers the merge has nothing to say about come from the winning recor
   and the world map of a loaded cell that has none (see A07), are not handled apart.
 - WG-A07, what is left: an authored `WNAM` is kept as it is even where seam repair or the slope
   limiter then moved the heights it was made from (the audit does not say every authored `WNAM`
-  should be regenerated: decide the policy), and an authored map is still sunk where the terrain is
-  under the sea by the eighth-vertex heights (the Python's rule). A map generated here is sunk by the
-  vertices it was made from (`sink_generated_underwater_land`).
+  should be regenerated: decide the policy). A map the record lacks decodes as all zeros, so an
+  authored all-zero map is also regenerated; OpenMW would keep it (it generates only for a record with
+  no `WNAM` at all), and the two cannot be told apart from the decoded record.
 - **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
   already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`). Left:
   the Tools page has no setting for it (a box, a gap, a list of cells), and no ceiling above 24 has
   been shown safe (600 on the audit's order made three borders worse and clamped two vertices).
-  Twelve borders of 24 units or less stay open at 24. Eleven are one corner vertex shared with a cell
-  the merge does not have (a vertex it cannot move, so the cells either side of it keep differing; the
-  fix would be to bring in the fourth cell too, which then has to meet its other borders), and one is
-  between two cells the merge already had. Decide whether a single corner step is worth that. The audit's own note
+  Four borders of 24 units or less stay open at 24 (115 records written, 394 vertices improved, none worse): three
+  are one corner vertex where the cells outside the merge disagree with each other or there are none, so no
+  height agrees with them all, and one is between two cells the merge already had (not looked into).
+  Fixing those would mean moving terrain outside the merge. The audit's own note
   stands: do not cut record counts by suppressing small mismatches; known intentional discontinuities
-  go in as exceptions. Record counts against Merged Lands (303 against 114 at 24) are not a measure.
+  go in as exceptions. Record counts against Merged Lands (303 against 115 at 24) are not a measure.
 - `tests/fixtures/land_merge_cases.json` (recorded from the Python) is no longer the whole truth:
-  its cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
+  three of its five cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
   whether to retire `tools/gen_land_merge_cases.py` and record all five from the engine.
 
 ## After 5.0

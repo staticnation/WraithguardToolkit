@@ -16,9 +16,12 @@ generated -- see *Function-by-function coverage* below.
 > against the first port, the 4.x app's Python `wraithguard/land/` package, which is
 > retired. `landcore` was carried from it module for module (`land/meta.py` is
 > `landcore::meta`, `land/merge.py` is `landcore::merge`, and so on; `landcore/src/lib.rs`
-> maps them) and is pinned to its answers byte for byte
-> (`tests/fixtures/land_merge_cases.json`, `landcore/tests/merge_cases.rs`), so what is
-> said here about the Python's behavior holds for `landcore`. The *Third cross-check*
+> maps them) and was pinned to its answers byte for byte until the terrain audit of 2026-11-11
+> (`TERRAIN_AUDIT_2026-11-11.md`): two of the five recorded cases still are
+> (`tests/fixtures/land_merge_cases.json`, `landcore/tests/merge_cases.rs`), and three are now held
+> to `tests/fixtures/land_merge_cases_audit.json`, the engine's own answers after the audit's
+> fixes (WG-A01 to WG-A07, `CHANGELOG.md`). What is said here about the Python's behavior holds
+> for `landcore` except where the audit changed it. The *Third cross-check*
 > section reads `landcore` directly. The coverage table's generator
 > (`tools/gen_merged_lands_table.py`) read the Python and no longer runs; the table stands
 > as of 5.0.
@@ -169,10 +172,13 @@ plugin changed that disagree about their shared vertices by at most GAP world un
 (default 24, three eight-unit steps) are brought in and feathered like any other seam;
 a wider gap is taken to be meant. `--merge-seam-except X,Y` leaves a cell's borders
 alone. Vertices of such a cell that touch terrain the merge leaves out stay as the
-terrain has them, so nothing is pulled across a border it was not asked to repair. On
-that load order, 24 units writes 114 records instead of 37, closes about 75 borders and
-makes none worse (a dozen single corner vertices, which belong to cells the merge
-does not have, stay as they were); 600 units closes more but made three borders worse and clamped two
+terrain has them, so nothing is pulled across a border it was not asked to repair; the
+one exception is a corner where the cells being mended disagree among themselves and every
+cell outside the merge that has the vertex says the same height, within the ceiling of
+them: that height is the one value that agrees with all of them, so they take it. On
+that load order, 24 units writes 115 records instead of 37, improves 394 vertices and
+makes no border worse; four borders of 24 units or less stay open (corner vertices
+whose outside cells disagree with each other, or have none); 600 units closes more but made three borders worse and clamped two
 vertices, which is why the ceiling is small by default.
 
 ## Where the code has moved on since this was written
@@ -469,8 +475,9 @@ actually resolved the brown/black squares here, is ours alone.
 ## Third cross-check: `landcore` against both Rust trees (October 2026)
 
 `viewer-shell/landcore` is the Rust port of `wraithguard/land/` (port step 4.4), pinned to it
-byte for byte (`landcore/tests/merge_cases.rs`), so everything above about the Python holds for
-it. This pass read the two Rust trees directly against `landcore`, not through the Python, and
+byte for byte (`landcore/tests/merge_cases.rs`; since the audit of 2026-11-11 three of the five
+cases are held to the audit record instead, `land_merge_cases_audit.json`), so everything above
+about the Python holds for it except where that audit changed it. This pass read the two Rust trees directly against `landcore`, not through the Python, and
 against the fork as it now stands (`OpenMWMergedLands-main`, Cargo 0.2.0, sources dated May
 2026). The fork has moved on since the second cross-check: the "byte-identical to 1.0"
 note above no longer describes it.
