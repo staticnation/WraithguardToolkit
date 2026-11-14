@@ -72,6 +72,15 @@
   too; a wider gap is left as meant, and a cell's borders can be excepted. Vertices that touch
   terrain the merge leaves out stay as the terrain has them.
 
+- **The Tools page can repair the seams the terrain already has.** A box on Merge Lands (off), the
+  widest gap (24 units) and the cells to leave alone (`X,Y; X,Y`); a cell written wrongly is refused,
+  not skipped, as a skipped exception is a border repaired that was meant to stay.
+
+- **The master check notes a plugin whose extension and header disagree** (`[MASTER FLAG]`, "Master flags"
+  on the Load order page): a `.esm` whose header is not flagged as a master loads with the plugins in the
+  game, and a `.esp` whose header is loads with the masters, while the tools go by the extension. It says
+  so and how to fix it (convert it with the Construction Set or the merge-to-master tool, or rename it).
+
 ### Changed
 
 - The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
