@@ -141,13 +141,11 @@ fn the_cfgs_orphans_are_pulled_as_recorded() {
 
 // ---------------------------------------------------------------- trees on disk
 
-fn plugin_bytes(masters: &[(String, u64)], data: bool, pad: usize, master_flag: bool) -> Vec<u8> {
+fn plugin_bytes(masters: &[(String, u64)], data: bool, pad: usize) -> Vec<u8> {
     let mut body = b"HEDR".to_vec();
     body.extend(300u32.to_le_bytes());
     body.extend(1.3f32.to_le_bytes());
-    // The file type: a master (`.esm`) is flagged as one, as the game has it.
-    body.extend(u32::from(master_flag).to_le_bytes());
-    body.extend([0u8; 32 + 256 + 4]);
+    body.extend([0u8; 4 + 32 + 256 + 4]);
     for (name, size) in masters {
         let raw: Vec<u8> = name.chars().map(|c| u8::try_from(u32::from(c)).unwrap()).chain([0]).collect();
         body.extend(b"MAST");
@@ -185,7 +183,7 @@ fn build_tree(root: &Path, files: &Value) {
                 .unwrap_or_default();
             let data = spec.get("data").and_then(Value::as_bool).unwrap_or(true);
             let pad = spec.get("pad").and_then(Value::as_u64).unwrap_or(0);
-            fs::write(&path, plugin_bytes(&masters, data, usize::try_from(pad).unwrap(), path.extension().is_some_and(|e| e.eq_ignore_ascii_case("esm")))).unwrap();
+            fs::write(&path, plugin_bytes(&masters, data, usize::try_from(pad).unwrap())).unwrap();
         }
     }
 }

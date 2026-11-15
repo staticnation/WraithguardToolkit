@@ -76,6 +76,9 @@ are white; layers the merge has nothing to say about come from the winning recor
   and every normal is either a kept authored one (155,548 of 156,325 the winning record's, 31 an
   earlier one's) or the formula on the saved heights; 5.0.5 had 2,452 that were neither. Left: the
   real order itself, and the 303-against-36 record count, which is repair scope (below).
+- A01 has no fixture for input offsets with a fractional phase (a reference `VHGT` offset that is
+  not a whole number): the cleaning and border checks compare on the finalized grid, but only the
+  aligned case is tested.
 - WG-A03, what is left: normals are not in the cleaning digests. The loaded record's authored
   normals are kept first, so a merged cell's normals differ from the loaded cell's only where its
   heights do and the heights already decide; a case where an authored normal alone should keep a
@@ -87,16 +90,15 @@ are white; layers the merge has nothing to say about come from the winning recor
   takes every `.esm` as a master, so a late master there can still go under the mods before it.
   Only an order like that has it; decide whether such an order should instead stop the merge.
 - Plain Morrowind order (not an audit finding; Static, 2026-11-11): the ini only says which plugins
-  load, and the game sorts them by file date, masters first. `ordercore::install` and the viewer's
-  connect sort that way. `gardenfell-install`'s `plugins::arrange` is left as it is, on purpose: it
-  shows the ini's order (the order the user means), and it is the tool that changes the files' dates to
-  match it (`ordercore::plain::dates_for`), not the list that is reordered. `gardenfell-world::read_load_order`
-  returns the ini's order, said in its doc (the connect sorts after it); an MO2 profile's list is the
-  order as it is. A master is told by its extension everywhere in the tools (decided 2026-11-12, for
-  simplicity and uniformity); the game goes by the TES3 header's flag, which only converting the file
-  changes, so the master check notes the two disagreeing, either way (`[MASTER FLAG]`,
-  `inputs::check_missing_masters`; the page's "Master flags"). Left: nothing acts on a note; a
-  converted `.esp` that is flagged as a master is still sorted as a plugin.
+  load, and the game sorts them by file date, masters first. `ordercore::install` and the
+  viewer's connect now sort that way; left as they were, and worth a look: (1)
+  `gardenfell-install`'s `plugins::arrange` still says a hand-edited ini "loads in the order it
+  states" and slots plugins missing from the ini in by date around the ini's own order - the
+  comment is wrong for the game, and the logic may need the same date sort; (2)
+  `gardenfell-world::read_load_order` itself still returns the ini's order (the connect sorts
+  after it); (3) whether an MO2 profile's list should be taken as the order as it is - its
+  `plain.rs` comment says MO2 owns the dates, so it is; (4) "masters first" is by extension
+  (`.esm`, `.omwgame`), not the TES3 header's master flag - check which the game uses.
 - WG-A06, what is left: the saved texture-only record's `LTEX` identities are not checked, and no
   test stops a CLI run (exit status) on a record that cannot be written.
 - WG-A02, what is left: a present zero-valued layer that differs from the engine's effective result,
@@ -107,9 +109,9 @@ are white; layers the merge has nothing to say about come from the winning recor
   authored all-zero map is also regenerated; OpenMW would keep it (it generates only for a record with
   no `WNAM` at all), and the two cannot be told apart from the decoded record.
 - **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
-  already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`; the Tools
-  page has a box, a gap and a list of cells, which the viewer build has not been run to see). Left:
-  no ceiling above 24 has been shown safe (600 on the audit's order made three borders worse and clamped two vertices).
+  already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`). Left:
+  the Tools page has no setting for it (a box, a gap, a list of cells), and no ceiling above 24 has
+  been shown safe (600 on the audit's order made three borders worse and clamped two vertices).
   Four borders of 24 units or less stay open at 24 (115 records written, 394 vertices improved, none worse): three
   are one corner vertex where the cells outside the merge disagree with each other or there are none, so no
   height agrees with them all, and one is between two cells the merge already had (not looked into).

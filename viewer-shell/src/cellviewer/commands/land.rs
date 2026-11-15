@@ -81,11 +81,6 @@ pub(super) fn land_meta_write(plugin: String, meta_type: String, layers: Vec<ser
 /// `Merged Lands.esp` is already there).
 #[tauri::command(async)]
 pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
-    // Read before anything is started: a cell that is not one is refused, not skipped.
-    let existing_seams = match seam_gap.filter(|g| *g > 0) {
-        Some(gap) => Some(landcore::pipeline::ExistingSeams { max_gap: gap, except: landcore::pipeline::parse_cell_list(seam_except.as_deref().unwrap_or(""))? }),
-        None => None,
-    };
     let setup = cf_setup(&cfg)?;
     let order = setup.plugins();
     let folders: Vec<PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
@@ -105,9 +100,7 @@ pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
 /// order and data folders, `Merged Lands.esp` written into `folder` (`dryRun`: nothing
 /// written). `model` `"masters"` measures each plugin against the masters, `"loadorder"`
 /// against the load order before it (the OpenMW fork); `ignore` the plugins left out by name
-/// or folder (`None`: the fork's defaults); `seam_gap` (`None` or 0: off) also repairs the seams
-/// the terrain already has, those no wider than that many units, and `seam_except` the cells
-/// (`X,Y; X,Y`) whose borders that never touches. Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
+/// or folder (`None`: the fork's defaults). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
 /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
 /// before it kept. `log` is every line it said, as [`LAND_LOG`] has them (the time it took
 /// before each), for the page to keep showing when the run ends.
@@ -116,7 +109,7 @@ pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
 /// page shows the merge as it goes (Static, 2026-10-27: a 621-plugin order sat on "Reading
 /// the load order's terrain..." with nothing to say whether it was moving).
 #[tauri::command(async)]
-pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>, seam_gap: Option<i32>, seam_except: Option<String>) -> Result<String, String> {
+pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>) -> Result<String, String> {
     use landcore::pipeline::DiffModel;
     use landcore::service::{build_merged_lands, MergeOptions, DEFAULT_NAME};
     let setup = cf_setup(&cfg)?;
@@ -127,7 +120,7 @@ pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bo
     // A new switch each run, so a Cancel meant for the last one cannot stop this one.
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop.clone());
-    let mut opts = MergeOptions { output, dry_run, verbose, model, cancel: Some(stop), existing_seams, ..Default::default() };
+    let mut opts = MergeOptions { output, dry_run, verbose, model, cancel: Some(stop), ..Default::default() };
     if let Some(ignore) = ignore {
         opts.ignore = ignore;
     }

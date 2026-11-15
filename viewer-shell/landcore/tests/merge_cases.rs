@@ -79,10 +79,7 @@ fn land(r: &Value) -> Vec<u8> {
             _ => vec![0; 3 * SIZE * SIZE],
         };
         body.extend(sub(b"VNML", &normals.iter().map(|&v| v as i8 as u8).collect::<Vec<_>>()));
-        // `offset_fraction`: a VHGT offset that is not a whole number of steps (some plugins
-        // have one), so every height the record decodes to is that far off the eight-unit grid.
-        let frac = r.get("offset_fraction").and_then(Value::as_f64).unwrap_or(0.0);
-        let mut vhgt = ((stored[0] as f64 + frac) as f32).to_le_bytes().to_vec();
+        let mut vhgt = (stored[0] as f32).to_le_bytes().to_vec();
         for y in 0..SIZE {
             for x in 0..SIZE {
                 let d = if x == 0 {
@@ -755,44 +752,5 @@ fn a_corner_that_the_outside_agrees_on_is_mended() {
     assert_eq!((west[(SIZE - 1) * SIZE + SIZE - 1], east[(SIZE - 1) * SIZE]), (400 * 8, 401 * 8));
     // And the rest of the border is mended as before.
     assert!((1..SIZE - 1).all(|y| west[y * SIZE + SIZE - 1] == east[y * SIZE]));
-    let _ = std::fs::remove_dir_all(data.parent().unwrap());
-}
-
-/// A reference whose `VHGT` offset has a fractional phase (WG-A01): every height it decodes to is 4
-/// units off the eight-unit grid. (21,20) is borrowed beside the merged cell (20,20) and left
-/// alone by the merge, so nothing about it may make it a record (retention judges the saved
-/// result, not the encoder's rounding), and (20,20) meets it on the grid with no tear.
-#[test]
-fn a_reference_off_the_grid_is_not_kept_for_its_rounding() {
-    use serde_json::json;
-    use tes3::esp::{Plugin, TES3Object};
-    let level = json!([400, 0, 0, 1, 0, 0, -1, 0]);
-    let data = setup(
-        "fractional phase",
-        json!([
-            {"name": "Base.esm", "land": [
-                {"grid": [20, 20], "flags": 1, "heights": level, "offset_fraction": 0.5},
-                {"grid": [21, 20], "flags": 1, "heights": level, "offset_fraction": 0.5}]},
-            {"name": "A.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 20, 20, 6, 60], "offset_fraction": 0.5}]},
-            {"name": "B.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 48, 48, 5, 40], "offset_fraction": 0.5}]},
-        ]),
-    );
-    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
-    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
-    let cells: std::collections::BTreeMap<(i32, i32), Vec<i32>> = plugin
-        .objects
-        .iter()
-        .filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None })
-        .map(|l| {
-            let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
-            (l.grid, landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap())
-        })
-        .collect();
-    assert_eq!(cells.keys().copied().collect::<Vec<_>>(), vec![(20, 20)], "{:#?}", r.lines);
-    let merged = &cells[&(20, 20)];
-    assert!(merged.iter().all(|v| v % 8 == 0), "saved on the grid");
-    // Its east column is the borrowed neighbour's, on the grid: 400 stored units and a half is 3,204, saved as 3,200.
-    assert!((1..SIZE - 1).all(|y| merged[y * SIZE + SIZE - 1] == 400 * 8), "{:?}", &merged[SIZE - 1..SIZE + 2]);
-    assert_eq!(r.clamped, 0);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }

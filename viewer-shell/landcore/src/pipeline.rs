@@ -394,35 +394,6 @@ impl Default for ExistingSeams {
     }
 }
 
-/// Cells written as `X,Y`, separated by spaces, commas-after-a-pair or semicolons
-/// (`-10,-47; 3,4`): the cells [`ExistingSeams::except`] leaves alone, as a page or a settings file
-/// has them. A piece that is not a cell is an error, not skipped, because a skipped exception is a
-/// border repaired that was meant to stay.
-pub fn parse_cell_list(text: &str) -> Result<BTreeSet<Coords>, String> {
-    let mut out = BTreeSet::new();
-    // "5, 6" is one cell: no space is taken to end a piece beside a comma.
-    let mut tight = String::with_capacity(text.len());
-    for ch in text.chars() {
-        if ch == ',' {
-            tight.truncate(tight.trim_end().len());
-        }
-        if ch.is_whitespace() && tight.ends_with(',') {
-            continue;
-        }
-        tight.push(ch);
-    }
-    for piece in tight.split(|c: char| c == ';' || c.is_whitespace()).map(str::trim).filter(|p| !p.is_empty()) {
-        let cell = piece.split_once(',').and_then(|(x, y)| Some((x.trim().parse::<i64>().ok()?, y.trim().parse::<i64>().ok()?)));
-        match cell {
-            Some(c) => {
-                out.insert(c);
-            }
-            None => return Err(format!("\"{piece}\" is not a cell: write it as X,Y, for example -10,-47")),
-        }
-    }
-    Ok(out)
-}
-
 /// How many world units the shared vertices of two neighbours disagree by at most, `a` the cell
 /// to the west (or south) of `b`; `None` if either has no heights.
 fn border_gap(a: &LandscapeLayers, b: &LandscapeLayers, east: bool) -> Option<Value> {
@@ -639,18 +610,4 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     }
     lap("cleaning");
     Ok(times)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_cell_list;
-
-    #[test]
-    fn a_cell_list_reads_pairs_and_refuses_the_rest() {
-        let got: Vec<_> = parse_cell_list("-10,-47; 3,4  5, 6\n").unwrap().into_iter().collect();
-        assert_eq!(got, vec![(-10, -47), (3, 4), (5, 6)]);
-        assert!(parse_cell_list("").unwrap().is_empty());
-        assert!(parse_cell_list("3,4; odd").unwrap_err().contains("\"odd\" is not a cell"));
-        assert!(parse_cell_list("3,").is_err());
-    }
 }
