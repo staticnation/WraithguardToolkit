@@ -69,36 +69,25 @@ pub fn weighted_delta(first: Value, second: Value, w1: f64, w2: f64, p: Conflict
     (blended.trunc() as Value, is_major(first, second, blended, p))
 }
 
-/// The layer's name as `LandData` spells it, for the refusals.
-fn layer_name(bits: u32) -> &'static str {
-    match bits {
-        layer::VERTEX_COLORS => "VERTEX_COLORS",
-        layer::TEXTURES => "TEXTURES",
-        layer::VERTEX_HEIGHTS => "VERTEX_HEIGHTS",
-        layer::VERTEX_NORMALS => "VERTEX_NORMALS",
-        layer::WORLD_MAP => "WORLD_MAP",
-        _ => "NONE",
-    }
-}
-
-/// The strategy a layer actually gets (`_resolve_for`): `Auto` is `Overwrite` everywhere;
-/// averaging texture indices, or `Curvature` off the heights, is refused.
+/// The strategy a layer actually gets (`_resolve_for`): `Auto` is `Overwrite` here (the
+/// models choose what `Auto` is before this, `pipeline::folded_with_normals`); averaging
+/// texture indices is the later plugin's instead, and `Curvature` off the heights is `Resolve`.
+/// Nothing is refused: a setting that cannot be done as written is not a reason to stop a merge.
 pub fn resolve_for(layer_bits: u32, strategy: Strategy) -> Result<Strategy, String> {
     if strategy == Strategy::Auto {
         return Ok(Strategy::Overwrite);
     }
-    let averaging = matches!(strategy, Strategy::Resolve | Strategy::Curvature);
-    if averaging && layer_bits == layer::TEXTURES {
-        return Err(format!(
-            "{} holds identifiers, not quantities: averaging index 3 and index 7 gives index 5, which is a third unrelated texture. Use OVERWRITE or IGNORE.",
-            layer_name(layer_bits)
-        ));
+    // Texture numbers are names, not quantities: the average of texture 3 and texture 7 is
+    // texture 5, a third and unrelated one (which is what the original and the fork write). A
+    // blend asked of them is the later plugin's instead, and the merge says so
+    // (`service`); it is not a reason to stop a whole merge (Static, 2026-11-16).
+    if matches!(strategy, Strategy::Resolve | Strategy::Curvature) && layer_bits == layer::TEXTURES {
+        return Ok(Strategy::Overwrite);
     }
+    // `Curvature` weighs an edit by the structure it adds to a height surface; a layer with no
+    // surface is blended plainly, which is what was meant by it.
     if strategy == Strategy::Curvature && layer_bits != layer::VERTEX_HEIGHTS {
-        return Err(format!(
-            "CURVATURE weights an edit by the structure it adds to a height surface, and {} has no surface to bend. Use RESOLVE.",
-            layer_name(layer_bits)
-        ));
+        return Ok(Strategy::Resolve);
     }
     Ok(strategy)
 }
@@ -446,8 +435,11 @@ mod tests {
         assert_eq!((rep.taken_from_one, rep.taken_from_two, rep.contested, rep.strategy), (1, 1, 1, Strategy::Overwrite));
         let (m, _) = merge_layer(layer::VERTEX_HEIGHTS, &a, &b, Strategy::Ignore, ConflictParams::default()).unwrap();
         assert_eq!(m.flat()[0], 5);
-        assert!(merge_layer(layer::TEXTURES, &a, &b, Strategy::Resolve, ConflictParams::default()).unwrap_err().starts_with("TEXTURES holds identifiers"));
-        assert!(merge_layer(layer::VERTEX_COLORS, &a, &b, Strategy::Curvature, ConflictParams::default()).unwrap_err().contains("VERTEX_COLORS has no surface"));
+        // Texture numbers are not blended: the later plugin's, where both changed one.
+        let (m, rep) = merge_layer(layer::TEXTURES, &a, &b, Strategy::Resolve, ConflictParams::default()).unwrap();
+        assert_eq!((m.flat(), rep.strategy), (vec![9, 7, 3, 0], Strategy::Overwrite));
+        // And a layer with no surface is blended plainly.
+        assert_eq!(merge_layer(layer::VERTEX_COLORS, &a, &b, Strategy::Curvature, ConflictParams::default()).unwrap().1.strategy, Strategy::Resolve);
     }
 
     #[test]

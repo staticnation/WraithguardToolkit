@@ -42,6 +42,34 @@ impl Landmass {
     }
 }
 
+/// Cells left out of the merge (the OpenMW fork's `cell_ignore` and `cell_ignore_by_plugin`):
+/// `everywhere` for every plugin, so the cell is not merged, repaired or written at all;
+/// `by_plugin` (names in lowercase) for one plugin's terrain there, which earlier and later
+/// plugins still merge around. What the game loads is not changed by either: a plugin left
+/// out of a cell still supplies it there unless the merge has something to write over it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IgnoredCells {
+    pub everywhere: std::collections::BTreeSet<Coords>,
+    pub by_plugin: BTreeMap<String, std::collections::BTreeSet<Coords>>,
+}
+
+impl IgnoredCells {
+    /// The fork's default: Tamriel Rebuilt's Hunza Camp, four cells whose own discontinuity
+    /// is meant (its `docs/hunza-camp.md`).
+    pub fn hunza_camp() -> Self {
+        IgnoredCells { everywhere: Default::default(), by_plugin: BTreeMap::from([("tr_mainland.esm".to_string(), [(-9, -46), (-9, -47), (-10, -46), (-10, -47)].into_iter().collect())]) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.everywhere.is_empty() && self.by_plugin.values().all(|c| c.is_empty())
+    }
+
+    /// Whether `plugin`'s terrain at `coords` is left out.
+    pub fn skips(&self, plugin: &str, coords: Coords) -> bool {
+        self.everywhere.contains(&coords) || self.by_plugin.get(&plugin.to_ascii_lowercase()).is_some_and(|c| c.contains(&coords))
+    }
+}
+
 /// The layer bits by grid, in the order masters are layered (`merge_master_layers`).
 const MASTER_ORDER: [(Layer, u32); 5] = [
     (Layer::Heights, layer::VERTEX_HEIGHTS),
@@ -141,8 +169,15 @@ pub fn layer_onto(land: &mut Landmass, l: LandscapeLayers, source: &str) {
 /// `Store<ESM::Land>::load`). This is the loaded terrain the load-order cleaning compares
 /// against; [`layer_onto`] is the merge's own composition, which keeps an earlier layer a
 /// later record omits and so is not what loads.
-pub fn replace_onto(land: &mut Landmass, l: LandscapeLayers, source: &str) {
+///
+/// The engine reads a layer only when the record's `DATA` flags declare it (OpenMW's
+/// `Land::load` sets a data type when the subrecord is there *and* its flag is): a subrecord
+/// the flags leave out is not terrain that loads, so it is dropped here. Kept, an undeclared
+/// `VCLR` read as the cell's colors when the game draws white there.
+pub fn replace_onto(land: &mut Landmass, mut l: LandscapeLayers, source: &str) {
     let coords = l.coords;
+    let declared = l.declared;
+    mask_layers(&mut l, declared);
     land.cells.insert(coords, l);
     land.sources.insert(coords, source.to_string());
 }
@@ -159,7 +194,7 @@ pub fn masked(mut l: LandscapeLayers, allowed: u32) -> LandscapeLayers {
 /// merge is left out, and a master's settings mask what it contributes. Also answers the
 /// masters as the engine loads them, settings ignored (the start of the loaded landmass the
 /// load-order cleaning compares against).
-pub fn build_reference(masters: &[PluginRecords], known: &mut KnownTextures, metas: &HashMap<String, PluginMeta>, notes: &mut Vec<String>) -> Result<(Landmass, Landmass), String> {
+pub fn build_reference(masters: &[PluginRecords], known: &mut KnownTextures, metas: &HashMap<String, PluginMeta>, ignored: &IgnoredCells, notes: &mut Vec<String>) -> Result<(Landmass, Landmass), String> {
     let mut land = Landmass::default();
     let mut loaded = Landmass::default();
     for master in masters {
@@ -170,7 +205,10 @@ pub fn build_reference(masters: &[PluginRecords], known: &mut KnownTextures, met
         let allowed = meta.map(PluginMeta::allowed_layers).unwrap_or(ALL_LAYERS);
         for l in decode_plugin(master, known, notes)? {
             replace_onto(&mut loaded, l.clone(), &master.name);
-            layer_onto(&mut land, masked(l, allowed), &master.name);
+            // A cell left out for this master is still what loads; it is not the reference.
+            if !ignored.skips(&master.name, l.coords) {
+                layer_onto(&mut land, masked(l, allowed), &master.name);
+            }
         }
     }
     Ok((land, loaded))
@@ -189,7 +227,7 @@ pub fn differences(reference: &Landmass, plugin: &str, cells: &[LandscapeLayers]
     let mut out = Vec::new();
     for l in cells {
         let d = diff_against_reference(plugin, l, reference.get(l.coords), allowed)?;
-        if d.is_modified() || !d.missing.is_empty() {
+        if d.is_modified() || d.has_terrain_data() || !d.missing.is_empty() {
             out.push(d);
         }
     }

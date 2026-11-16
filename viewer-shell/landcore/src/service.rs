@@ -51,7 +51,8 @@ pub struct MergeOptions {
     pub dry_run: bool,
     pub substitute_unknown_textures: bool,
     pub verbose: bool,
-    /// What a plugin's change is measured against (`DiffModel::Masters` by default).
+    /// What a plugin's change is measured against (`DiffModel::LoadOrder` by default, the OpenMW
+    /// fork's; Static, 2026-11-16).
     pub model: DiffModel,
     /// Drop the cells the load order already loads as merged (the OpenMW fork's cleaning);
     /// off, the Python's rule: the cells the masters or a single mod already give.
@@ -74,6 +75,15 @@ pub struct MergeOptions {
     /// Repair the seams the terrain already has as well as the ones the merge makes (`None`:
     /// only the borders of cells a plugin changed). See [`crate::pipeline::ExistingSeams`].
     pub existing_seams: Option<crate::pipeline::ExistingSeams>,
+    /// Cells left out of the merge, for every plugin or for one (the OpenMW fork's
+    /// `cell_ignore` and `cell_ignore_by_plugin`). Tamriel Rebuilt's Hunza Camp by default, as
+    /// the fork's new configs have it.
+    pub ignored_cells: crate::landmass::IgnoredCells,
+    /// What becomes of the world maps (`WNAM`). Off, Wraithguard's way: an authored map is kept,
+    /// its entries made again where a repair moved the height under them, and a cell with no
+    /// map gets the one OpenMW generates. On, the OpenMW fork's: the maps are written as the
+    /// merge has them, nothing made again and none generated (a cell without one reads as zeros).
+    pub keep_world_map: bool,
 }
 
 /// The fork's starting `ignore_plugins`: generated or non-land plugins, expensive to read and
@@ -95,12 +105,14 @@ impl Default for MergeOptions {
             dry_run: false,
             substitute_unknown_textures: true,
             verbose: false,
-            model: DiffModel::Masters,
+            model: DiffModel::LoadOrder,
             clean_against_load_order: true,
             ignore: DEFAULT_IGNORE.iter().map(|s| s.to_string()).collect(),
             cancel: None,
             allow_clamping: true,
             existing_seams: None,
+            ignored_cells: crate::landmass::IgnoredCells::hunza_camp(),
+            keep_world_map: false,
         }
     }
 }
@@ -115,21 +127,32 @@ fn coords(c: (i64, i64)) -> String {
 /// starts with. A master that comes after a mod is a mod to the merge, taken in its place in
 /// the order, because OpenMW's precedence is the order and not the file's extension (WG-A05):
 /// splitting every `.esm` off to the reference put a late master under the mods before it.
-/// An order that starts with a mod has no such run, and then every `.esm` is a master as
-/// before, so the merge has a reference to work from.
+/// An order that starts with a mod is read the same way from its first master on: the masters
+/// are the run of them that starts there, and the plugins listed before it are mods, the
+/// first of them ([`split_order_early`] says how many).
 pub fn split_order(names: &[String]) -> (Vec<String>, Vec<String>) {
+    let (masters, mods, _) = split_order_early(names);
+    (masters, mods)
+}
+
+/// [`split_order`], and how many of the mods (the first ones) are listed before the masters.
+/// Those load under the masters: a master's record at a cell replaces theirs. Their changes are
+/// still merged, as the changes of any plugin a later one replaces are.
+pub fn split_order_early(names: &[String]) -> (Vec<String>, Vec<String>, usize) {
     let plugins: Vec<&String> = names.iter().filter(|n| !n.to_lowercase().ends_with(".omwscripts")).collect();
     let is_master = |n: &str| {
         let l = n.to_lowercase();
         l.ends_with(".esm") || l.ends_with(".omwgame")
     };
-    let leading = plugins.iter().take_while(|n| is_master(n)).count();
-    if leading == 0 {
-        let masters = plugins.iter().filter(|n| is_master(n)).map(|n| (*n).clone()).collect();
-        let mods = plugins.iter().filter(|n| !is_master(n)).map(|n| (*n).clone()).collect();
-        return (masters, mods);
+    let early = plugins.iter().take_while(|n| !is_master(n)).count();
+    let run = plugins[early..].iter().take_while(|n| is_master(n)).count();
+    if run == 0 {
+        // No master at all: nothing is early, there is nothing to load over them.
+        return (Vec::new(), plugins.iter().map(|n| (*n).clone()).collect(), 0);
     }
-    (plugins[..leading].iter().map(|n| (*n).clone()).collect(), plugins[leading..].iter().map(|n| (*n).clone()).collect())
+    let masters = plugins[early..early + run].iter().map(|n| (*n).clone()).collect();
+    let mods = plugins[..early].iter().chain(&plugins[early + run..]).map(|n| (*n).clone()).collect();
+    (masters, mods, early)
 }
 
 /// The data folder holding a plugin, the *last* that does, as OpenMW resolves it, matching
@@ -345,17 +368,31 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         .cloned()
         .collect();
     let load_order = &order[..];
-    let (master_names, mod_names) = split_order(load_order);
+    let (master_names, mod_names, early) = split_order_early(load_order);
+    let early_names: BTreeSet<String> = mod_names[..early].iter().map(|n| n.to_lowercase()).collect();
     if master_names.is_empty() {
         fail!("no masters in the load order. Without them there is no reference terrain to merge against, and every mod would look as though it had rewritten the world.");
     }
     say!("masters: {}", master_names.join(", "));
     say!("mods:    {}", mod_names.len());
+    if early > 0 {
+        say!("  {early} plugin(s) are listed before the first master ({}): the masters load over them, and they are merged as the first of the mods", mod_names[..early].join(", "));
+    }
     if !left_out.is_empty() {
         say!("  left out {} plugin(s): {}", left_out.len(), left_out.join(", "));
     }
     if opts.model == DiffModel::LoadOrder {
         say!("  each plugin measured against the load order before it");
+    }
+    {
+        // Only what bears on this load order is said (the default names Tamriel Rebuilt).
+        let by: Vec<String> = opts.ignored_cells.by_plugin.iter().filter(|(n, c)| !c.is_empty() && load_order.iter().any(|p| p.eq_ignore_ascii_case(n))).map(|(n, c)| format!("{n} ({} cell(s))", c.len())).collect();
+        if !opts.ignored_cells.everywhere.is_empty() {
+            say!("  {} cell(s) left out of the merge for every plugin", opts.ignored_cells.everywhere.len());
+        }
+        if !by.is_empty() {
+            say!("  cells left out of the merge for one plugin: {}", by.join(", "));
+        }
     }
 
     let mut known = KnownTextures::default();
@@ -404,7 +441,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         fail!("{e}");
     }
     let meta_map: HashMap<String, PluginMeta> = metas.iter().cloned().collect();
-    let (reference, mut loaded) = match build_reference(&masters, &mut known, &meta_map, &mut notes) {
+    let (reference, mut loaded) = match build_reference(&masters, &mut known, &meta_map, &opts.ignored_cells, &mut notes) {
         Ok(r) => r,
         Err(e) => fail!("{e}"),
     };
@@ -468,11 +505,16 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
                 say!("    {n}: {}", describe_meta(&meta_map[*n]));
             }
         }
+        for n in &patched {
+            if matches!(meta_map[*n].strategy_for(crate::meta::layer::TEXTURES), Strategy::Resolve | Strategy::Curvature) {
+                say!("    {n}: texture_indices cannot be blended (texture numbers are names, not amounts); the later plugin's textures are used where two meet");
+            }
+        }
     }
 
     stop!();
     say!("merging ...");
-    let mut outcome = match merge_landmass(&reference, &mods, &mut known, &meta_map, opts.strategy, opts.model, opts.clean_against_load_order.then_some(&mut loaded)) {
+    let mut outcome = match merge_landmass(&reference, &mods, &mut known, &meta_map, opts.strategy, opts.model, opts.clean_against_load_order.then_some(&mut loaded), mods.iter().take_while(|m| early_names.contains(&m.name.to_lowercase())).count(), &opts.ignored_cells) {
         Ok(o) => o,
         Err(e) => fail!("{e}"),
     };
@@ -482,6 +524,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         say!("  skipped {name}: {why}");
     }
     say!("  {} modified cell(s)", outcome.cells.len());
+    outcome.keep_world_map = opts.keep_world_map;
     let times = match crate::pipeline::finish_with(&mut outcome, &reference, opts.clean_against_load_order.then_some(&loaded), opts.existing_seams.as_ref()) {
         Ok(t) => t,
         Err(e) => fail!("{e}"),
@@ -505,6 +548,15 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     if outcome.slopes.pinned > 0 {
         say!("  {} adjustment(s) refused: the vertex is shared with terrain outside the merge", outcome.slopes.pinned);
     }
+    if outcome.steps.lowered > 0 {
+        say!("  {} vertex/vertices lowered to fit a step the record can store ({} cell(s) outside the merge brought in for it)", outcome.steps.lowered, outcome.steps.brought_in.len());
+    }
+    if !outcome.steps.finished {
+        say!("  the step repair was given up: copies of a vertex kept apart on purpose kept undoing each other");
+    }
+    if outcome.world_map_regenerated > 0 {
+        say!("  {} world map entry/entries made again: seam repair or the slope limiter moved the height under them", outcome.world_map_regenerated);
+    }
     say!("  cleaning dropped {} redundant cell(s)", outcome.cleaning.dropped());
     if let Some(worst) = outcome.seams.tears.first() {
         let neighbour = worst.right.map(coords).unwrap_or_else(|| "terrain outside the merge".into());
@@ -512,6 +564,17 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
             "{} cell border(s) still disagree after seam repair -- worst between {} and {neighbour}, {} vertex/vertices apart by up to {} units. Nothing was written: this would be a visible tear in the landscape, and it is a defect in the merge rather than in your load order. Please report it.",
             outcome.seams.tears.len(),
             coords(worst.left),
+            worst.vertices,
+            worst.worst
+        );
+    }
+
+    if let Some(worst) = outcome.seams.off_grid.first() {
+        say!(
+            "  {} border(s) meet terrain saved off the eight-unit grid (worst between {} and {}, {} vertex/vertices, {} units apart): a record cannot hold that neighbor's heights exactly, so a gap of a few units stays there in the game",
+            outcome.seams.off_grid.len(),
+            coords(worst.left),
+            worst.right.map(coords).unwrap_or_default(),
             worst.vertices,
             worst.worst
         );
@@ -535,7 +598,13 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     let mut clamped_cells: Vec<(i64, i64)> = Vec::new();
     for (c, cell) in &outcome.cells {
         match build_landscape_record_for(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref(), cell.textures.is_some()) {
-            Ok((record, clamps)) => {
+            Ok((mut record, clamps)) => {
+                if opts.keep_world_map {
+                    // As the merge has it, or none: nothing generated.
+                    for (i, v) in record.world_map_data.data.iter_mut().flatten().enumerate() {
+                        *v = cell.world_map.as_ref().map_or(0, |w| w[i].clamp(-128, 127) as i8);
+                    }
+                }
                 clamped += clamps.len();
                 if !clamps.is_empty() {
                     clamped_cells.push(*c);

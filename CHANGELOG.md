@@ -3,7 +3,52 @@
 
 ## Unreleased
 
+### Changed
+
+- **Merge Lands measures each plugin against the load order by default** (`--merge-model loadorder`,
+  the first choice on the Tools page; Static, 2026-11-16), as OpenMWMergedLands does: the later
+  plugin's value stands where two plugins changed a vertex, and a later record that carries plain
+  ground over an earlier mod's hill wins it. `--merge-model masters` is the original Merged Lands'
+  model, which keeps both mods' edits. A model chosen before on the Tools page is still the one
+  it remembers.
+- **`Auto` against the masters blends, as the original Merged Lands does**: where two plugins both
+  changed a vertex, heights, normals, colors and the world map are blended (its `Resolve`), and
+  textures are the later plugin's. It took the later plugin's for every layer (the Python's rule).
+  Against the load order `Auto` is the later plugin's for every layer, as the fork has it.
+- **A strategy that cannot be done as written no longer stops the merge.** `Resolve` (or
+  `Curvature`) on `texture_indices` is the later plugin's textures, said in the log: texture numbers
+  are names, and the average of texture 3 and texture 7 is texture 5, a third and unrelated one.
+  `Curvature` on a layer with no height surface is `Resolve`. Both were errors.
+
 ### Fixed
+
+- **Merge Lands follows OpenMWMergedLands' own fixes for the terrain audit** (its
+  `docs/terrain-storage-audit.md`; Static, 2026-11-16):
+  - *Heights keep their phase.* `VHGT`'s offset is a float, so a record can hold 3,204 as well as
+    3,200. Each connected piece of terrain is put on the eight-unit grid most of its vertices already
+    have (`steps::quantize_components`; a height off it goes to the grid toward zero, as the fork
+    rounds), the offset is written with that fraction, and it is read by
+    scaling and truncating it once (a cell crossing zero used to split into two phases). Every height
+    was floored to a whole offset before, which left a few units between a written cell and a
+    neighbor with a fractional offset.
+  - *A step no record can store is lowered, not clamped* (`steps::fit_steps`, after the slope
+    limiter): the higher end comes down to the bound in every cell that has the vertex, a cell
+    outside the merge brought in for it, until none is left. The audit's four clamped vertices are
+    22 lowered ones and none clamped. Clamping stays as the fallback, and `--merge-no-clamp` with it.
+  - *Normals are merged as authored data*, by the plugin's height strategy (`Auto`: the later
+    plugin's). A chosen normal stands where some source has that vector over the same three heights:
+    the record that loads, what an explicit `Resolve` made (kept with its geometry), a patch of
+    normals alone (with the terrain under it), the plugins that touched the cell, the masters. Anywhere
+    else it is worked out from the saved heights. Normals count in the cleaning against what loads.
+  - *`LTEX` ids are compared ignoring letter case*, and a later `LTEX` that names no file clears the
+    earlier one's.
+  - *Cells can be left out of the merge*: for every plugin (`--merge-cell-ignore X,Y`), or one
+    plugin's terrain there (`--merge-cell-ignore-by-plugin PLUGIN=X,Y;X,Y`; Tamriel Rebuilt's Hunza
+    Camp by default, as the fork has it). A plugin left out of a cell still supplies it in the game
+    unless an earlier one's terrain is restored over it, and a record with no heights is not written
+    over one that has them.
+  - *The world map can be written as the merge has it* (`--merge-keep-world-map`, the Tools page's
+    "Keep world maps as merged"), the fork's way; Wraithguard's stays the default.
 
 - **Merge Lands saves the heights its normals were made from** (terrain audit 2026-11-11,
   WG-A01). The heights are put on VHGT's eight-unit grid right after the seams are repaired,
@@ -12,7 +57,13 @@
   39 cells describing terrain that was not the one saved. Equal heights stay equal, so every
   copy of a shared border vertex still agrees. A step the merge could not repair is still clamped by the encoder and the plugin is
   written, as before; the log now names the first cells and says the normals were worked out
-  before it. `MergeOptions::allow_clamping` (on by default) off stops the merge instead.
+  before it. `MergeOptions::allow_clamping` (on by default) off stops the merge instead; on the
+  command line that is `--merge-no-clamp`, and on the Tools page "Stop instead of clamping".
+- **A border with terrain saved off the eight-unit grid is said** (WG-A01). A neighbor whose record
+  has a fractional height offset loads a few units from any cell written beside it (3,204 against
+  3,200); the border check compared it floored and saw nothing. The merge now looks at the neighbor
+  as the game loads it and names the worst such border in the log. No record can close that gap, so
+  the plugin is still written.
 - **The slope limiter moves only what VHGT cannot store** (WG-A04). Its limit was a symmetric
   1,008 world units; the byte holds -1,024 to +1,016, so legal steps were moved for nothing
   (five of the audit's cells). It now works to those bounds, in whole eight-unit moves on the
@@ -23,7 +74,17 @@
   record that omits colours or textures (the audit's Bloodmoon colours and Sand_02 textures)
   no longer hides a restoration: the cell is written. A loaded cell with no colours counts as
   white, so an all-white layer over it is no change, and colours over a missing `LAND` are one.
-  A cell written takes the layers the merge has nothing to say about from the winning record.
+  A cell written takes the layers the merge has nothing for from the winning record, heights
+  included, before the seams are repaired (the OpenMW fork's `complete_landmass_layers`): the
+  record replaces the winning one whole, so a layer left out would become the engine's default.
+  That holds for a layer the winning plugin's `.mergedlands.toml` excludes too: the settings say
+  what is merged, and the fork carries the loaded layer all the same. A cell that is then only what
+  loads is cleaned away, so a new cell is not written just to carry or drop an excluded layer.
+  A layer new to a cell is kept when every value of it is zero (zero heights, black colors, the
+  default texture): a later record that omits it must not turn it into the engine's default
+  (the fork's "present zero-valued layers").
+  A subrecord the winning record's `DATA` flags do not declare is not counted as loaded (the game
+  ignores it): an undeclared `VCLR` used to pass for the cell's colors and get the cell dropped.
 - **A cell of textures alone is written** (WG-A06): it used to be refused for having neither
   heights nor colours. A cell the merge keeps and cannot write now stops it, where the line
   said so and the plugin was saved without that cell.
@@ -32,7 +93,9 @@
   `.omwgame` files the order starts with are the reference terrain; one that comes after a mod is
   merged as a mod in its place, so `Base.esm`, `Early.esp`, `Late.esm` gives `Late.esm`'s ground
   as OpenMW loads it (it gave `Early.esp`'s). Orders with every `.esm` first are unchanged. An
-  order that starts with a mod keeps the old split, so the merge still has a reference.
+  order that starts with a mod is read the same way from its first master on: the masters there are
+  the base, later masters keep their place, and the plugins listed before them are merged as the
+  first mods, with the masters loading over them (it used to take every `.esm` as the base).
   That is OpenMW's rule, where the `content=` lines are the order. A plain Morrowind install is
   ordered by the dates of its plugin files (next entry), masters first, so there a master is
   never after a plugin.
@@ -53,7 +116,11 @@
   An authored `WNAM` is kept as it was. Nothing is done to either after that: the Python's rule
   that sank a world-map entry to -1 where the terrain at an eighth vertex was under the sea is
   gone (`sink_underwater_land`, and the generated-map variant added for it), because OpenMW has no
-  such rule - it reads a stored map back unchanged and generates one with `generateWnam` alone.
+  such rule - it reads a stored map back unchanged and generates one with `generateWnam` alone. An authored map is kept, except the entries whose
+  height seam repair or the slope limiter moved: those are made again from the saved height, the way
+  the engine generates them, and the log counts them (decided 2026-11-16). `land_merge_cases.json`
+  stays recorded from the Python for the two cases that still match it; the other three are held to
+  `land_merge_cases_audit.json`, recorded again for this.
 
 - **Merge Lands keeps an authored normal only where all three heights it is made from are
   unchanged** (WG-A03). A normal comes from the vertex and its east and north neighbours (the last
@@ -64,6 +131,26 @@
   it. A zero normal is still worked out.
 
 ### Added
+
+- **The Land view's brushes can be held to the textures on the ground** ("Texture mask", in the
+  Height and Color modes; Static, 2026-11-16). "Only on these textures" moves or tints only the
+  ground painted with the land textures named, and "Everywhere but these textures" leaves that
+  ground alone: a road levelled without the grass beside it moving, rock roughened and the sand
+  left smooth. Textures are added with Pick (the one under the next click) or from the Texture
+  brush, and taken out by a click on their name. Every height tool goes by it (raise, lower,
+  smooth, sharpen, flatten, ramp, noise, terrace, erode). A texture cell is four vertices wide, so
+  a vertex on the line between two textures takes part of the brush and no step is cut along it.
+- **Orbit navigation does not run out** (Static, 2026-11-16). An orbit (right-drag) or a pan
+  (middle-drag) no longer stops where the pointer meets the edge of the screen: the pointer is
+  hidden and kept in the viewport, as the WASD look does it, and comes back where it was pressed.
+  The wheel keeps going in: at the orbit pivot, where the camera used to stop, each notch now
+  pushes the pivot on ahead (faster while the wheel keeps turning). Out, the limit is 300,000
+  units, from 60,000 (the far plane is at 400,000).
+- **The Land view has a mask that is painted** (the Mask mode, and "Painted mask" in the Height
+  and Color modes). The brush paints it onto the ground and Alt rubs it out; it is drawn over the
+  ground as a tint (Show), and Invert and Clear do what they say. The height and color brushes are
+  then held inside it or kept out of it, alone or together with the texture mask. It is the
+  page's own: nothing of it is written to the patch, and it lasts the session.
 
 - **Merge Lands can repair the seams the terrain already has, opt-in** (`--merge-repair-seams [GAP]`,
   `--merge-seam-except X,Y`; `MergeOptions::existing_seams`). Off by default, the merge repairs only
@@ -77,9 +164,9 @@
   not skipped, as a skipped exception is a border repaired that was meant to stay.
 
 - **The master check notes a plugin whose extension and header disagree** (`[MASTER FLAG]`, "Master flags"
-  on the Load order page): a `.esm` whose header is not flagged as a master loads with the plugins in the
-  game, and a `.esp` whose header is loads with the masters, while the tools go by the extension. It says
-  so and how to fix it (convert it with the Construction Set or the merge-to-master tool, or rename it).
+  on the Load order page): a `.esm` whose header is not flagged as a master, or a `.esp` whose header is.
+  The extension is the kind everywhere and nothing acts on the note; it is for a file renamed where a
+  conversion (the Construction Set, or the merge-to-master tool) was meant.
 
 ### Changed
 

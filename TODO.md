@@ -58,14 +58,6 @@ Done in `Unreleased` (see `CHANGELOG.md`): WG-A03 (normals kept by their three h
 are white; layers the merge has nothing to say about come from the winning record) and WG-A06
 (texture-only records written; a cell that cannot be written stops the merge). Open:
 
-- **Decided (2026-11-12): a step VHGT cannot store warns and the plugin is written.** The audit's
-  acceptance list says to fail; `MergeOptions::allow_clamping` is on by default and off it stops the
-  merge ("Nothing was written"), which is the audit's reading. The log names the first cells. Left:
-  the setting has no place on the Tools page or the CLI, and the stopping path has no test.
-- **Decision: a layer a plugin's settings exclude, where the masters have none.** A written cell
-  now takes colours, textures and the world map the merge has none of from the winning record, so
-  a layer excluded in `.mergedlands.toml` for a new cell (no vanilla LAND) comes back from the
-  excluded plugin. Heights are not filled. Keep, or leave such a layer out as the settings say.
 - The audit's decoded inputs replay through the build (`audit1.7z` `decoded/inputs`, numbered as
   `geometry/inputs.json`'s plugins, not as the config's content list; 74 reduced plugins, LAND and
   LTEX only), and 5.0.5 on them writes the audit's 39 cells exactly. This build writes 37: seven
@@ -83,9 +75,6 @@ are white; layers the merge has nothing to say about come from the winning recor
   record, so only the masters' normals are kept there. Not covered: a normal-only patch followed by
   a later plugin that moves some of the heights (the later record's own normals win, as the engine
   loads them).
-- WG-A05, what is left: an order that *starts* with a mod (no leading run of masters) still
-  takes every `.esm` as a master, so a late master there can still go under the mods before it.
-  Only an order like that has it; decide whether such an order should instead stop the merge.
 - Plain Morrowind order (not an audit finding; Static, 2026-11-11): the ini only says which plugins
   load, and the game sorts them by file date, masters first. `ordercore::install` and the viewer's
   connect sort that way. `gardenfell-install`'s `plugins::arrange` is left as it is, on purpose: it
@@ -93,19 +82,15 @@ are white; layers the merge has nothing to say about come from the winning recor
   match it (`ordercore::plain::dates_for`), not the list that is reordered. `gardenfell-world::read_load_order`
   returns the ini's order, said in its doc (the connect sorts after it); an MO2 profile's list is the
   order as it is. A master is told by its extension everywhere in the tools (decided 2026-11-12, for
-  simplicity and uniformity); the game goes by the TES3 header's flag, which only converting the file
-  changes, so the master check notes the two disagreeing, either way (`[MASTER FLAG]`,
-  `inputs::check_missing_masters`; the page's "Master flags"). Left: nothing acts on a note; a
-  converted `.esp` that is flagged as a master is still sorted as a plugin.
-- WG-A06, what is left: the saved texture-only record's `LTEX` identities are not checked, and no
-  test stops a CLI run (exit status) on a record that cannot be written.
+  simplicity and uniformity). The TES3 header's flag only matters when a file is converted between
+  `.esp` and `.esm`, so the master check just notes a name and a header that disagree, either way
+  (`[MASTER FLAG]`, `inputs::check_missing_masters`; the page's "Master flags"); nothing acts on it.
+- WG-A06, what is left: no test stops a CLI run (exit status) on a record that cannot be written.
 - WG-A02, what is left: a present zero-valued layer that differs from the engine's effective result,
   and the world map of a loaded cell that has none (see A07), are not handled apart.
-- WG-A07, what is left: an authored `WNAM` is kept as it is even where seam repair or the slope
-  limiter then moved the heights it was made from (the audit does not say every authored `WNAM`
-  should be regenerated: decide the policy). A map the record lacks decodes as all zeros, so an
-  authored all-zero map is also regenerated; OpenMW would keep it (it generates only for a record with
-  no `WNAM` at all), and the two cannot be told apart from the decoded record.
+- WG-A07, what is left: a map the record lacks decodes as all zeros, so an authored all-zero map is
+  regenerated; OpenMW would keep it (it generates only for a record with no `WNAM` at all), and the
+  two cannot be told apart from the decoded record.
 - **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
   already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`; the Tools
   page has a box, a gap and a list of cells, which the viewer build has not been run to see). Left:
@@ -116,9 +101,54 @@ are white; layers the merge has nothing to say about come from the winning recor
   Fixing those would mean moving terrain outside the merge. The audit's own note
   stands: do not cut record counts by suppressing small mismatches; known intentional discontinuities
   go in as exceptions. Record counts against Merged Lands (303 against 115 at 24) are not a measure.
-- `tests/fixtures/land_merge_cases.json` (recorded from the Python) is no longer the whole truth:
-  three of its five cases are held to `landcore/tests/fixtures/land_merge_cases_audit.json`. Decide
-  whether to retire `tools/gen_land_merge_cases.py` and record all five from the engine.
+
+## Alignment with OpenMWMergedLands (its `docs/terrain-storage-audit.md`, copy of 2026-11-16)
+
+The fork fixed the same audit its own way and Wraithguard follows it (Static, 2026-11-16); what was
+done is in `CHANGELOG.md`. Left, and what is different on purpose:
+
+- The step repair runs after the slope limiter, not in its place (a hybrid, as asked): the limiter
+  shares a cliff out first, and the fork's lowering takes what it refused. With it nothing is left
+  to clamp, so `allow_clamping` off (`--merge-no-clamp`) no longer has a case that stops, and its
+  test went with it; the setting stays for a repair that is given up.
+- A cell the step repair brings in from outside the merge keeps its own phase: where that differs
+  from the piece's, the lowered vertex is floored onto it by the encoder (said as a border a few
+  units apart).
+- Normals: a `VNML` with no `VHGT` is not written (the fork can emit one); the snapshots and the
+  plugins' records are kept per cell for the whole merge (memory on a big order not measured).
+- The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
+  Tools page's "Keep world maps as merged" (not run in the viewer; no test of its own).
+- Ignored cells are on the command line only (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`);
+  the Tools page has no place for them and always uses the default (Hunza Camp).
+- `Auto` is each model's own now (2026-11-16; `pipeline::folded_with_normals`). Left of it: a cell
+  no master has still takes the later plugin's heights in both models (the Python's rule; the
+  original has no such rule that was found), and against the masters the blend is of the two
+  plugins' changes from the masters (`merge::merge_grids`), where the original blends the two
+  values: not compared number for number.
+- `Curvature` is only here.
+- Not looked at: the fork's `LTEX` palette order against ours, and its memory work.
+- Only here, from the original Merged Lands and the Python, kept as options: the masters model, the
+  existing-seams repair, the Python-recorded cases.
+
+## Orbit navigation without an end (2026-11-16)
+
+- Not run: the renderer's mouse handling has no page test (it needs the shell to move the
+  pointer and a GL context). To try in the viewer: a long right-drag and middle-drag past the
+  screen edge, the pointer coming back where it was pressed, the brush ring after it in the Land
+  view, alt-tab during a drag, and the wheel in past the pivot and out to the limit (fog and the
+  far plane at 300,000).
+- The push past the pivot goes along the view's axis, not toward the cursor (zoom to cursor ends
+  where the pivot is reached).
+
+## The Land view's masks (2026-11-16)
+
+- Neither has been seen in the viewer: the page tests drive them (`land_mask.test.js`).
+- The painted mask's tint is put on a cell's mesh when the Land view rebuilds that cell (a stroke
+  on it, Show, Invert, Clear). A cell the scene builds again itself (a cell arrow, Go) is drawn
+  without it until then, though the mask is still there and still holds the brush.
+- The texture mask reads each texture cell's own texture, not the blend the ground is drawn with
+  between two of them.
+- The painted mask is not kept between sessions.
 
 ## After 5.0
 

@@ -102,7 +102,10 @@ pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
 /// against the load order before it (the OpenMW fork); `ignore` the plugins left out by name
 /// or folder (`None`: the fork's defaults); `seam_gap` (`None` or 0: off) also repairs the seams
 /// the terrain already has, those no wider than that many units, and `seam_except` the cells
-/// (`X,Y; X,Y`) whose borders that never touches. Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
+/// (`X,Y; X,Y`) whose borders that never touches; `no_clamp` stops the merge, writing nothing, where a
+/// height step is left that a record cannot store (off: it is clamped and said); `keep_world_map` writes
+/// the world maps as the merge has them, as the OpenMW fork does (off: entries made again where a repair
+/// moved the height, a missing map generated). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
 /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
 /// before it kept. `log` is every line it said, as [`LAND_LOG`] has them (the time it took
 /// before each), for the page to keep showing when the run ends.
@@ -112,7 +115,7 @@ pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
 /// the load order's terrain..." with nothing to say whether it was moving).
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)] // a command's arguments are the page's keys, one each
-pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>, seam_gap: Option<i32>, seam_except: Option<String>) -> Result<String, String> {
+pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>, seam_gap: Option<i32>, seam_except: Option<String>, no_clamp: Option<bool>, keep_world_map: Option<bool>) -> Result<String, String> {
     use landcore::pipeline::DiffModel;
     use landcore::service::{build_merged_lands, MergeOptions, DEFAULT_NAME};
     // Read before anything is started: a cell that is not one is refused, not skipped.
@@ -124,11 +127,11 @@ pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bo
     let order = setup.plugins();
     let dirs: Vec<PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
     let output = (!folder.is_empty()).then(|| PathBuf::from(&folder).join(DEFAULT_NAME));
-    let model = if model == "loadorder" { DiffModel::LoadOrder } else { DiffModel::Masters };
+    let model = if model == "masters" { DiffModel::Masters } else { DiffModel::LoadOrder };
     // A new switch each run, so a Cancel meant for the last one cannot stop this one.
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop.clone());
-    let mut opts = MergeOptions { output, dry_run, verbose, model, cancel: Some(stop), existing_seams, ..Default::default() };
+    let mut opts = MergeOptions { output, dry_run, verbose, model, cancel: Some(stop), existing_seams, allow_clamping: !no_clamp.unwrap_or(false), keep_world_map: keep_world_map.unwrap_or(false), ..Default::default() };
     if let Some(ignore) = ignore {
         opts.ignore = ignore;
     }

@@ -753,8 +753,9 @@ impl crate::predicates::Plugins for PluginIndex {
     }
 }
 
-/// Whether a plugin's `TES3` header is flagged as a master (`file_type` is `Esm`): the flag the game
-/// goes by. `None` when the file cannot be read as a plugin (empty, or no `HEDR` first).
+/// Whether a plugin's `TES3` header is flagged as a master (`file_type` is `Esm`). Nothing in the
+/// tools goes by it: the extension is the kind. It is read only to note a file whose name and
+/// header disagree, which is what a rename without a conversion leaves. `None` when the file cannot be read as a plugin (empty, or no `HEDR` first).
 pub fn header_master_flag(path: &Path) -> Option<bool> {
     use std::io::Read;
     // The record's 16 bytes, then `HEDR`, its size, the version (4) and the file type (4).
@@ -776,9 +777,8 @@ pub struct MasterCheck {
     /// `[MASTER SIZE]` lines: the installed master's size is not the one the header recorded.
     pub size_notes: Vec<String>,
     /// `[MASTER FLAG]` lines: a `.esm` whose header is not flagged as a master, or a `.esp` whose
-    /// header is. The tools take the extension for the kind and the game takes the flag, so they
-    /// disagree about where the file loads until it is converted (the Construction Set, or the
-    /// merge-to-master tool) or renamed.
+    /// header is. The extension is the kind, here and in the load order; the note is for a file
+    /// renamed where a conversion (the Construction Set, or the merge-to-master tool) was meant.
     pub flag_notes: Vec<String>,
     /// How many plugin files were read (0: the mod folders are not reachable from here).
     pub checked: usize,
@@ -807,15 +807,15 @@ pub fn check_missing_masters<S: AsRef<str>>(
         }
         out.checked += 1;
         let tag = origins.get(&p.to_lowercase()).map(|o| format!(" [{o}]")).unwrap_or_default();
-        // The extension is the kind everywhere in the tools; the game goes by the header's flag.
+        // The extension is the kind; the header's flag is only noted when it says otherwise.
         match (ends_with_any(p, &[".esm"]), ends_with_any(p, &[".esp"]), header_master_flag(path)) {
             (true, _, Some(false)) => out.flag_notes.push(format!(
-                "[MASTER FLAG] '{p}'{tag} is named .esm but its header is not flagged as a master -- the game loads it as a \
-                 plugin, after the masters. Convert it with the Construction Set or the merge-to-master tool, or rename it .esp."
+                "[MASTER FLAG] '{p}'{tag} is named .esm but its header is not flagged as a master -- it is sorted as a \
+                 master, by its extension. If it was meant to be converted, use the Construction Set or the merge-to-master tool."
             )),
             (_, true, Some(true)) => out.flag_notes.push(format!(
-                "[MASTER FLAG] '{p}'{tag} is named .esp but its header is flagged as a master -- the game loads it with the \
-                 masters. Rename it .esm, or convert it back to a plugin."
+                "[MASTER FLAG] '{p}'{tag} is named .esp but its header is flagged as a master -- it is sorted as a \
+                 plugin, by its extension. If it was meant to be a master, rename it .esm."
             )),
             _ => {}
         }

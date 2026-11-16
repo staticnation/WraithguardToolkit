@@ -166,7 +166,9 @@ const WgToolsPage={
 <div class="col pane" id="tlLands" hidden><h3>Merge Lands <span class="sp"></span>
   <label title="Report every plugin's settings and everything that could not be read"><input type="checkbox" id="tlMlVerbose"> Verbose</label>
   <label title="Report what would be merged without writing anything"><input type="checkbox" id="tlMlDry"> Dry run</label>
-  <select id="tlMlModel" title="What a plugin's change is measured against"><option value="masters">Against the masters (keep every mod's edits)</option><option value="loadorder">Against the load order (follow the winners, fix the seams)</option></select>
+  <label title="Stop, writing nothing, if a height step is left that a record cannot store and the slope limiter could not repair (off: the step is clamped when saved, and the log says where)"><input type="checkbox" id="tlMlNoClamp"> Stop instead of clamping</label>
+  <label title="Write the world maps (WNAM) as the merge has them, as OpenMWMergedLands does (off: an entry is made again where a repair moved the height under it, and a cell with no map gets the one OpenMW generates)"><input type="checkbox" id="tlMlKeepWnam"> Keep world maps as merged</label>
+  <select id="tlMlModel" title="What a plugin's change is measured against"><option value="loadorder">Against the load order (follow the winners, fix the seams)</option><option value="masters">Against the masters (keep every mod's edits, blend where two meet)</option></select>
   <button class="btn" id="tlMlRun">Build Merged Lands.esp</button><button class="btn dim" id="tlMlCancel" hidden title="Stop at the next step; nothing is written">Cancel</button></h3>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <span>Leave out</span><input type="text" id="tlMlIgnore" placeholder="plugin names or folders, comma separated" style="flex:1;min-width:200px" title="Plugins with nothing to merge that are slow to read (generated patches), by name or by folder. The output's own name is always left out.">
@@ -285,6 +287,10 @@ const WgToolsPage={
     $('#tlMlIgnore').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsIgnore', $('#tlMlIgnore').value); }catch(_){} };
     // The seam repair settings, kept like the others (off until asked for).
     try{ $('#tlMlSeams').checked=localStorage.getItem('wgTools.mergeLandsSeams')==='1'; const g=localStorage.getItem('wgTools.mergeLandsSeamGap'); if(g) $('#tlMlSeamGap').value=g; const e=localStorage.getItem('wgTools.mergeLandsSeamExcept'); if(e!=null) $('#tlMlSeamExcept').value=e; }catch(_){}
+    try{ $('#tlMlNoClamp').checked=localStorage.getItem('wgTools.mergeLandsNoClamp')==='1'; }catch(_){}
+    try{ $('#tlMlKeepWnam').checked=localStorage.getItem('wgTools.mergeLandsKeepWnam')==='1'; }catch(_){}
+    $('#tlMlKeepWnam').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsKeepWnam', $('#tlMlKeepWnam').checked?'1':'0'); }catch(_){} };
+    $('#tlMlNoClamp').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsNoClamp', $('#tlMlNoClamp').checked?'1':'0'); }catch(_){} };
     $('#tlMlSeams').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeams', $('#tlMlSeams').checked?'1':'0'); }catch(_){} };
     $('#tlMlSeamGap').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamGap', $('#tlMlSeamGap').value); }catch(_){} };
     $('#tlMlSeamExcept').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamExcept', $('#tlMlSeamExcept').value); }catch(_){} };
@@ -369,7 +375,7 @@ const WgToolsPage={
     try{
       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
       const seams=$('#tlMlSeams').checked;
-      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore, seamGap: seams? Math.max(1, parseInt($('#tlMlSeamGap').value,10)||24) : null, seamExcept: $('#tlMlSeamExcept').value}).finally(()=>{ live=false; });
+      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore, seamGap: seams? Math.max(1, parseInt($('#tlMlSeamGap').value,10)||24) : null, seamExcept: $('#tlMlSeamExcept').value, noClamp: $('#tlMlNoClamp').checked, keepWorldMap: $('#tlMlKeepWnam').checked}).finally(()=>{ live=false; });
       // What the log showed while it ran (every line, with its time) stays: `r.log`. `r.lines` is the
       // report alone, without the timings or the progress lines, for a backend that sends no log.
       const said=Array.isArray(r.log) && r.log.length? r.log : r.lines;

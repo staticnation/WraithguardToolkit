@@ -17,6 +17,14 @@
      (`viewcore::coverage::layers_with`), the ring round each cell from its neighbours.
    - Color: the vertex colors (the tint the game multiplies the ground by) blended toward
      a color, by strength and feather.
+   The height and color brushes can be held to the textures on the ground (the texture mask):
+   only where it is painted with the textures named, or everywhere but there - a road levelled
+   without the grass beside it moving, rock roughened and the sand left smooth. A texture cell
+   is four vertices wide, so a vertex on the line between two takes part of the brush.
+   There is a painted mask as well (the Mask mode): the brush paints it onto the ground, Alt
+   rubs it out, and it is drawn over the ground as a tint. The height and color brushes can then
+   be held inside it or kept out of it, with or without the texture mask (both are weights, and
+   multiply). It is the page's own: nothing of it goes to the patch, and it lasts the session.
    Each dab changes the cells in the page at once and the touched cells are rebuilt, so the
    ground changes under the brush; a vertex on a border belongs to both cells and changes
    in both, so no seam opens. A moment after the stroke ends the touched cells go to the
@@ -28,7 +36,7 @@
    ===================================================================================== */
 const WgLand={
   on:false,
-  mode:'height',        // height | texture | color
+  mode:'height',        // height | texture | color | mask (the painted mask)
   tool:'raise',         // the height tool
   texture:'',           // the texture brush's land texture id
   color:'#806040',     // the color brush's color
@@ -42,7 +50,13 @@ const WgLand={
      click:100, drag:100, rate:8, delay:150, attack:0, decay:0, fadeLen:0, fadeRepeat:'none',
      velocity:0, random:0, jitter:0, stabilize:0, cap:0,
      smooth:'average', wide:3, flatTarget:'start', flatHeight:0, flatOnly:'both',
-     noiseScale:1024, noiseOct:4, noiseRough:0.5, noiseSeed:1, terrace:128, edge:0.2, talus:35},
+     noiseScale:1024, noiseOct:4, noiseRough:0.5, noiseSeed:1, terrace:128, edge:0.2, talus:35,
+     /* The texture mask: the height and color brushes held to the ground painted with some
+        land textures ('only'), or kept off it ('not'). `maskTex` the texture ids. */
+     mask:'off', maskTex:[],
+     /* The painted mask (the Mask mode paints it): the same two ways. `pshow` draws it. */
+     pmask:'off', pshow:true},
+  pmaskCells:new Map(),  // "gx,gy" -> Uint8Array(65 x 65): the painted mask, 0 to 255, kept for the session
   _stroke:null, _mods:{shift:false, alt:false}, _pressed:false, _raf:0, _lastT:0,
   /* The map overlays over the ground while the Land view is on (06_gl.js's ground shader),
      as the old 3D terrain view drew them: a hillshade (lit from the azimuth, at the
@@ -261,7 +275,7 @@ const WgLand={
     const d=document.createElement('div');
     d.id='wgLandDock';
     const b=this.b;
-    const modes=[['height','Height'],['texture','Texture'],['color','Color']];
+    const modes=[['height','Height'],['texture','Texture'],['color','Color'],['mask','Mask']];
     const sec=(id, title, body)=>'<div class="lsec" id="'+id+'"><div class="lsecT">'+title+'</div>'+body+'</div>';
     const fold=(id, title, body, open)=>'<details class="lsec" id="'+id+'"'+(open?' open':'')+'><summary class="lsecT" style="cursor:pointer">'+title+'</summary>'+body+'</details>';
     const opt=(v, t, cur)=>'<option value="'+v+'"'+(String(cur)===String(v)?' selected':'')+'>'+escHtml(t)+'</option>';
@@ -295,6 +309,21 @@ const WgLand={
         '<div class="hint">Painting: <b id="wgLandTexNow"></b></div>'+
         '<div class="ltexList" id="wgLandTexList"></div>')+
       sec('wgLandColor','Color','<div class="lrow"><input type="color" id="wgLandCol" value="'+this.color+'"><span class="hint">the tint the ground\'s textures are multiplied by; white is none</span></div>')+
+      sec('wgLandMask','Texture mask',
+        '<div class="row"><label title="Hold the brush to the ground painted with some land textures, or keep it off them">Sculpt</label><div class="ctl"><select class="fld" id="wgLandMaskM">'+
+          opt('off','Everywhere',b.mask)+opt('only','Only on these textures',b.mask)+opt('not','Everywhere but these textures',b.mask)+'</select></div></div>'+
+        '<div class="lrow" id="wgLandMaskBtns"><button class="btn sm" id="wgLandMaskPick" title="Add the texture under the next click">Pick</button>'+
+        '<button class="btn sm" id="wgLandMaskUse" title="Add the texture the Texture brush paints with">Add paint texture</button>'+
+        '<button class="btn sm dim" id="wgLandMaskClear">Clear</button></div>'+
+        '<div class="ltexList" id="wgLandMaskList" style="max-height:96px"></div>'+
+        '<div class="hint" id="wgLandMaskHint"></div>')+
+      sec('wgLandPMask','Painted mask',
+        '<div class="row"><label title="Hold the height and color brushes inside the mask painted in the Mask mode, or keep them out of it">Sculpt</label><div class="ctl"><select class="fld" id="wgLandPMaskM">'+
+          opt('off','Everywhere',b.pmask)+opt('only','Only inside the mask',b.pmask)+opt('not','Everywhere but the mask',b.pmask)+'</select></div></div>'+
+        '<div class="lrow"><label title="Draw the mask over the ground"><input type="checkbox" id="wgLandPMaskShow"'+(b.pshow?' checked':'')+'> Show</label>'+
+        '<button class="btn sm" id="wgLandPMaskInv" title="Masked ground becomes unmasked and the other way round, in the cells of the scene">Invert</button>'+
+        '<button class="btn sm dim" id="wgLandPMaskClear">Clear</button></div>'+
+        '<div class="hint" id="wgLandPMaskHint"></div>')+
       sec('wgLandBrush','Brush',
         '<div class="row"><label>Preset</label><div class="ctl"><select class="fld" id="wgLandPre">'+opt('','Choose a brush…','')+
           Object.entries(this.PRESETS).map(([k,p])=>opt(k,p.label,'')).join('')+'</select></div></div>'+
@@ -361,6 +390,22 @@ const WgLand={
       $('#wgLandHeight').style.display=this.mode==='height'? '' : 'none';
       $('#wgLandTexture').style.display=this.mode==='texture'? '' : 'none';
       $('#wgLandColor').style.display=this.mode==='color'? '' : 'none';
+      // The texture mask is for the brushes that move or tint the ground, not the one that paints it.
+      $('#wgLandMask').style.display=(this.mode==='texture' || this.mode==='mask')? 'none' : '';
+      $('#wgLandPMask').style.display=this.mode==='texture'? 'none' : '';
+      $('#wgLandPMaskM').value=this.b.pmask||'off';
+      $('#wgLandPMaskHint').textContent=this.mode==='mask'? 'Paint where the brushes may work; hold Alt to rub it out. Strength is how fast it builds.'
+        : (this.b.pmask||'off')==='off'? '' : !this.pmaskCells.size? 'Nothing is painted yet (the Mask mode paints it): until then the brush works everywhere.'
+        : this.b.pmask==='only'? 'The brush moves only the ground inside the painted mask.' : 'The brush leaves the ground inside the painted mask alone.';
+      { const m=this.b.mask||'off', ids=this.b.maskTex||[], on=m!=='off';
+        $('#wgLandMaskM').value=m;
+        $('#wgLandMaskBtns').style.display=on? '' : 'none';
+        $('#wgLandMaskList').style.display=on && ids.length? '' : 'none';
+        $('#wgLandMaskPick').classList.toggle('pri', this._picking==='mask');
+        $('#wgLandMaskList').innerHTML=ids.map(id=>'<div class="ltex on" data-mid="'+escHtml(id)+'" title="Click to take it out of the mask">'+escHtml(id)+'</div>').join('');
+        $('#wgLandMaskList').querySelectorAll('[data-mid]').forEach(r=>{ r.onclick=()=>{ this.b.maskTex=(this.b.maskTex||[]).filter(x=>x!==r.dataset.mid); show(); }; });
+        $('#wgLandMaskHint').textContent=!on? '' : !ids.length? 'Pick a texture off the ground: until one is named the brush works everywhere.'
+          : m==='only'? 'The brush moves only ground painted with '+(ids.length===1? 'this texture' : 'these textures')+'.' : 'The brush leaves ground painted with '+(ids.length===1? 'this texture' : 'these textures')+' alone.'; }
       $('#wgLandFeaL').style.display=this.mode==='texture'? 'none' : '';
       $('#wgLandStrL').style.display=this.mode==='texture'? 'none' : '';
       $('#wgLandSizeV').textContent=this.radius()+' u';
@@ -381,13 +426,15 @@ const WgLand={
       // The ring follows a change of shape, aspect or angle at once.
       { const R=App.R; if(R && R._ptr && this.on) this.brushMove({clientX:R._ptr[0], clientY:R._ptr[1]}); }
       $('#wgLandFeaV').textContent=this.feather+' %';
-      $('#wgLandPick').classList.toggle('pri', this._picking);
+      $('#wgLandPick').classList.toggle('pri', this._picking===true);
       $('#wgLandTexNow').textContent=this.texture||'(none: pick one)';
       $('#wgLandToolHint').textContent=(this.TOOLS.find(t=>t[0]===this.tool)||[,,''])[2];
       this.keep();
     };
     d.querySelectorAll('#wgLandModes [data-m]').forEach(b=>b.onclick=()=>{
       this.mode=b.dataset.m; this._picking=false;
+      // The painted mask is always drawn in its own mode: with Show off it comes and goes here.
+      if(this.pmaskCells.size && !this.b.pshow) this.rebuild(new Set(this.pmaskCells.keys()));
       d.querySelectorAll('#wgLandModes [data-m]').forEach(x=>x.classList.toggle('pri', x===b));
       show();
     });
@@ -397,7 +444,15 @@ const WgLand={
       show();
     });
     $('#wgLandTexF').oninput=drawTex;
-    $('#wgLandPick').onclick=()=>{ this._picking=!this._picking; show(); };
+    $('#wgLandPick').onclick=()=>{ this._picking=this._picking===true? false : true; show(); };
+    $('#wgLandMaskM').onchange=e=>{ this.b.mask=e.target.value; if(this.b.mask==='off' && this._picking==='mask') this._picking=false; show(); };
+    $('#wgLandMaskPick').onclick=()=>{ this._picking=this._picking==='mask'? false : 'mask'; show(); };
+    $('#wgLandMaskUse').onclick=()=>{ if(this.texture) this.maskAdd(this.texture); else this.status('The Texture brush has no texture yet: pick one off the ground'); show(); };
+    $('#wgLandMaskClear').onclick=()=>{ this.b.maskTex=[]; show(); };
+    $('#wgLandPMaskM').onchange=e=>{ this.b.pmask=e.target.value; show(); };
+    $('#wgLandPMaskShow').onchange=e=>{ this.b.pshow=!!e.target.checked; this.rebuild(new Set(this.pmaskCells.keys())); show(); };
+    $('#wgLandPMaskClear').onclick=()=>{ const keys=new Set(this.pmaskCells.keys()); this.pmaskCells.clear(); this.rebuild(keys); show(); };
+    $('#wgLandPMaskInv').onclick=()=>{ this.pmaskInvert(); show(); };
     $('#wgLandCol').oninput=e=>{ this.color=e.target.value; };
     $('#wgLandSize').oninput=e=>{ this.sizePos=+e.target.value; show(); };
     $('#wgLandStr').oninput=e=>{ this.strength=+e.target.value; show(); };
@@ -820,11 +875,18 @@ const WgLand={
     // floor - before anything else, so a scene of open sea has land to shape.
     const r=this.radius(), fresh=[];
     for(const c of (sc.cells||[])){
-      if(c.kind!=='ext' || c.heights) continue;
+      if(c.kind!=='ext' || c.heights || this.mode==='mask') continue;
       for(const [wx, wy] of dabs){
         const x0=c.gx*this.CELL, y0=c.gy*this.CELL;
         if(wx+r>=x0 && wx-r<=x0+this.CELL && wy+r>=y0 && wy-r<=y0+this.CELL){ fresh.push(c); break; }
       }
+    }
+    // The painted mask is the page's own: no land is made for it and nothing waits or is written.
+    if(this.mode==='mask'){
+      const touched=new Set();
+      for(const [wx, wy, m] of dabs) if(m>0) this.dabMask(cells, wx, wy, m, touched);
+      if(touched.size){ this.rebuild(touched); if(this._show) this._show(); }
+      return;
     }
     if(!cells.size && !fresh.length) return;
     this.snapshot();
@@ -856,11 +918,106 @@ const WgLand={
     this.scheduleCommit();
   },
 
+  /** A land texture added to the texture mask (once). */
+  maskAdd(id){
+    if(!id) return;
+    const ids=this.b.maskTex||(this.b.maskTex=[]);
+    if(!ids.includes(id)) ids.push(id);
+  },
+
+  /** How much of the brush a vertex takes under the texture mask, 0 to 1. A vertex inside a
+      texture cell (four vertices wide) has that cell's texture; one on the line between cells,
+      or on a corner of four, has each of theirs in equal part, so the brush fades across the
+      line instead of cutting a step along it. Ground with no texture cell to read (a cell of
+      the scene without land yet) counts as not painted with anything. */
+  maskAt(cells, vx, vy){
+    const b=this.b, ids=b.maskTex||[];
+    if(!b.mask || b.mask==='off' || !ids.length) return 1;
+    const TS=this.TS, Q=this.TSTEP/this.STEP;   // vertices to a texture cell: 4
+    const txs=vx%Q===0? [vx/Q-1, vx/Q] : [Math.floor(vx/Q)], tys=vy%Q===0? [vy/Q-1, vy/Q] : [Math.floor(vy/Q)];
+    let on=0, n=0;
+    for(const ty of tys) for(const tx of txs){
+      const gx=Math.floor(tx/TS), gy=Math.floor(ty/TS), c=cells.get(gx+','+gy);
+      n++;
+      if(c && ids.includes(this.ids(c)[(ty-gy*TS)*TS+(tx-gx*TS)])) on++;
+    }
+    const f=n? on/n : 0;
+    return b.mask==='only'? f : 1-f;
+  },
+
+  /** A dab's vertices (`vertices`) under the texture mask: each weight scaled by it, and the
+      vertices it leaves nothing of dropped. */
+  masked(cells, vs){
+    const b=this.b;
+    const tex=b.mask && b.mask!=='off' && (b.maskTex||[]).length>0;
+    const painted=b.pmask && b.pmask!=='off' && this.pmaskCells.size>0;
+    if(!tex && !painted) return vs;
+    const out=[];
+    for(let i=0;i<vs.length;i+=3){
+      let w=vs[i+2];
+      if(tex) w*=this.maskAt(cells, vs[i], vs[i+1]);
+      if(painted && w>0) w*=this.pmaskAt(cells, vs[i], vs[i+1]);
+      if(w>0) out.push(vs[i], vs[i+1], w);
+    }
+    return out;
+  },
+
+  /** How much of the brush a vertex takes under the painted mask, 0 to 1. */
+  pmaskAt(cells, vx, vy){
+    const b=this.b;
+    if(!b.pmask || b.pmask==='off' || !this.pmaskCells.size) return 1;
+    let v=0;
+    for(const h of this.holders(cells, vx, vy)){ const m=this.pmaskCells.get(h.key); if(m){ v=m[h.k]/255; break; } }
+    return b.pmask==='only'? v : 1-v;
+  },
+
+  /** One dab of the Mask mode: the mask built toward full under the brush by the strength and
+      the brush's falloff, or rubbed out with Alt. A vertex on a border is in both cells' masks. */
+  dabMask(cells, wx, wy, mult, touched){
+    const k=Math.min(1, this.strength/100*(mult==null? 1 : mult)), erase=this._mods.alt, N=this.N;
+    const vs=this.vertices(wx, wy);
+    for(let i=0;i<vs.length;i+=3) for(const h of this.holders(cells, vs[i], vs[i+1])){
+      if(!h.c.heights) continue;
+      let m=this.pmaskCells.get(h.key);
+      if(!m){ if(erase) continue; m=new Uint8Array(N*N); this.pmaskCells.set(h.key, m); }
+      const was=m[h.k], to=Math.round(erase? was-was*vs[i+2]*k : was+(255-was)*vs[i+2]*k);
+      if(to!==was){ m[h.k]=to; touched.add(h.key); }
+    }
+  },
+
+  /** The painted mask turned inside out, over the cells of the scene that have land. */
+  pmaskInvert(){
+    const N=this.N, keys=new Set();
+    for(const [key, c] of this.cells()){
+      if(!c.heights) continue;
+      let m=this.pmaskCells.get(key);
+      if(!m){ m=new Uint8Array(N*N); this.pmaskCells.set(key, m); }
+      for(let i=0;i<m.length;i++) m[i]=255-m[i];
+      keys.add(key);
+    }
+    this.rebuild(keys);
+  },
+
+  /** The painted mask drawn on a cell's mesh: its vertex colors (which the ground's textures
+      are multiplied by) pulled toward a tint by the mask. Only the mesh: the cell's own colors
+      are not touched. */
+  PMASK_TINT:[255,70,200],
+  tintMask(key, mesh){
+    const m=this.pmaskCells.get(key);
+    if(!m || !mesh || !mesh.col || !(this.b.pshow || this.mode==='mask')) return;
+    const col=mesh.col, T=this.PMASK_TINT;
+    for(let i=0;i<m.length;i++){
+      if(!m[i]) continue;
+      const a=m[i]/255*0.7;
+      for(let j=0;j<3;j++){ const o=i*3+j; col[o]=Math.round(col[o]*(1-a)+T[j]*a); }
+    }
+  },
+
   /** One dab of a height tool at world (wx, wy), at `mult` of the strength. */
   dabHeight(cells, wx, wy, mult, touched){
     const S=this._stroke||this.beginStroke(), b=this.b, tool=this.activeTool(), STEP=this.STEP;
     const at=(vx,vy)=>{ const h=this.holders(cells,vx,vy)[0]; return h? h.c.heights[h.k] : null; };
-    const vs=this.vertices(wx,wy);
+    const vs=this.masked(cells, this.vertices(wx,wy));
     if(!vs.length) return;
     const here=at(Math.round(wx/STEP), Math.round(wy/STEP));
     // What the stroke aims at, fixed where it began.
@@ -885,7 +1042,8 @@ const WgLand={
       terrace:b.terrace, edge:b.edge, talus:b.talus};
     // The ramp's sides follow the line, not the dab: every vertex of the brush gets weight 1.
     let verts=vs;
-    if(tool==='ramp'){ verts=vs.slice(); for(let i=2;i<verts.length;i+=3) verts[i]=1; }
+    // (Under the texture mask, the mask's own part of each: the ramp stops at the texture's edge.)
+    if(tool==='ramp'){ verts=vs.slice(); for(let i=0;i<verts.length;i+=3) verts[i+2]=this.maskAt(cells, verts[i], verts[i+1])*this.pmaskAt(cells, verts[i], verts[i+1]); }
     const changes=WgLandBrush.dab({get:at}, verts, p);
     // Applied after the dab is measured, so smoothing reads one surface, not a moving one.
     for(let i=0;i<changes.length;i+=3){
@@ -900,7 +1058,7 @@ const WgLand={
 
   dabColor(cells, wx, wy, touched, mult){
     const hex=this.color.replace('#',''), rgb=[0,2,4].map(i=>parseInt(hex.substr(i,2),16));
-    const k=Math.min(1,this.strength/100*(mult==null? 1 : mult)), vs=this.vertices(wx,wy);
+    const k=Math.min(1,this.strength/100*(mult==null? 1 : mult)), vs=this.masked(cells, this.vertices(wx,wy));
     for(let i=0;i<vs.length;i+=3) for(const h of this.holders(cells,vs[i],vs[i+1])){
       const c=h.c;
       this.original(c);
@@ -937,8 +1095,10 @@ const WgLand={
   pickTexture(cells, wx, wy){
     const T=this.TSTEP, TS=this.TS, tx=Math.floor(wx/T), ty=Math.floor(wy/T);
     const gx=Math.floor(tx/TS), gy=Math.floor(ty/TS), c=cells.get(gx+','+gy);
+    const forMask=this._picking==='mask';
     this._picking=false;
-    if(c) this.texture=this.ids(c)[(ty-gy*TS)*TS+(tx-gx*TS)];
+    if(c && forMask) this.maskAdd(this.ids(c)[(ty-gy*TS)*TS+(tx-gx*TS)]);
+    else if(c) this.texture=this.ids(c)[(ty-gy*TS)*TS+(tx-gx*TS)];
     if(this._drawTex) this._drawTex();
     if(this._show) this._show();
   },
@@ -1007,6 +1167,7 @@ const WgLand={
       const i=chunks.findIndex(ch=>ch.grid && ch.grid[0]===c.gx && ch.grid[1]===c.gy);
       const old=i>=0? chunks[i] : null;
       const T=cellTerrain(c,(dx,dy)=>cells.get((c.gx+dx)+','+(c.gy+dy))||null,0);
+      this.tintMask(key, T.mesh);
       const off=cellOffsetFrom(sc.origin,c);
       if(off[0]||off[1]){ const p=T.mesh.pos; for(let j=0;j<p.length;j+=3){ p[j]+=off[0]; p[j+1]+=off[1]; } }
       // The layers' textures carried over by id; a texture new to the cell is loaded.

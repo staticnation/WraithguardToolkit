@@ -43,6 +43,9 @@ pub struct SeamReport {
     pub corner_vertices: usize,
     pub edge_vertices: usize,
     pub tears: Vec<Tear>,
+    /// Borders of written cells with terrain that loads off the eight-unit grid: a few units
+    /// apart in the game however the cell is written (`pipeline::off_grid_borders`).
+    pub off_grid: Vec<Tear>,
     pub pinned_corners: usize,
     pub anchored_corners: usize,
     pub largest_gap: Value,
@@ -103,7 +106,7 @@ pub fn find_tears(cells: &BTreeMap<Coords, Vec<Value>>, reference: Option<&BTree
 
 /// The vertex of a cell at step `t` along its `(dx, dy)` side, and the same vertex in the neighbour
 /// across it.
-fn side_vertex(dx: i64, dy: i64, t: usize) -> (usize, usize) {
+pub(crate) fn side_vertex(dx: i64, dy: i64, t: usize) -> (usize, usize) {
     match (dx, dy) {
         (1, 0) => (t * LAND_SIZE + LAST, t * LAND_SIZE),
         (-1, 0) => (t * LAND_SIZE, t * LAND_SIZE + LAST),

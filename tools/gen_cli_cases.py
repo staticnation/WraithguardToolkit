@@ -45,7 +45,7 @@ def _header(
         "type": "Header",
         "flags": "",
         "version": 1.3,
-        # A master is flagged as one, as the game has it (the master flag check reads it).
+        # A master is flagged as one, matching its extension (the master flag check reads it).
         "file_type": "Esm" if esm else "Esp",
         "author": author,
         "description": description,

@@ -284,6 +284,8 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             a.get("ignore").and_then(|v| v.as_arr()).map(|_| strs(a, "ignore")),
             a.get("seamGap").and_then(|v| v.as_i64()).map(|g| g as i32),
             a.get("seamExcept").and_then(|v| v.as_str()).map(String::from),
+            a.get("noClamp").and_then(|v| v.as_bool()),
+            a.get("keepWorldMap").and_then(|v| v.as_bool()),
         )?),
         "land_merge_cancel" => Reply::Raw(t::land_merge_cancel()?.to_string()),
         "land_merge_progress" => Reply::Json(t::land_merge_progress(u(a, "from"))?),

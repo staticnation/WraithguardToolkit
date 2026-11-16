@@ -88,7 +88,9 @@ fn wraithguard(root: &Path, extra: &[&str]) -> (String, String, i32) {
 fn the_command_line_writes_the_merge_the_tools_page_writes() {
     let root = setup("write");
     let data = root.join("Data Files");
-    let (stdout, stderr, code) = wraithguard(&root, &["--merge-lands"]);
+    // Against the masters, where both hills survive (against the load order, the default,
+    // B's record is the merge and nothing is written).
+    let (stdout, stderr, code) = wraithguard(&root, &["--merge-lands", "--merge-model", "masters"]);
     assert_eq!(code, 0, "{stdout}\n{stderr}");
     assert!(stdout.contains(" MERGE LANDS\n"), "{stdout}");
     assert!(stdout.contains("  3 plugin(s) in the load order, 1 data folder(s)\n"), "{stdout}");
@@ -100,7 +102,7 @@ fn the_command_line_writes_the_merge_the_tools_page_writes() {
 
     let want_dir = root.join("want");
     let order: Vec<String> = ["Base.esm", "A.esp", "B.esp"].iter().map(|s| s.to_string()).collect();
-    let opts = MergeOptions { output: Some(want_dir.join(DEFAULT_NAME)), ..Default::default() };
+    let opts = MergeOptions { output: Some(want_dir.join(DEFAULT_NAME)), model: landcore::pipeline::DiffModel::Masters, ..Default::default() };
     let mut said = Vec::new();
     let r = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| said.push(l.to_string())).unwrap();
     assert_eq!(r.cells_written, 1);

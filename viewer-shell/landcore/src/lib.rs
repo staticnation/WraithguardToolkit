@@ -32,4 +32,5 @@ pub mod read;
 pub mod seams;
 pub mod service;
 pub mod slope;
+pub mod steps;
 pub mod textures;

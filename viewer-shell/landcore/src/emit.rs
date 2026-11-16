@@ -50,16 +50,19 @@ fn generated_sample(i: usize) -> usize {
 /// other by 16 (so the water below reads steeply), and the result is truncated, in `f32` as the
 /// engine does. A flat -1,024 gives -64.
 pub fn generated_world_map(heights: &[Value]) -> Vec<Value> {
-    let mut out = Vec::with_capacity(WNAM_SIZE * WNAM_SIZE);
-    for row in 0..WNAM_SIZE {
-        for col in 0..WNAM_SIZE {
-            let at = generated_sample(row) * LAND_SIZE + generated_sample(col);
-            let mut h = heights[at] as f32;
-            h /= if h > 0.0 { 128.0 } else { 16.0 };
-            out.push(h.clamp(-128.0, 127.0) as Value);
-        }
-    }
-    out
+    (0..WNAM_SIZE * WNAM_SIZE).map(|k| generated_world_map_entry(heights[world_map_vertex(k)])).collect()
+}
+
+/// The height vertex entry `k` (row-major) of the generated world map reads.
+pub fn world_map_vertex(k: usize) -> usize {
+    generated_sample(k / WNAM_SIZE) * LAND_SIZE + generated_sample(k % WNAM_SIZE)
+}
+
+/// One entry of [`generated_world_map`], from the height it reads.
+pub fn generated_world_map_entry(height: Value) -> Value {
+    let mut h = height as f32;
+    h /= if h > 0.0 { 128.0 } else { 16.0 };
+    h.clamp(-128.0, 127.0) as Value
 }
 
 /// One merged `LAND` record (`build_landscape_record`): its layers, and the vertices whose

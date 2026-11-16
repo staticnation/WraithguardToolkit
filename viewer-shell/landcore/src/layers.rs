@@ -301,6 +301,11 @@ impl LandscapeDiff {
         }
     }
 
+    /// Whether it carries any layer at all, changed or not (a zero-valued layer new to the cell).
+    pub fn has_terrain_data(&self) -> bool {
+        Layer::DIFF_ORDER.iter().any(|(l, ..)| self.grid(*l).is_some())
+    }
+
     pub fn is_modified(&self) -> bool {
         Layer::DIFF_ORDER.iter().any(|(l, ..)| self.grid(*l).as_ref().is_some_and(RelativeGrid::is_modified))
     }
@@ -327,7 +332,10 @@ pub fn diff_against_reference(plugin: &str, mine: &LandscapeLayers, reference: O
         }
         let theirs = reference.and_then(|r| r.get(which).as_deref().map(Packed::to_vec)).unwrap_or_else(|| vec![0; values.len()]);
         let grid = RelativeGrid::from_packed(theirs, values, side, comps)?;
-        if grid.is_modified() {
+        // A layer the reference has none of is kept even when every value of it is zero: zero
+        // heights, black colors and the default texture are terrain a later, partial record
+        // must not turn into the engine's defaults (the OpenMW fork's `has_terrain_data`).
+        if grid.is_modified() || reference.and_then(|r| r.get(which).as_deref()).is_none() {
             *out.grid_mut(which) = Some(grid);
         }
     }

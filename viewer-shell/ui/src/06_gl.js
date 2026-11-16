@@ -2414,6 +2414,8 @@ const SETTLE_PX=0.02;
  * pair or the depth buffer means one thing to the scene and another to whoever reads it
  * back (the water does), so they are read through `nearFar()` and never rebuilt. */
 const GL_NEAR=16, GL_FAR=400000;
+/* How far the orbit camera can be wheeled out: inside the far plane, with room for the scene. */
+const ORBIT_OUT=300000;
 /* Round 17m: the hours the cell's lamps burn. Robin picked them: "between 18 in the
    evening and 7 in the morning". */
 /* Round 17s: the window a lamp may light in, and the window it may go out in. Robin:
@@ -7374,6 +7376,19 @@ class Renderer{
       // Round 18q: a click is still a point at something; orbiting and panning are not.
       // Round 18gp: and neither is a place for the brush ring, as in the WASD look above.
       if(mode!=='click'){ dropHover(); this.setBrush(null); }
+      /* Wraithguard, Static 2026-11-16: "in orbit mode it would be nice to have infinite
+         scroll". An orbit or a pan stopped where the pointer met the edge of the screen. It
+         now does what the WASD look does (`_park`, above): the pointer is hidden where it
+         stands and put back in the middle of the viewport before it reaches an edge, so the
+         drag never runs out of desk; let go, it comes back where it was pressed and only
+         then shows. Only with the shell to move it: in a browser nothing is hidden and the
+         drag has its edge as before. */
+      if(mode!=='click' && this.onCursor){
+        drag.home=[e.clientX, e.clientY];
+        cv.classList.add('nocursor');
+        this._lookPark=null;
+        this._park(false, null);     // hidden, and not moved: see the look's press
+      }
     });
     cv.addEventListener('pointermove',e=>{
       if(look){
@@ -7448,6 +7463,19 @@ class Renderer{
         return;
       }
       if(drag.mode==='click') return;
+      if(drag.home){
+        // As the look: nothing turns while a park is in the air, and one park at a time.
+        if(this._lookPark){
+          const pk=this._lookPark;
+          const near=Math.hypot(p.x-pk.at[0], p.y-pk.at[1])<=80;
+          const leapt=Math.abs(dx)>200 || Math.abs(dy)>200;
+          if(near || leapt || performance.now()-pk.t>150) this._lookPark=null;
+          return;
+        }
+        const r=cv.getBoundingClientRect();
+        const mid=[r.left+r.width/2, r.top+r.height/2];
+        if(Math.abs(p.x-mid[0])>r.width*0.45 || Math.abs(p.y-mid[1])>r.height*0.45) this._park(null, mid);
+      }
       if(drag.mode==='orbit'){
         // Round 17g: through `turn`, so this scheme has its own rotation smoothing too.
         this.turn(-dx*0.006, dy*0.006, false);
@@ -7503,6 +7531,17 @@ class Renderer{
       else { cv.classList.remove('nocursor'); ring(); }
       if(this.onFlyState) this.onFlyState(false);
     };
+    /* An orbit or pan that hid the pointer (see the press) gives it back: home first, then
+       shown, as the look's release does, and the brush ring with it. */
+    const endDragPark=(home)=>{
+      const done=this._park(true, home);
+      this._lookPark=null;
+      const show=()=>{
+        cv.classList.remove('nocursor');
+        if(this.opts.paintMode && this.onBrushMove) this.onBrushMove({clientX:home[0], clientY:home[1]});
+      };
+      if(done && done.then) done.then(show); else show();
+    };
     /* The window losing focus ends the look too: alt-tabbing away with the button down
        would otherwise leave the pointer hidden and the keys flying.
        Round 18bd (F14): and it ends an orbit drag and a paint stroke, for exactly that
@@ -7519,7 +7558,7 @@ class Renderer{
         stroke=null;
         if(this.onPaintEnd) this.onPaintEnd();
       }
-      if(drag){ if(drag.grabbing) drag.grab.cancel(); drag=null; }
+      if(drag){ if(drag.grabbing) drag.grab.cancel(); if(drag.home) endDragPark(drag.home); drag=null; }
     });
     const up=e=>{
       if(stroke){
@@ -7539,6 +7578,7 @@ class Renderer{
       const wasCamera=drag.mode!=='click';
       try{cv.releasePointerCapture(e.pointerId);}catch(_){ }
       const grabbed=drag.grabbing? drag.grab : null;
+      if(drag.home) endDragPark(drag.home);
       drag=null;
       if(grabbed){ if(e.type==='pointercancel') grabbed.cancel(); else grabbed.end(e); return; }
       // Round 17h: a still left click is the pick, in both schemes.
@@ -7596,7 +7636,25 @@ class Renderer{
         return;
       }
       // A plain zoom moves the eye, so it moves `viewDist` with it: the scale stays.
-      const nd=clamp(g.dist*f,40,60000);
+      /* Wraithguard, Static 2026-11-16: the wheel does not stop. Out, the limit is the far
+         plane's (400,000) rather than seven cells' worth. In, the eye used to creep up to
+         the pivot and stay there (the distance has a floor): once it is at the floor, each
+         notch now pushes the pivot on ahead along the view, and the eye with it, so the
+         camera keeps travelling. The push starts at a walking step and grows while the
+         wheel keeps turning, and starts over after a pause. */
+      const nd=clamp(g.dist*f,40,ORBIT_OUT);
+      if(f<1 && g.dist*f<40){
+        const now=performance.now();
+        this._pushStep=(this._pushT && now-this._pushT<300)? Math.min((this._pushStep||96)*1.2, 4096) : 96;
+        this._pushT=now;
+        const c=this.cam, ce=Math.cos(c.el), se=Math.sin(c.el), ca=Math.cos(c.az), sa=Math.sin(c.az);
+        // The pivot-to-eye direction is (ce·ca, ce·sa, se): ahead is the other way.
+        const d=this._pushStep-(g.dist-nd);
+        g.tx-=ce*ca*d; g.ty-=ce*sa*d; g.tz-=se*d;
+        g.dist=nd;
+        this.dirty=true;
+        return;
+      }
       /* Round 18fg, Robin: "Zoom to mouse cursor [...] use a pivot that is anchored where
          the mouse cursor is placed, to make sure I zoom in and out to the cursor (similar
          to how it's done in the map cell picker today)." Blender's *Zoom to Mouse

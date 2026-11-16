@@ -130,7 +130,7 @@ fn command() -> Command {
             Arg::new("merge-model")
                 .long("merge-model")
                 .value_parser(["masters", "loadorder"])
-                .default_value("masters")
+                .default_value("loadorder")
                 .help("With --merge-lands: measure each plugin's change against the masters, or against the load order before it"),
         )
         .arg(
@@ -154,6 +154,35 @@ fn command() -> Command {
                 .value_name("X,Y")
                 .help("With --merge-repair-seams: cells whose borders are never repaired, as X,Y (a cell the load order means to have a cliff or an edge at)"),
         )
+        .arg(
+            Arg::new("merge-cell-ignore")
+                .long("merge-cell-ignore")
+                .num_args(1..)
+                .allow_hyphen_values(true)
+                .value_name("X,Y")
+                .help("With --merge-lands: exterior cells left out of the merge for every plugin: not merged, not repaired, not written"),
+        )
+        .arg(
+            Arg::new("merge-cell-ignore-by-plugin")
+                .long("merge-cell-ignore-by-plugin")
+                .num_args(0..)
+                .allow_hyphen_values(true)
+                .value_name("PLUGIN=X,Y;X,Y")
+                .help(
+                    "With --merge-lands: one plugin's terrain left out at the cells listed, the other plugins still merged there. \
+                     Default: TR_Mainland.esm=-9,-46;-9,-47;-10,-46;-10,-47 (Hunza Camp); given with no value, none",
+                ),
+        )
+        .arg(flag(
+            "merge-keep-world-map",
+            "With --merge-lands: write the world maps (WNAM) as the merge has them, as OpenMWMergedLands does. Without it an entry is made again \
+             where a repair moved the height under it, and a cell with no map gets the one OpenMW generates",
+        ))
+        .arg(flag(
+            "merge-no-clamp",
+            "With --merge-lands: stop, writing nothing, if a height step is left that a record cannot store and the slope limiter could not repair. \
+             Without it such a step is clamped when saved, and said",
+        ))
         .arg(
             Arg::new("merge-ignore")
                 .long("merge-ignore")
@@ -197,6 +226,13 @@ struct Args {
     merge_repair_seams: Option<i32>,
     /// `--merge-seam-except`: cells left alone by it.
     merge_seam_except: Vec<(i64, i64)>,
+    /// `--merge-cell-ignore`, and `--merge-cell-ignore-by-plugin` when given (else the default).
+    merge_cell_ignore: Vec<(i64, i64)>,
+    merge_cell_ignore_by_plugin: Option<Vec<String>>,
+    /// `--merge-keep-world-map`.
+    merge_keep_world_map: bool,
+    /// `--merge-no-clamp`: a step that would be clamped stops the merge.
+    merge_no_clamp: bool,
     /// `--merge-ignore`, when given (else the default list).
     merge_ignore: Option<Vec<String>>,
     unused: Vec<&'static str>,
@@ -265,9 +301,13 @@ impl Args {
             conflicts_subset_only: on("conflicts-subset-only"),
             trace: m.get_one::<String>("trace").cloned(),
             merge_lands: m.get_one::<String>("merge-lands").map(|v| if v.is_empty() { String::new() } else { py_path(v) }),
-            merge_model: m.get_one::<String>("merge-model").cloned().unwrap_or_else(|| "masters".into()),
+            merge_model: m.get_one::<String>("merge-model").cloned().unwrap_or_else(|| "loadorder".into()),
             merge_repair_seams: m.get_one::<i32>("merge-repair-seams").copied(),
             merge_seam_except: list("merge-seam-except").iter().filter_map(|c| c.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))).collect(),
+            merge_cell_ignore: list("merge-cell-ignore").iter().filter_map(|c| c.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))).collect(),
+            merge_cell_ignore_by_plugin: m.contains_id("merge-cell-ignore-by-plugin").then(|| list("merge-cell-ignore-by-plugin")),
+            merge_keep_world_map: on("merge-keep-world-map"),
+            merge_no_clamp: on("merge-no-clamp"),
             merge_ignore: m.contains_id("merge-ignore").then(|| list("merge-ignore")),
             unused,
             verbose,
@@ -489,11 +529,22 @@ fn merge_lands(args: &Args, folder: &str, log: &Log, trace: &Trace) -> Result<()
         return Err("no data folder holds any plugin of the load order: give the folder to write into, --merge-lands FOLDER".into());
     };
     println!("  writing into: {}", folder.display());
-    let model = if args.merge_model == "loadorder" { DiffModel::LoadOrder } else { DiffModel::Masters };
+    let model = if args.merge_model == "masters" { DiffModel::Masters } else { DiffModel::LoadOrder };
     let mut opts =
         MergeOptions { output: Some(folder.join(DEFAULT_NAME)), dry_run: args.dry_run, verbose: args.verbose > 0, model, ..Default::default() };
     if let Some(ignore) = &args.merge_ignore {
         opts.ignore = ignore.clone();
+    }
+    opts.allow_clamping = !args.merge_no_clamp;
+    opts.keep_world_map = args.merge_keep_world_map;
+    opts.ignored_cells.everywhere = args.merge_cell_ignore.iter().copied().collect();
+    if let Some(entries) = &args.merge_cell_ignore_by_plugin {
+        opts.ignored_cells.by_plugin.clear();
+        for e in entries {
+            let (name, cells) = e.split_once('=').ok_or_else(|| format!("--merge-cell-ignore-by-plugin: \"{e}\" is not PLUGIN=X,Y;X,Y"))?;
+            let cells = landcore::pipeline::parse_cell_list(cells).map_err(|w| format!("--merge-cell-ignore-by-plugin {name}: {w}"))?;
+            opts.ignored_cells.by_plugin.entry(name.trim().to_ascii_lowercase()).or_default().extend(cells);
+        }
     }
     if let Some(gap) = args.merge_repair_seams {
         opts.existing_seams = Some(landcore::pipeline::ExistingSeams { max_gap: gap, except: args.merge_seam_except.iter().copied().collect() });
@@ -708,13 +759,13 @@ mod tests {
         let m = command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands"]).unwrap();
         let a = Args::read(&m);
         assert_eq!(a.merge_lands.as_deref(), Some(""));
-        assert!(a.plan.rules.is_empty() && a.merge_ignore.is_none() && a.merge_model == "masters");
+        assert!(a.plan.rules.is_empty() && a.merge_ignore.is_none() && a.merge_model == "loadorder");
         let m = command()
-            .try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "out/", "--merge-model", "loadorder", "--merge-ignore"])
+            .try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "out/", "--merge-model", "masters", "--merge-ignore"])
             .unwrap();
         let a = Args::read(&m);
         assert_eq!(a.merge_lands, Some(py_path("out/")));
-        assert_eq!((a.merge_model.as_str(), a.merge_ignore), ("loadorder", Some(Vec::new())));
+        assert_eq!((a.merge_model.as_str(), a.merge_ignore), ("masters", Some(Vec::new())));
         assert!(command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-model", "odd", "--merge-lands"]).is_err());
     }
 
@@ -722,6 +773,8 @@ mod tests {
     fn the_seam_repair_flags() {
         let off = Args::read(&command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands"]).unwrap());
         assert!(off.merge_repair_seams.is_none() && off.merge_seam_except.is_empty());
+        assert!(!off.merge_no_clamp);
+        assert!(Args::read(&command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "--merge-no-clamp"]).unwrap()).merge_no_clamp);
         let bare = Args::read(&command().try_get_matches_from(["wraithguard", "--cfg", "x", "--merge-lands", "--merge-repair-seams"]).unwrap());
         assert_eq!(bare.merge_repair_seams, Some(24));
         let set = Args::read(

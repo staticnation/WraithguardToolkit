@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::cleaning::{clean_against_loaded, clean_landmass, CellDigest, CleaningReport};
 use crate::grid::RelativeGrid;
 
-use crate::landmass::{differences, layer_onto, masked, replace_onto, Coords, Landmass, PluginRecords};
+use crate::landmass::{differences, layer_onto, masked, replace_onto, Coords, IgnoredCells, Landmass, PluginRecords};
 use crate::layers::{LandscapeDiff, LandscapeLayers, Layer, ALL_LAYERS};
 use crate::merge::{self, merge_layer, ConflictParams};
 use crate::meta::{layer, PluginMeta, Strategy};
@@ -26,6 +26,10 @@ pub struct MergedCell {
     pub world_map: Option<Vec<Value>>,
     pub colors: Option<Vec<Value>>,
     pub normals: Option<Vec<Value>>,
+    /// Normals an explicit `Resolve` made, and normal-only patches, each with its geometry.
+    pub normal_snapshots: Vec<crate::heights::NormalSnapshot>,
+    /// The records of the plugins that touched the cell, in load order: normals and heights.
+    pub normal_predecessors: Vec<crate::heights::NormalSnapshot>,
     /// The plugins that changed it, in load order.
     pub editors: Vec<String>,
     /// Height vertices more than one plugin moved, and those settled far from an intent.
@@ -40,6 +44,14 @@ pub struct MergedCell {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MergeOutcome {
     pub cells: BTreeMap<Coords, MergedCell>,
+    /// The world maps are left as the merge has them (the OpenMW fork): no entry is made again.
+    pub keep_world_map: bool,
+    /// Entries of authored world maps made again because a repair moved the height under them.
+    pub world_map_regenerated: usize,
+    /// Cells the repairs leave alone and never bring in ([`IgnoredCells`]).
+    pub untouchable: BTreeSet<Coords>,
+    /// What the last height repair did (`steps::fit_steps`).
+    pub steps: crate::steps::StepReport,
     pub seams: SeamReport,
     pub slopes: SlopeReport,
     pub cleaning: CleaningReport,
@@ -83,17 +95,66 @@ fn digest_slot(d: &mut CellDigest, which: Layer) -> &mut Option<u64> {
     }
 }
 
-fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, change: &LandscapeDiff, meta: Option<&PluginMeta>, default: Strategy) -> Result<(), String> {
-    for (which, bit) in FOLDED {
-        let Some(source) = change.grid(which) else { continue };
-        let mut chosen = meta.map(|m| m.strategy_for(bit)).unwrap_or_default();
-        if chosen == Strategy::Auto {
-            chosen = if bit == layer::VERTEX_HEIGHTS { default } else { Strategy::Auto };
-            if cell.new_land && bit == layer::VERTEX_HEIGHTS {
-                chosen = Strategy::Overwrite;
+/// The layers folded for one plugin's change: the four of [`FOLDED`], then the normals, which
+/// are authored data of their own and go by the plugin's height strategy (`merge_landscape_diff`).
+///
+/// What `Auto` means is the model's. Against the masters it is the original Merged Lands':
+/// heights, normals, colors and the world map are blended where two plugins both changed a
+/// vertex (its `apply_merge_strategy` gives them `Resolve`), and textures are the later
+/// plugin's. Against the load order it is the OpenMW fork's: the later plugin's for every layer
+/// (its `load_order_auto_strategy`). `default` is the merge's own strategy for heights, when one
+/// is asked for; a cell no master has takes the later plugin's heights either way.
+fn folded_with_normals(meta: Option<&PluginMeta>, new_land: bool, default: Strategy, model: DiffModel) -> impl Iterator<Item = (Layer, u32, Strategy)> + '_ {
+    let auto = move |bit: u32| match model {
+        DiffModel::Masters if bit != layer::TEXTURES => Strategy::Resolve,
+        _ => Strategy::Overwrite,
+    };
+    let heights = meta.map(|m| m.strategy_for(layer::VERTEX_HEIGHTS)).unwrap_or_default();
+    let for_normals = match heights {
+        Strategy::Auto => auto(layer::VERTEX_NORMALS),
+        // Normals have no surface to weigh an edit by: blended plainly.
+        Strategy::Curvature => Strategy::Resolve,
+        other => other,
+    };
+    FOLDED
+        .into_iter()
+        .map(move |(which, bit)| {
+            let mut chosen = meta.map(|m| m.strategy_for(bit)).unwrap_or_default();
+            if chosen == Strategy::Auto {
+                chosen = if bit == layer::VERTEX_HEIGHTS && default != Strategy::Auto { default } else { auto(bit) };
+                if new_land && bit == layer::VERTEX_HEIGHTS {
+                    chosen = Strategy::Overwrite;
+                }
             }
-        }
+            (which, bit, chosen)
+        })
+        .chain(std::iter::once((Layer::Normals, layer::VERTEX_NORMALS, for_normals)))
+}
+
+/// What an explicit `Resolve` made of two plugins' normals where it is neither's: kept with the
+/// heights merged so far, so it can be told later whether that terrain still stands
+/// (`retain_resolved_normal_source`).
+fn keep_resolved_normals(cell: &mut MergedCell, grids: &HashMap<Layer, RelativeGrid>, old: &RelativeGrid, new: &RelativeGrid, base_heights: Option<&crate::layers::Grid>) {
+    let Some(merged) = grids.get(&Layer::Normals) else { return };
+    let heights = match grids.get(&Layer::Heights) {
+        Some(g) => crate::layers::pack_grid(g.flat()),
+        None => match base_heights {
+            Some(h) => h.clone(),
+            None => return,
+        },
+    };
+    let at = |g: &RelativeGrid, i: usize| [g.reference[i * 3] + g.delta[i * 3], g.reference[i * 3 + 1] + g.delta[i * 3 + 1], g.reference[i * 3 + 2] + g.delta[i * 3 + 2]];
+    let selected: Vec<bool> = (0..merged.changed.len()).map(|i| old.changed[i] && new.changed[i] && at(merged, i) != at(old, i) && at(merged, i) != at(new, i)).collect();
+    if selected.iter().any(|&s| s) {
+        cell.normal_snapshots.push(crate::heights::NormalSnapshot { heights, normals: crate::layers::pack_grid(merged.flat()), selected: Some(selected) });
+    }
+}
+
+fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, change: &LandscapeDiff, meta: Option<&PluginMeta>, default: Strategy, base_heights: Option<&crate::layers::Grid>) -> Result<(), String> {
+    for (which, bit, chosen) in folded_with_normals(meta, cell.new_land, default, DiffModel::Masters) {
+        let Some(source) = change.grid(which) else { continue };
         let first = !grids.contains_key(&which);
+        let resolving = (which == Layer::Normals && chosen == Strategy::Resolve).then(|| grids.get(&which).cloned()).flatten();
         let (merged, contested, major) = match grids.get(&which) {
             None => (source.clone(), 0, 0),
             Some(previous) => {
@@ -107,6 +168,9 @@ fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, 
             cell.contested += contested;
             cell.major += major;
         }
+        if let Some(old) = resolving {
+            keep_resolved_normals(cell, grids, &old, source, base_heights);
+        }
     }
     Ok(())
 }
@@ -114,7 +178,7 @@ fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, 
 /// What the reference holds for a layer no mod changed (`inherit_reference_layers`).
 pub fn inherit_reference_layers(cell: &mut MergedCell, reference: &Landmass) {
     let Some(l) = reference.get(cell.coords) else { return };
-    for which in [Layer::Heights, Layer::Textures, Layer::WorldMap, Layer::Colors] {
+    for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
         let s = slot(cell, which);
         if s.is_none() {
             *s = l.get(which).as_deref().map(crate::layers::Packed::to_vec);
@@ -128,28 +192,22 @@ pub enum DiffModel {
     /// Against the masters (Merged Lands, the Python): a plugin's change is what it does to
     /// the vanilla terrain, so two mods that reshape different parts of a cell both survive
     /// even where the later one carries vanilla ground over the earlier one's work.
-    #[default]
     Masters,
     /// Against what loaded before it (the OpenMW fork, 0.2): masters plus every earlier
     /// plugin's allowed layers. A plugin's change is what it does to the load order, so the
     /// result follows the load order's winners, with the seams repaired and each
     /// `.mergedlands.toml`'s choices on top.
+    #[default]
     LoadOrder,
 }
 
 /// One plugin's change folded in the load-order model: each layer merged onto the cell's
 /// running merge by value (`merge::merge_onto`), the masters' layer the start where they
 /// have one.
-fn fold_rolling(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, change: &LandscapeDiff, reference: &Landmass, meta: Option<&PluginMeta>, default: Strategy) -> Result<(), String> {
-    for (which, bit) in FOLDED {
+fn fold_rolling(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, change: &LandscapeDiff, reference: &Landmass, meta: Option<&PluginMeta>, default: Strategy, base_heights: Option<&crate::layers::Grid>) -> Result<(), String> {
+    for (which, bit, chosen) in folded_with_normals(meta, cell.new_land, default, DiffModel::LoadOrder) {
         let Some(source) = change.grid(which) else { continue };
-        let mut chosen = meta.map(|m| m.strategy_for(bit)).unwrap_or_default();
-        if chosen == Strategy::Auto {
-            chosen = if bit == layer::VERTEX_HEIGHTS { default } else { Strategy::Auto };
-            if cell.new_land && bit == layer::VERTEX_HEIGHTS {
-                chosen = Strategy::Overwrite;
-            }
-        }
+        let resolving = (which == Layer::Normals && chosen == Strategy::Resolve).then(|| grids.get(&which).cloned()).flatten();
         let acc = match grids.entry(which) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
@@ -168,13 +226,19 @@ fn fold_rolling(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>,
             cell.contested += report.contested;
             cell.major += report.major;
         }
+        if let Some(old) = resolving {
+            keep_resolved_normals(cell, grids, &old, source, base_heights);
+        }
     }
     Ok(())
 }
 
 /// Every plugin's changes merged, in load order (`merge_landmass`). `loaded`, when given,
 /// gathers the terrain the engine itself would load from these plugins (settings ignored,
-/// previous merges left out), for the load-order cleaning; it starts as the masters'.
+/// previous merges left out), for the load-order cleaning; it starts as the masters'. The first
+/// `early` plugins are listed before the masters: they are merged like the rest, but a master's
+/// record at a cell loads over theirs, so theirs is what loads only where no master has the cell.
+#[allow(clippy::too_many_arguments)]
 pub fn merge_landmass(
     reference: &Landmass,
     plugins: &[PluginRecords],
@@ -183,6 +247,8 @@ pub fn merge_landmass(
     strategy: Strategy,
     model: DiffModel,
     loaded: Option<&mut Landmass>,
+    early: usize,
+    ignored: &IgnoredCells,
 ) -> Result<MergeOutcome, String> {
     /* Every cell is merged on its own - what a plugin does to one cell never reaches
        another - so the cells are shared out over the cores (Static, 2026-10-27: the merge
@@ -229,7 +295,7 @@ pub fn merge_landmass(
     }
     let want_loaded = loaded.is_some();
     let loaded_ref: Option<&Landmass> = loaded.as_deref();
-    type CellOut = (Option<(MergedCell, HashMap<Layer, RelativeGrid>)>, Option<LandscapeLayers>);
+    type CellOut = (Option<(MergedCell, HashMap<Layer, RelativeGrid>)>, Option<LandscapeLayers>, Option<String>);
     let one = |coords: Coords, touches: Vec<Touch>| -> Result<CellOut, String> {
         let single = |l: Option<&LandscapeLayers>| {
             let mut m = Landmass::default();
@@ -242,21 +308,37 @@ pub fn merge_landmass(
         let mut here = want_loaded.then(|| single(loaded_ref.and_then(|l| l.get(coords))));
         let mut cell: Option<MergedCell> = None;
         let mut grids: HashMap<Layer, RelativeGrid> = HashMap::new();
+        let (mut snapshots, mut predecessors): (Vec<crate::heights::NormalSnapshot>, Vec<crate::heights::NormalSnapshot>) = (Vec::new(), Vec::new());
         for (index, allowed, c) in touches {
             let plugin = &plugins[index];
             // The decoded cell is moved into the last copy that keeps it, cloned only when
             // both the rolling and the loaded landmass need one.
             let mut c = Some(c);
+            // A cell left out for this plugin: nothing of it is merged, and it still loads.
+            let allowed = if ignored.skips(&plugin.name, coords) { 0 } else { allowed };
             if allowed != 0 {
                 let meta = metas.get(&plugin.name);
                 let against = rolling.as_ref().unwrap_or(reference);
+                let base_heights = against.get(coords).and_then(|l| l.heights.clone());
+                // This record's normals with the heights they were made for: its own, or for a
+                // patch of normals alone the terrain under it now (the fork's `d8e5d87`).
+                if allowed & layer::VERTEX_NORMALS != 0
+                    && let Some(mine) = c.as_ref()
+                    && mine.declared & layer::VERTEX_NORMALS != 0
+                    && let Some(n) = &mine.normals
+                    && let Some(h) = mine.heights.clone().or_else(|| base_heights.clone())
+                {
+                    let patch_alone = mine.heights.is_none();
+                    let snapshot = crate::heights::NormalSnapshot { heights: h, normals: n.clone(), selected: None };
+                    if patch_alone { snapshots.push(snapshot) } else { predecessors.push(snapshot) }
+                }
                 for change in differences(against, &plugin.name, std::slice::from_ref(c.as_ref().expect("the cell")), allowed)? {
                     let cell = cell.get_or_insert_with(|| MergedCell { coords, new_land: change.new_land, ..Default::default() });
                     cell.editors.push(plugin.name.clone());
                     cell.new_land = cell.new_land || change.new_land;
                     match model {
-                        DiffModel::Masters => fold_change(cell, &mut grids, &change, meta, strategy)?,
-                        DiffModel::LoadOrder => fold_rolling(cell, &mut grids, &change, reference, meta, strategy)?,
+                        DiffModel::Masters => fold_change(cell, &mut grids, &change, meta, strategy, base_heights.as_ref())?,
+                        DiffModel::LoadOrder => fold_rolling(cell, &mut grids, &change, reference, meta, strategy, base_heights.as_ref())?,
                     }
                 }
                 if let Some(r) = rolling.as_mut() {
@@ -265,11 +347,20 @@ pub fn merge_landmass(
                 }
             }
             if let (Some(l), Some(c)) = (here.as_mut(), c.take()) {
-                // What loads: the whole record of the last plugin to carry the cell.
-                replace_onto(l, c, &plugin.name);
+                // What loads: the whole record of the last plugin to carry the cell. A plugin
+                // listed before the masters is not the last where a master has the cell (the
+                // early ones come first here, so all that is there yet is the masters').
+                if index >= early || l.get(coords).is_none() {
+                    replace_onto(l, c, &plugin.name);
+                }
             }
         }
-        Ok((cell.map(|c| (c, grids)), here.and_then(|mut l| l.cells.remove(&coords))))
+        if let Some(cell) = cell.as_mut() {
+            cell.normal_snapshots.extend(snapshots);
+            cell.normal_predecessors = predecessors;
+        }
+        let winner = here.as_mut().and_then(|l| l.sources.remove(&coords));
+        Ok((cell.map(|c| (c, grids)), here.and_then(|mut l| l.cells.remove(&coords)), winner))
     };
     // Each cell's touches handed to the core that takes it (taken out, so they move).
     let cells: Vec<(Coords, std::sync::Mutex<Vec<Touch>>)> = by_cell.into_iter().map(|(c, t)| (c, std::sync::Mutex::new(t))).collect();
@@ -308,18 +399,38 @@ pub fn merge_landmass(
     {
         for (i, answer) in answers {
             let coords = cells.get(i).map(|(c, _)| *c).unwrap_or_default();
-            let (merged, here) = answer?;
+            let (merged, here, winner) = answer?;
+            // A texture-only (or color-only) record must not replace the record of a plugin left
+            // out of this cell where that record has the cell's heights: the whole record is
+            // replaced, so its terrain would go (`remove_heightless_overrides_of_ignored_cells`).
+            let ignored_winner_has_heights = winner.as_deref().or_else(|| loaded.as_deref().and_then(|l| l.sources.get(&coords)).map(String::as_str)).is_some_and(|n| ignored.skips(n, coords))
+                && here.as_ref().or_else(|| loaded.as_deref().and_then(|l| l.get(coords))).is_some_and(|l| l.heights.is_some() && l.declared & layer::VERTEX_HEIGHTS != 0);
             if let (Some(l), Some(h)) = (loaded.as_deref_mut(), here) {
                 l.cells.insert(coords, h);
+                if let Some(w) = winner {
+                    l.sources.insert(coords, w);
+                }
             }
             let Some((mut cell, grids)) = merged else { continue };
-            for which in [Layer::Heights, Layer::Textures, Layer::WorldMap, Layer::Colors] {
+            for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
                 if let Some(g) = grids.get(&which) {
                     *slot(&mut cell, which) = Some(g.flat());
                 }
             }
             inherit_reference_layers(&mut cell, reference);
+            if ignored_winner_has_heights && cell.heights.is_none() {
+                outcome.notes.push(format!("cell ({}, {}): not written, it has no heights of its own and would replace the terrain of a plugin left out of this cell", coords.0, coords.1));
+                continue;
+            }
             outcome.cells.insert(coords, cell);
+        }
+    }
+    // The cells nothing may touch from here on: those left out everywhere, and those whose
+    // loaded record is a plugin's left out there (its terrain stays as the game has it).
+    outcome.untouchable = ignored.everywhere.clone();
+    if let Some(l) = loaded.as_deref() {
+        for (name, cells) in &ignored.by_plugin {
+            outcome.untouchable.extend(cells.iter().filter(|c| l.sources.get(*c).is_some_and(|s| s.eq_ignore_ascii_case(name))));
         }
     }
     Ok(outcome)
@@ -334,19 +445,12 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass, loaded:
     let cells: Vec<(&Coords, &mut MergedCell)> = outcome.cells.iter_mut().collect();
     par_each(cells, |(coords, cell)| {
         let Some(h) = &cell.heights else { return 0 };
-        let read = |l: Option<&LandscapeLayers>| {
-            let (normals, heights) = (l.and_then(|l| l.normals.clone()), l.and_then(|l| l.heights.clone()));
-            normals.zip(heights)
-        };
+        let read = |l: Option<&LandscapeLayers>| l.and_then(|l| Some(crate::heights::NormalSnapshot { heights: l.heights.clone()?, normals: l.normals.clone()?, selected: None }));
+        // The fork's order: the record the game loads, what `Resolve` made and the patches of
+        // normals alone, then the plugins that touched the cell from the last back, the masters last.
         let (winner, base) = (read(loaded.and_then(|l| l.get(*coords))), read(reference.get(*coords)));
-        let at = |g: &crate::layers::Grid| {
-            let g = g.clone();
-            move |i: usize| g.at(i).unwrap_or(0)
-        };
-        let closures: Vec<_> = [&winner, &base].into_iter().flatten().map(|(n, hh)| (at(n), n.len(), at(hh), hh.len())).collect();
-        let sources: Vec<crate::heights::NormalSource> =
-            closures.iter().map(|(n, nl, hh, hl)| crate::heights::NormalSource { normals: n, normals_len: *nl, heights: hh, heights_len: *hl }).collect();
-        let (n, kept) = crate::heights::resolve_cell_normals_from(h, &sources);
+        let sources: Vec<&crate::heights::NormalSnapshot> = winner.iter().chain(&cell.normal_snapshots).chain(cell.normal_predecessors.iter().rev()).chain(base.iter()).collect();
+        let (n, kept) = crate::heights::finalize_normals(h, cell.normals.as_deref(), &sources);
         cell.normals = Some(n);
         kept
     })
@@ -447,7 +551,7 @@ pub fn add_existing_seam_cells(outcome: &mut MergeOutcome, base: &Landmass, rule
     for (&(x, y), l) in &base.cells {
         for (east, other) in [(true, (x + 1, y)), (false, (x, y + 1))] {
             let here = (x, y);
-            if rule.except.contains(&here) || rule.except.contains(&other) {
+            if rule.except.contains(&here) || rule.except.contains(&other) || outcome.untouchable.contains(&here) || outcome.untouchable.contains(&other) {
                 continue;
             }
             // Neither in the merge, or exactly one a borrowed cell and the other free.
@@ -469,7 +573,8 @@ pub fn add_existing_seam_cells(outcome: &mut MergeOutcome, base: &Landmass, rule
     }
     for &c in &wanted {
         let Some(h) = base.get(c).and_then(|l| l.heights.as_deref()) else { continue };
-        outcome.existing_seam_original.insert(c, crate::heights::finalized(&h.to_vec()));
+        // As the terrain has them; put on the cell's phase once that is known.
+        outcome.existing_seam_original.insert(c, h.to_vec());
         let mut cell = MergedCell { coords: c, heights: Some(h.to_vec()), ..Default::default() };
         inherit_reference_layers(&mut cell, base);
         outcome.cells.insert(c, cell);
@@ -514,29 +619,65 @@ fn check_borders(outcome: &mut MergeOutcome, reference: &Landmass, borrowed: &BT
                 continue;
             }
             if let Some(h) = reference.get(o).and_then(|l| l.heights.as_deref().map(crate::layers::Packed::to_vec)) {
-                // As a record of it would be saved, like the cells beside it.
-                nearby.insert(o, crate::heights::finalized(&h));
+                // As the game loads it.
+                nearby.insert(o, h);
             }
         }
     }
     outcome.seams.tears = crate::seams::find_tears_except(&written, Some(&nearby), borrowed, &outcome.existing_seam_set, &outcome.existing_seam_original);
 }
 
+/// The borders of the cells written that meet terrain the game loads off the eight-unit grid.
+/// A record's heights are its offset and steps of eight units, so a neighbor saved with a
+/// fractional offset (3,204, say) cannot be met exactly by a cell written on the grid (3,200):
+/// the merge works with that neighbor floored, and [`check_borders`] with it, so the few units
+/// between them are looked for here, against the neighbor as it loads. `merged` is the cells
+/// the merge had before cleaning, for a merge not judged against the load order (there a cell
+/// cleaned away may load as a plugin's own, which the masters do not say).
+fn off_grid_borders(outcome: &MergeOutcome, reference: &Landmass, loaded: Option<&Landmass>, merged: &BTreeSet<Coords>) -> Vec<crate::seams::Tear> {
+    let base = loaded.unwrap_or(reference);
+    let mut found = Vec::new();
+    for (c, cell) in &outcome.cells {
+        let Some(mine) = cell.heights.as_deref() else { continue };
+        for (dx, dy) in [(-1, 0), (1, 0), (0, 1), (0, -1)] {
+            let o = (c.0 + dx, c.1 + dy);
+            if outcome.cells.contains_key(&o) || merged.contains(&o) {
+                continue;
+            }
+            let Some(theirs) = base.get(o).and_then(|l| l.heights.as_deref()) else { continue };
+            let (mut count, mut worst) = (0, 0);
+            for t in 0..crate::grid::LAND_SIZE {
+                let (a, b) = crate::seams::side_vertex(dx, dy, t);
+                let Some(real) = theirs.at(b) else { continue };
+                // Only what the floor hid: a border left apart on purpose is not this.
+                if mine[a] != real && (mine[a] - real).abs() < crate::grid::HEIGHT_SCALE {
+                    count += 1;
+                    worst = worst.max((mine[a] - real).abs());
+                }
+            }
+            if count > 0 {
+                found.push(crate::seams::Tear { left: *c, right: Some(o), vertices: count, worst });
+            }
+        }
+    }
+    found.sort_by_key(|t| -t.worst);
+    found
+}
+
 fn digest_cell(cell: &MergedCell) -> CellDigest {
     {
         let d = |v: &Option<Vec<Value>>| v.as_deref().map(crate::cleaning::digest);
-        CellDigest { heights: d(&cell.heights), normals: None, world_map: d(&cell.world_map), colors: d(&cell.colors), textures: d(&cell.textures) }
+        CellDigest { heights: d(&cell.heights), normals: d(&cell.normals), world_map: d(&cell.world_map), colors: d(&cell.colors), textures: d(&cell.textures) }
     }
 }
 
 fn digest_reference(l: &LandscapeLayers) -> CellDigest {
     {
         let d = |v: &Option<crate::layers::Grid>| v.as_deref().map(crate::layers::Packed::digest);
-        // Heights as a record of them would be saved: the merged cell's are finalized, so a
-        // reference off the eight-unit grid is compared on the grid too (a cell the merge
-        // did not change is then not kept for the encoder's rounding alone).
-        let heights = l.heights.as_deref().map(|h| crate::cleaning::digest(&crate::heights::finalized(&h.to_vec())));
-        CellDigest { heights, normals: None, world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
+        // Heights as the game loads them: a merged cell keeps its piece's phase, so one the
+        // merge did not change still compares equal, fractional offset or not.
+        let heights = d(&l.heights);
+        CellDigest { heights, normals: d(&l.normals), world_map: d(&l.world_map), colors: d(&l.colors), textures: d(&l.textures) }
     }
 }
 
@@ -569,6 +710,24 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     // The ring round the cells the merge changed first; the cells of an existing seam come after
     // and have none of their own: their other borders, with neighbours the merge leaves out, stay
     // as the terrain has them (a wider gap there is taken to be meant).
+    // First, as the OpenMW fork does (`complete_landmass_layers`, before its seam repair): a cell
+    // written replaces the record the engine would otherwise load, whole, so a layer the merge
+    // has nothing for is the winning record's own, or the saved record would drop it for the
+    // engine's default. That record's layers are taken as the game has them, whatever its
+    // plugin's settings leave out of the merge: the settings say what is merged, and this is
+    // what keeps the cell as it loads. Filled here, they go through the repairs like the rest,
+    // and a cell that then is only what loads is cleaned away.
+    if let Some(loaded) = loaded {
+        for (c, cell) in outcome.cells.iter_mut() {
+            let Some(winner) = loaded.get(*c) else { continue };
+            for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
+                let slot = slot(cell, which);
+                if slot.is_none() {
+                    *slot = winner.get(which).as_deref().map(crate::layers::Packed::to_vec);
+                }
+            }
+        }
+    }
     let borrowed = add_reference_neighbours(outcome, reference);
     lap("neighbours");
     if let Some(rule) = existing {
@@ -577,6 +736,14 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     }
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
+    // The heights each world map entry reads, as the merge left them, for
+    // the cells that carry a map: what the repairs below then move is looked for against these.
+    let mapped: BTreeMap<Coords, Vec<Value>> = heights
+        .iter()
+        .filter(|(c, _)| outcome.cells[*c].world_map.as_ref().is_some_and(|w| w.iter().any(|&v| v != 0)))
+        .map(|(c, h)| (*c, (0..crate::grid::WNAM_SIZE * crate::grid::WNAM_SIZE).map(|k| h[crate::emit::world_map_vertex(k)]).collect()))
+        .collect();
+    let mut phases: BTreeMap<Coords, Value> = BTreeMap::new();
     if !heights.is_empty() {
         // The reference's heights read in place where a corner needs the terrain outside the
         // merge, nothing unpacked.
@@ -586,22 +753,64 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
         // What is saved is heights on VHGT's eight-unit grid, so that is what everything
         // after this reads: the slopes (a step is legal or not as it will be stored), the
         // normals (worked out from the stored terrain, not from terrain the encoder then
-        // moves under them), the border check and the cleaning. Equal heights stay equal, so
-        // every copy of a shared vertex still agrees.
-        for h in heights.values_mut() {
-            crate::heights::finalize_heights(h);
+        // moves under them), the border check and the cleaning. The grid is the one most
+        // vertices of each connected piece of terrain already have (the OpenMW fork's
+        // `quantize_height_components`): a fractional offset's heights stay as they are, and
+        // equal heights stay equal, so every copy of a shared vertex still agrees.
+        phases = crate::steps::quantize_components(&mut heights);
+        for (c, g) in outcome.existing_seam_original.iter_mut() {
+            let phase = phases.get(c).copied().unwrap_or(0);
+            g.iter_mut().for_each(|v| *v = crate::steps::quantize_to_phase(*v, phase));
         }
         lap("finalize");
         outcome.slopes = limit_slopes(&mut heights, &borrowed);
         lap("slopes");
-        // The terrain outside the merge as it loads, on the saved grid, for a corner that can be mended.
+        // The terrain outside the merge as it loads, for a corner that can be mended.
         let base = loaded.unwrap_or(reference);
-        let outside = |c: Coords, i: usize| base.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i)).map(crate::heights::quantize_height);
+        let outside = |c: Coords, i: usize| base.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i));
         let ceiling = existing.map_or(0, |r| r.max_gap);
         crate::seams::restore_pinned(&mut heights, &outcome.existing_seam_set, &outcome.existing_seam_original, Some(&outside), ceiling);
+        for (c, g) in heights.iter_mut() {
+            let phase = phases.get(c).copied().unwrap_or(0);
+            g.iter_mut().for_each(|v| *v = crate::steps::quantize_to_phase(*v, phase));
+        }
+        // Last, the fork's own repair for what the limiter left (it does not move a vertex
+        // shared with terrain outside the merge): a step no record can store has its higher
+        // end lowered in every cell that has the vertex, a cell outside the merge brought in
+        // for it. After this nothing is left for the encoder to clamp.
+        let untouchable = outcome.untouchable.clone();
+        let whole = |c: Coords| if untouchable.contains(&c) { None } else { base.get(c) }.and_then(|l| l.heights.as_deref()).map(crate::layers::Packed::to_vec);
+        outcome.steps = crate::steps::fit_steps(&mut heights, &whole);
+        for c in outcome.steps.brought_in.clone() {
+            let mut cell = MergedCell { coords: c, ..Default::default() };
+            inherit_reference_layers(&mut cell, reference);
+            if let Some(winner) = loaded.and_then(|l| l.get(c)) {
+                for which in [Layer::Textures, Layer::WorldMap, Layer::Colors] {
+                    let slot = slot(&mut cell, which);
+                    if slot.is_none() {
+                        *slot = winner.get(which).as_deref().map(crate::layers::Packed::to_vec);
+                    }
+                }
+            }
+            outcome.cells.insert(c, cell);
+        }
+        lap("steps");
     }
     for (c, h) in heights {
-        outcome.cells.get_mut(&c).unwrap().heights = Some(h);
+        let cell = outcome.cells.get_mut(&c).unwrap();
+        // An authored world map is kept as it is (WG-A07), but an entry of it describes the
+        // height it was made from: where seam repair or the slope limiter moved that height,
+        // the entry is made again from the height saved, as the engine would generate it.
+        if let (false, Some(was), Some(map)) = (outcome.keep_world_map, mapped.get(&c), cell.world_map.as_mut()) {
+            for (k, entry) in map.iter_mut().enumerate() {
+                let now = h[crate::emit::world_map_vertex(k)];
+                if now != crate::steps::quantize_to_phase(was[k], phases.get(&c).copied().unwrap_or(0)) {
+                    *entry = crate::emit::generated_world_map_entry(now);
+                    outcome.world_map_regenerated += 1;
+                }
+            }
+        }
+        cell.heights = Some(h);
     }
     resolve_normals(outcome, reference, loaded);
     lap("normals");
@@ -622,21 +831,11 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
         None => clean_landmass(&merged, &refs, &sources, &originals),
     };
     outcome.cleaning = report;
+    let merged_cells: BTreeSet<Coords> = if loaded.is_some() { BTreeSet::new() } else { outcome.cells.keys().copied().collect() };
     outcome.cells.retain(|c, _| keep.contains(c));
-    // A cell written replaces the record the engine would otherwise load, whole. A layer the
-    // merge has nothing to say about is then the winning record's own, or the saved record
-    // would drop it (heights are not filled: the merge always has its own where it has any).
-    if let Some(loaded) = loaded {
-        for (c, cell) in outcome.cells.iter_mut() {
-            let Some(winner) = loaded.get(*c) else { continue };
-            for which in [Layer::Textures, Layer::WorldMap, Layer::Colors] {
-                let slot = slot(cell, which);
-                if slot.is_none() {
-                    *slot = winner.get(which).as_deref().map(crate::layers::Packed::to_vec);
-                }
-            }
-        }
-    }
+    // A cell left with no layer at all is no record to write.
+    outcome.cells.retain(|_, cell| cell.heights.is_some() || cell.colors.is_some() || cell.textures.is_some());
+    outcome.seams.off_grid = off_grid_borders(outcome, reference, loaded, &merged_cells);
     lap("cleaning");
     Ok(times)
 }

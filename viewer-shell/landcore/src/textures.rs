@@ -57,24 +57,28 @@ impl KnownTextures {
     pub fn observe(&mut self, plugin: &str, records: &[Record]) -> HashMap<Value, Value> {
         for r in records {
             let Record::Ltex { deleted, id, index, file_name } = r else { continue };
-            if !self.by_id.contains_key(id) {
+            // A texture is one id whatever its letters' case, as the engine has it (OpenMW's
+            // store keys LTEX ids case-insensitively; the fork's `to_ascii_lowercase`): a patch
+            // that spells `Grass01` as `gRaSs01` is the same texture, under its own index.
+            let key = id.to_ascii_lowercase();
+            if !self.by_id.contains_key(&key) {
                 if *deleted {
                     continue;
                 }
                 let t = KnownTexture { identifier: id.clone(), index: self.by_id.len() as Value, file_name: None, source: String::new() };
-                self.by_id.insert(id.clone(), t);
-                self.order.push(id.clone());
+                self.by_id.insert(key.clone(), t);
+                self.order.push(key.clone());
             }
-            let known = self.by_id.get_mut(id).unwrap();
-            if let Some(f) = file_name
-                && known.file_name.as_ref() != Some(f)
-            {
-                known.file_name = Some(f.clone());
+            let known = self.by_id.get_mut(&key).unwrap();
+            // The later record's file is the texture's, also when it names none: an override
+            // that clears the file clears it (the fork's `update_texture`).
+            if !*deleted && known.file_name != *file_name {
+                known.file_name = file_name.clone();
                 known.source = plugin.to_string();
             }
             match self.table.iter_mut().find(|(i, _)| i == index) {
-                Some(slot) => slot.1 = id.clone(),
-                None => self.table.push((*index, id.clone())),
+                Some(slot) => slot.1 = key,
+                None => self.table.push((*index, key)),
             }
         }
         self.translation()

@@ -392,7 +392,11 @@ yourself, last, as you would after the Tools page's merge.
 | `--cell-map PATH` | A self-contained HTML map of which mods touch which cells. |
 | `--exclude ...` | Plugins the scans leave out. |
 | `--merge-lands [FOLDER]` | Merge Lands, writing `Merged Lands.esp` into FOLDER (default: the folder holding most of the load order). |
-| `--merge-model masters\|loadorder` | Measure each plugin's terrain against the masters (default), or against the load order before it. |
+| `--merge-model loadorder\|masters` | Measure each plugin's terrain against the load order before it (default: the later plugin wins a contested vertex, as OpenMWMergedLands), or against the masters (contested heights, normals, colors and world map are blended, as the original Merged Lands). |
+| `--merge-keep-world-map` | Write the world maps (WNAM) as the merge has them, as OpenMWMergedLands does (default: entries made again where a repair moved the height, a missing map generated). |
+| `--merge-cell-ignore X,Y ...` | Exterior cells left out of the merge for every plugin. |
+| `--merge-cell-ignore-by-plugin PLUGIN=X,Y;X,Y ...` | One plugin's terrain left out at those cells (default: Tamriel Rebuilt's Hunza Camp; with no value, none). |
+| `--merge-no-clamp` | Stop, writing nothing, if a height step is left that a record cannot store and the slope limiter could not repair (default: clamp it and say so). |
 | `--merge-ignore ...` | Plugins Merge Lands leaves out, by name or by folder; replaces the default list (generated plugins such as `delta-merged.omwaddon`). |
 | `--no-predicate-warnings`, `-v`/`-vv`, `--trace` | Quieter, louder, or a trace log. |
 

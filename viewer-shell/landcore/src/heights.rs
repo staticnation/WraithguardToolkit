@@ -19,26 +19,30 @@ pub fn decode_heights(raw: &[u8], offset: f64) -> Result<Vec<Value>, String> {
     if raw.len() < LAND_NUM_VERTS {
         return Err(format!("VHGT height data is {} bytes, needs {LAND_NUM_VERTS}", raw.len()));
     }
+    // The offset is scaled and truncated once and the steps added to it whole (the OpenMW
+    // fork's decoder): every height of the cell then has the offset's phase. Truncating each
+    // height on its own split a cell that crosses zero into two phases (-2.4 gives -2, 5.6 gives 5).
+    let scaled = offset * HEIGHT_SCALE as f64;
+    if !scaled.is_finite() {
+        return Err("cannot convert float NaN or infinity to integer".into());
+    }
+    // A grid value is an `i32` (`grid::Value`): a broken offset far past any terrain is refused
+    // like a non-finite one rather than wrapped in the merge's sums.
+    if scaled.abs() > 2.0e8 {
+        return Err(format!("a height of {scaled} is beyond what a land grid holds (an offset of {offset})"));
+    }
+    let base = scaled.trunc() as i64;
     let mut out = Vec::with_capacity(LAND_NUM_VERTS);
-    let mut row_height = offset;
+    let mut row_height = 0i64;
     for y in 0..LAND_SIZE {
-        let base = y * LAND_SIZE;
-        row_height += raw[base] as i8 as f64;
+        let start = y * LAND_SIZE;
+        row_height += raw[start] as i8 as i64;
         let mut height = row_height;
         for x in 0..LAND_SIZE {
             if x > 0 {
-                height += raw[base + x] as i8 as f64;
+                height += raw[start + x] as i8 as i64;
             }
-            let v = height * HEIGHT_SCALE as f64;
-            if !v.is_finite() {
-                return Err("cannot convert float NaN or infinity to integer".into());
-            }
-            // A grid value is an `i32` (`grid::Value`): a broken offset far past any terrain
-            // is refused like a non-finite one rather than wrapped in the merge's sums.
-            if v.abs() > 2.0e8 {
-                return Err(format!("a height of {v} is beyond what a land grid holds (an offset of {offset})"));
-            }
-            out.push(v.trunc() as Value);
+            out.push((base + height * HEIGHT_SCALE as i64) as Value);
         }
     }
     Ok(out)
@@ -67,7 +71,10 @@ pub fn finalized(heights: &[Value]) -> Vec<Value> {
 /// `encode_vertex_heights`: the offset, the 65x65 deltas, and the vertices whose step had
 /// to be clamped to fit a signed byte. Heights are whole world units here.
 pub fn encode_vertex_heights(heights: &[Value]) -> (f32, Vec<i8>, Vec<(usize, usize)>) {
-    let stored: Vec<Value> = heights.iter().map(|&v| v.div_euclid(HEIGHT_SCALE)).collect();
+    // The first height's phase goes into the offset as a fraction (3,204 is 400.5), so heights
+    // that share it are saved exactly; one off it is floored onto it.
+    let phase = heights[0].rem_euclid(HEIGHT_SCALE);
+    let stored: Vec<Value> = heights.iter().map(|&v| (v - phase).div_euclid(HEIGHT_SCALE)).collect();
     let at = |x: usize, y: usize| stored[y * LAND_SIZE + x];
     let offset = at(0, 0);
     let mut deltas = vec![0i8; LAND_NUM_VERTS];
@@ -91,7 +98,7 @@ pub fn encode_vertex_heights(heights: &[Value]) -> (f32, Vec<i8>, Vec<(usize, us
             deltas[y * LAND_SIZE + x] = fit(at(x, y) - at(x - 1, y), x, y);
         }
     }
-    (offset as f32, deltas, clamped)
+    (offset as f32 + phase as f32 / HEIGHT_SCALE as f32, deltas, clamped)
 }
 
 /// `_to_signed_byte`: saturate to a signed byte, NaN to zero, truncating.
@@ -162,6 +169,57 @@ pub struct NormalSource<'a> {
     pub heights_len: usize,
 }
 
+/// Normals with the heights they were made for: a record's own (the one the game loads, a
+/// plugin that edited the cell, the masters'), a normal-only patch with the terrain under it
+/// when it was read, or what an explicit `Resolve` made, which is in no record (`selected`: the
+/// vertices it made; the OpenMW fork's `NormalSource`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NormalSnapshot {
+    pub heights: crate::layers::Grid,
+    pub normals: crate::layers::Grid,
+    pub selected: Option<Vec<bool>>,
+}
+
+/// A cell's normals for its final `heights` (the fork's `recompute_vertex_normals`). `authored`
+/// is what the merge chose, vertex by vertex, under each plugin's strategy. A chosen vector is
+/// kept where some source has that same vector at that vertex over the same three heights it is
+/// worked out from ([`normal_triangle`]); anywhere else the terrain it described is gone (merged,
+/// put on the grid, or repaired) and it is worked out again from the heights. With nothing
+/// authored, all of them are. Answers the normals and how many were kept.
+pub fn finalize_normals(heights: &[Value], authored: Option<&[Value]>, sources: &[&NormalSnapshot]) -> (Vec<Value>, usize) {
+    let h = |i: usize| heights[i] as f64;
+    let Some(authored) = authored.filter(|a| a.len() == heights.len() * 3) else {
+        let mut normals = vec![0; heights.len() * 3];
+        for y in 0..LAND_SIZE {
+            for x in 0..LAND_SIZE {
+                let i = y * LAND_SIZE + x;
+                normals[i * 3..i * 3 + 3].copy_from_slice(&normal_at(&h, x, y));
+            }
+        }
+        return (normals, 0);
+    };
+    let usable: Vec<&&NormalSnapshot> = sources.iter().filter(|s| s.heights.len() == heights.len() && s.normals.len() >= authored.len()).collect();
+    let mut normals = authored.to_vec();
+    let mut kept = 0;
+    for y in 0..LAND_SIZE {
+        for x in 0..LAND_SIZE {
+            let i = y * LAND_SIZE + x;
+            let triangle = normal_triangle(x, y);
+            let stands = usable.iter().any(|s| {
+                s.selected.as_ref().is_none_or(|m| m[i])
+                    && (0..3).all(|k| s.normals.at(i * 3 + k) == Some(authored[i * 3 + k]))
+                    && triangle.iter().all(|&v| s.heights.at(v) == Some(heights[v]))
+            });
+            if stands {
+                kept += 1;
+            } else {
+                normals[i * 3..i * 3 + 3].copy_from_slice(&normal_at(&h, x, y));
+            }
+        }
+    }
+    (normals, kept)
+}
+
 /// One merged cell's normals (`resolve_cell_normals`): recomputed from its final heights,
 /// keeping the reference's own normal wherever the terrain it describes did not move and that
 /// normal is not `(0, 0, 0)`. Returns the normals and how many were kept.
@@ -221,8 +279,17 @@ mod tests {
         assert!(clamped.is_empty());
         let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();
         assert_eq!(decode_heights(&raw, offset as f64).unwrap(), heights);
-        // Python's // floors: -3 // 8 is -1.
-        assert_eq!(encode_vertex_heights(&vec![-3; LAND_NUM_VERTS]).0, -1.0);
+        // A height off the eight-unit grid keeps its phase in the offset (the OpenMW fork): -3 is
+        // -8 and 5, so the offset is -1 + 5/8, and it reads back as -3.
+        let (offset, deltas, _) = encode_vertex_heights(&vec![-3; LAND_NUM_VERTS]);
+        assert_eq!(offset, -0.375);
+        let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();
+        assert_eq!(decode_heights(&raw, offset as f64).unwrap(), vec![-3; LAND_NUM_VERTS]);
+        // An offset that crosses zero is still one phase: -0.3 is -2, and a step up is 6.
+        let mut raw = vec![0u8; LAND_NUM_VERTS];
+        raw[1] = 1;
+        let got = decode_heights(&raw, -0.3).unwrap();
+        assert_eq!((got[0], got[1]), (-2, 6));
     }
 
     /// Finalized heights are what a decode of their own encoding gives back, so nothing

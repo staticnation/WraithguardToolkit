@@ -169,6 +169,7 @@ pub fn clean_against_loaded(merged: &BTreeMap<Coords, CellDigest>, loaded: &BTre
             _ => differs_layer(&grid.colors, there.map(|d| &d.colors)),
         };
         let differs = differs_layer(&grid.heights, there.map(|d| &d.heights))
+            || differs_layer(&grid.normals, there.map(|d| &d.normals))
             || differs_layer(&grid.world_map, there.map(|d| &d.world_map))
             || colors_differ
             || differs_layer(&grid.textures, there.map(|d| &d.textures));

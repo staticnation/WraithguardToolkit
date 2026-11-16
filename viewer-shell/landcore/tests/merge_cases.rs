@@ -204,6 +204,7 @@ fn a_whole_merge_gives_the_recorded_plugin_and_report() {
             substitute_unknown_textures: case.get("substitute").and_then(Value::as_bool).unwrap_or(true),
             verbose: case.get("verbose").and_then(Value::as_bool).unwrap_or(false),
             // The Python's model and cleaning, which these cases were recorded from.
+            model: landcore::pipeline::DiffModel::Masters,
             clean_against_load_order: false,
             // Recorded before the engine stopped at a step it cannot repair.
             allow_clamping: true,
@@ -319,6 +320,12 @@ fn run(data: &Path, order: &[&str], opts: MergeOptions) -> landcore::service::Me
     build_merged_lands(&[data.to_path_buf()], &order, &opts, &mut |_| {}).unwrap_or_else(|(e, lines)| panic!("{e}\n{}", lines.join("\n")))
 }
 
+/// The options of a merge against the masters (the original Merged Lands' model; the default is
+/// against the load order): for the cases that are about what that model does.
+fn masters() -> MergeOptions {
+    MergeOptions { model: landcore::pipeline::DiffModel::Masters, ..Default::default() }
+}
+
 #[test]
 fn the_two_models_and_the_load_order_cleaning() {
     use landcore::pipeline::DiffModel;
@@ -336,7 +343,7 @@ fn the_two_models_and_the_load_order_cleaning() {
     );
     let order = ["Base.esm", "A.esp", "B.esp"];
     // Against the masters both edits survive, and the result is neither A's record nor B's.
-    let r = run(&data, &order, MergeOptions { dry_run: true, ..Default::default() });
+    let r = run(&data, &order, MergeOptions { dry_run: true, ..masters() });
     assert_eq!((r.cells_written, r.dropped), (1, 0), "{:#?}", r.lines);
     // Against the load order, B's vanilla ground reverts the hill: the merge is B's record,
     // which the load order already loads, so nothing is written.
@@ -449,7 +456,7 @@ fn a_cancelled_merge_stops_and_writes_nothing() {
     let order: Vec<String> = ["Base.esm", "A.esp", "B.esp"].iter().map(|s| s.to_string()).collect();
     // Cancelled while the merge runs (as the page's Cancel does, from another thread).
     let stop = Arc::new(AtomicBool::new(false));
-    let opts = MergeOptions { output: Some(out.clone()), cancel: Some(stop.clone()), ..Default::default() };
+    let opts = MergeOptions { output: Some(out.clone()), cancel: Some(stop.clone()), ..masters() };
     let got = build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |l| {
         if l == "merging ..." {
             stop.store(true, Ordering::Relaxed);
@@ -464,7 +471,7 @@ fn a_cancelled_merge_stops_and_writes_nothing() {
     }
     assert!(!out.exists(), "a cancelled merge wrote {}", out.display());
     // Not cancelled, the same merge writes.
-    let opts = MergeOptions { output: Some(out.clone()), cancel: Some(Arc::new(AtomicBool::new(false))), ..Default::default() };
+    let opts = MergeOptions { output: Some(out.clone()), cancel: Some(Arc::new(AtomicBool::new(false))), ..masters() };
     build_merged_lands(std::slice::from_ref(&data), &order, &opts, &mut |_| {}).unwrap_or_else(|(e, _)| panic!("{e}"));
     assert!(out.exists());
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
@@ -586,6 +593,51 @@ fn a_late_master_still_wins_over_an_earlier_mod() {
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
 
+/// An order that starts with a mod: the masters are still only the run that starts at the first
+/// one, so `Late.esm` is taken in its place (after `Mid.esp`) and not as part of the base, and
+/// `First.esp`, which `Base.esm` loads over, is merged as the first mod. What loads at (0,0) is
+/// Late's ground (64); First's cell (1,0), which no master has, is its own and needs no record.
+#[test]
+fn an_order_that_starts_with_a_mod_keeps_every_master_in_its_place() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |stored: i32| json!([stored, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "mod first",
+        json!([
+            {"name": "First.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": level(16)}, {"grid": [5, 5], "flags": 1, "heights": level(16)}]},
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": level(0)}]},
+            {"name": "Mid.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": level(32)}]},
+            {"name": "Late.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": level(8)}]},
+        ]),
+    );
+    assert_eq!(
+        landcore::service::split_order_early(&["First.esp", "Base.esm", "Mid.esp", "Late.esm"].map(String::from)),
+        (vec!["Base.esm".to_string()], vec!["First.esp".to_string(), "Mid.esp".to_string(), "Late.esm".to_string()], 1)
+    );
+    let r = run(&data, &["First.esp", "Base.esm", "Mid.esp", "Late.esm"], MergeOptions { clean_against_load_order: false, ..Default::default() });
+    assert!(r.lines.contains(&"masters: Base.esm".to_string()), "{:#?}", r.lines);
+    assert!(r.lines.iter().any(|l| l.contains("listed before the first master (First.esp)")), "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let Some(l) = plugin.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { (l.grid == (0, 0)).then_some(l) } else { None }) else { panic!("no LAND at (0,0)") };
+    let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+    let heights = landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap();
+    assert!(heights.iter().all(|&h| h == 64), "{:?}", &heights[..4]);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+    // Judged against what loads: a master's record loads over the early plugin's, so First's
+    // ground at (0,0) is not what the game has, and the merge of the two is written.
+    let data = setup(
+        "mod first loaded",
+        json!([
+            {"name": "First.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": level(16)}]},
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": level(0)}]},
+        ]),
+    );
+    let r = run(&data, &["First.esp", "Base.esm"], MergeOptions::default());
+    assert_eq!((r.cells_written, r.dropped), (1, 0), "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
 /// WG-A03: B, the last record at the cell, authors normals of its own over its heights. A's hill
 /// is not in B's record, so the merge (both hills) differs from what loads and is written; the
 /// normals B authored stay wherever the three heights each is made from are still B's, and are
@@ -603,7 +655,7 @@ fn authored_normals_of_the_winning_record_are_kept() {
             {"name": "B.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 48, 48, 5, 40], "normals": [3, 4, 120]}]},
         ]),
     );
-    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], masters());
     assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
     let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
     let Some(TES3Object::Landscape(l)) = plugin.objects.iter().find(|o| matches!(o, TES3Object::Landscape(_))) else { panic!("no LAND") };
@@ -654,13 +706,13 @@ fn existing_seams_are_repaired_when_asked_and_only_within_the_ceiling() {
     let order = ["Base.esm", "A.esp", "B.esp"];
     // Off (the default): only the cell the mod changed.
     let data = build("existing seams off");
-    let r = run(&data, &order, MergeOptions::default());
+    let r = run(&data, &order, masters());
     assert_eq!(written(&data).keys().copied().collect::<Vec<_>>(), vec![(20, 20)], "{:#?}", r.lines);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
     // On, up to 24 units, (5,5) left alone.
     let data = build("existing seams on");
     let rule = ExistingSeams { max_gap: 24, except: [(5, 5)].into_iter().collect() };
-    let r = run(&data, &order, MergeOptions { existing_seams: Some(rule), ..Default::default() });
+    let r = run(&data, &order, MergeOptions { existing_seams: Some(rule), ..masters() });
     let cells = written(&data);
     // (1,0) is written, taken down to (0,0)'s 400 stored units (the shared vertices settle on the
     // 8-unit step between the two, and (0,0) already has it, so it needs no record); (2,0), 392 units
@@ -708,7 +760,7 @@ fn a_seam_beyond_a_borrowed_cell_is_repaired_to_meet_it() {
             })
             .collect::<std::collections::BTreeMap<(i32, i32), Vec<i32>>>()
     };
-    let r = run(&data, &order, MergeOptions { existing_seams: Some(ExistingSeams::default()), ..Default::default() });
+    let r = run(&data, &order, MergeOptions { existing_seams: Some(ExistingSeams::default()), ..masters() });
     let cells = heights(&data);
     assert_eq!(cells.keys().copied().collect::<Vec<_>>(), vec![(20, 20), (22, 20)], "{:#?}", r.lines);
     let far = &cells[&(22, 20)];
@@ -737,7 +789,7 @@ fn a_corner_that_the_outside_agrees_on_is_mended() {
             {"name": "B.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 48, 48, 5, 40]}]},
         ]),
     );
-    run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions { existing_seams: Some(ExistingSeams::default()), ..Default::default() });
+    run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions { existing_seams: Some(ExistingSeams::default()), ..masters() });
     let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
     let cells: std::collections::BTreeMap<(i32, i32), Vec<i32>> = plugin
         .objects
@@ -761,7 +813,8 @@ fn a_corner_that_the_outside_agrees_on_is_mended() {
 /// A reference whose `VHGT` offset has a fractional phase (WG-A01): every height it decodes to is 4
 /// units off the eight-unit grid. (21,20) is borrowed beside the merged cell (20,20) and left
 /// alone by the merge, so nothing about it may make it a record (retention judges the saved
-/// result, not the encoder's rounding), and (20,20) meets it on the grid with no tear.
+/// result, not the encoder's rounding). (20,20) keeps the phase the terrain there has (the OpenMW
+/// fork's phase per connected piece), so it is saved at 3,204 where it meets (21,20), with no gap.
 #[test]
 fn a_reference_off_the_grid_is_not_kept_for_its_rounding() {
     use serde_json::json;
@@ -777,7 +830,7 @@ fn a_reference_off_the_grid_is_not_kept_for_its_rounding() {
             {"name": "B.esp", "land": [{"grid": [20, 20], "flags": 1, "heights": [400, 0, 0, 1, 48, 48, 5, 40], "offset_fraction": 0.5}]},
         ]),
     );
-    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], masters());
     let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
     let cells: std::collections::BTreeMap<(i32, i32), Vec<i32>> = plugin
         .objects
@@ -790,9 +843,303 @@ fn a_reference_off_the_grid_is_not_kept_for_its_rounding() {
         .collect();
     assert_eq!(cells.keys().copied().collect::<Vec<_>>(), vec![(20, 20)], "{:#?}", r.lines);
     let merged = &cells[&(20, 20)];
-    assert!(merged.iter().all(|v| v % 8 == 0), "saved on the grid");
-    // Its east column is the borrowed neighbour's, on the grid: 400 stored units and a half is 3,204, saved as 3,200.
-    assert!((1..SIZE - 1).all(|y| merged[y * SIZE + SIZE - 1] == 400 * 8), "{:?}", &merged[SIZE - 1..SIZE + 2]);
+    assert!(merged.iter().all(|v| v.rem_euclid(8) == 4), "saved on the terrain's own phase");
+    // Its east column is the borrowed neighbor's, exactly: 400 stored units and a half is 3,204.
+    assert!((1..SIZE - 1).all(|y| merged[y * SIZE + SIZE - 1] == 400 * 8 + 4), "{:?}", &merged[SIZE - 1..SIZE + 2]);
     assert_eq!(r.clamped, 0);
+    assert!(!r.lines.iter().any(|l| l.contains("off the eight-unit grid")), "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// The game reads a layer only when the record's `DATA` flags declare it. `B.esp`, the last to
+/// carry the cell, has a `VCLR` its flags leave out: the game draws white there, so the merge's
+/// colors (`A.esp`'s, the same bytes as that `VCLR`) are not what loads and the cell is written.
+#[test]
+fn a_layer_the_winners_flags_leave_out_is_not_what_loads() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let flat = json!([400, 1, 1, 9, 0, 0, -1, 0]);
+    let hill = json!([400, 1, 1, 9, 20, 20, 6, 60]);
+    let data = setup(
+        "undeclared colors",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 3, "heights": hill, "colors": [10, 20, 30, 1]}]},
+            {"name": "B.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": hill, "colors": [10, 20, 30, 1]}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!((r.cells_written, r.dropped), (1, 0), "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let land = plugin.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).unwrap();
+    assert!(format!("{:?}", land.landscape_flags).contains("USES_VERTEX_COLORS"), "{:?}", land.landscape_flags);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// A cell no master has, whose two plugins may give textures but not heights (their settings,
+/// and B not its textures either): the merge has A's textures for it and no heights. The record
+/// written replaces B's whole, so it carries B's heights as the game has them, or the cell would
+/// lose its terrain (the OpenMW fork's `preserve_untouched_loaded_layers`): the settings say what
+/// is merged, not what the cell is left without.
+#[test]
+fn a_cell_written_keeps_the_winners_heights_the_merge_has_none_for() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let hill = json!([400, 1, 1, 9, 20, 20, 6, 60]);
+    let off = |layers: &str| format!("meta_type = \"Patch\"\n{}", layers.split(',').map(|l| format!("[{l}]\nincluded = false\n")).collect::<String>());
+    let data = setup(
+        "winner heights",
+        json!([
+            {"name": "Base.esm", "ltex": [["a", 0, "a.dds"], ["b", 1, "b.dds"]], "land": [{"grid": [9, 9], "flags": 1, "heights": hill}]},
+            {"name": "A.esp", "masters": ["Base.esm"], "toml": off("height_map"), "land": [{"grid": [0, 0], "flags": 5, "heights": hill, "textures": [1, 3, 2]}]},
+            {"name": "B.esp", "masters": ["Base.esm"], "toml": off("height_map,texture_indices"), "land": [{"grid": [0, 0], "flags": 5, "heights": hill, "textures": [2, 5, 1]}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let out = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let land = out.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).unwrap();
+    let flags = format!("{:?}", land.landscape_flags);
+    assert!(flags.contains("USES_VERTEX_HEIGHTS_AND_NORMALS") && flags.contains("USES_TEXTURES"), "{flags}");
+    // B's own heights, as B has them.
+    let theirs = Plugin::from_path(data.join("B.esp")).unwrap();
+    let b = theirs.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).unwrap();
+    assert_eq!(land.vertex_heights.offset, b.vertex_heights.offset);
+    assert!(land.vertex_heights.data == b.vertex_heights.data, "the heights are B's");
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// As the OpenMW fork has it (`cleanup_removes_new_cell_output_when_only_excluded_height_differs`,
+/// `all_excluded_new_land_does_not_create_default_output_land`): a new cell whose only plugin is
+/// excluded from giving its heights, or everything, is no record to write. Nothing the merge has
+/// for it differs from what loads, and a record made only to leave the heights out is not made.
+#[test]
+fn a_new_cell_is_not_written_only_to_leave_an_excluded_layer_out() {
+    use serde_json::json;
+    let hill = json!([400, 1, 1, 9, 20, 20, 6, 60]);
+    let off = |layers: &str| format!("meta_type = \"Patch\"\n{}", layers.split(',').map(|l| format!("[{l}]\nincluded = false\n")).collect::<String>());
+    for excluded in ["height_map", "height_map,vertex_colors,texture_indices,world_map_data"] {
+        let data = setup(
+            "excluded new cell",
+            json!([
+                {"name": "Base.esm", "land": [{"grid": [9, 9], "flags": 1, "heights": hill}]},
+                {"name": "Patch.esp", "masters": ["Base.esm"], "toml": off(excluded), "land": [{"grid": [0, 0], "flags": 3, "heights": hill, "colors": [10, 20, 30, 1]}]},
+            ]),
+        );
+        let r = run(&data, &["Base.esm", "Patch.esp"], MergeOptions::default());
+        assert_eq!(r.cells_written, 0, "{excluded}: {:#?}", r.lines);
+        let _ = std::fs::remove_dir_all(data.parent().unwrap());
+    }
+}
+
+/// A step no record can store is repaired, not clamped (the OpenMW fork's height repair, after
+/// the slope limiter). The masters have a cliff of 3,200 units between two columns of cells; a
+/// plugin changes a cell beside it, so its borders are repaired against the cliff, and the corner
+/// where the cells outside disagree is left with a step the limiter may not move. Its higher
+/// end is lowered in every cell that has it, so nothing is left for the encoder to clamp and the
+/// merge is written even with clamping refused (`allow_clamping` off, `--merge-no-clamp`).
+#[test]
+fn a_step_that_cannot_be_stored_is_lowered_until_it_can() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |stored: i32| json!([stored, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "steps lowered",
+        json!([
+            {"name": "Base.esm", "land": [
+                {"grid": [0, 0], "flags": 1, "heights": level(0)},
+                {"grid": [0, 1], "flags": 1, "heights": level(0)},
+                {"grid": [1, 0], "flags": 1, "heights": level(400)},
+                {"grid": [1, 1], "flags": 1, "heights": level(400)}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [0, 0, 0, 1, 20, 20, 6, 60]}]},
+        ]),
+    );
+    let out = data.parent().unwrap().join("out").join(DEFAULT_NAME);
+    let order = ["Base.esm".to_string(), "A.esp".to_string()];
+    let r = landcore::service::build_merged_lands(std::slice::from_ref(&data), &order, &MergeOptions { output: Some(out.clone()), allow_clamping: false, ..Default::default() }, &mut |_| {})
+        .unwrap_or_else(|(e, _)| panic!("{e}"));
+    assert_eq!(r.clamped, 0, "{:#?}", r.lines);
+    assert!(r.lines.iter().any(|l| l.contains("lowered to fit a step the record can store")), "{:#?}", r.lines);
+    // Every stored step of every cell written fits a signed byte, and reads back as saved.
+    let plugin = Plugin::from_path(&out).unwrap();
+    let mut cells: std::collections::BTreeMap<(i32, i32), Vec<i32>> = Default::default();
+    for l in plugin.objects.iter().filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }) {
+        let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+        cells.insert(l.grid, landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap());
+    }
+    assert!(cells.len() > 1, "the cells whose vertices were lowered are written too");
+    // The borders between the cells written still agree.
+    for (&(x, y), g) in &cells {
+        if let Some(e) = cells.get(&(x + 1, y)) {
+            assert!((0..SIZE).all(|r| g[r * SIZE + SIZE - 1] == e[r * SIZE]), "({x}, {y}) and its east neighbor");
+        }
+        if let Some(n) = cells.get(&(x, y + 1)) {
+            assert!((0..SIZE).all(|c| g[(SIZE - 1) * SIZE + c] == n[c]), "({x}, {y}) and its north neighbor");
+        }
+    }
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// WG-A06: textures restored for a cell are numbered in the plugin written, not as the plugin
+/// they came from numbers them. `A.esp` paints (0,0) with its own `rock` (its index 0) and the
+/// masters' `b`; `B.esp`'s later record there has colors and no textures, so A's are restored.
+/// Each index saved must name, by the `LTEX` records saved beside it, the file A painted with.
+#[test]
+fn restored_textures_name_the_files_they_were_painted_with() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let data = setup(
+        "ltex identities",
+        json!([
+            {"name": "Base.esm", "ltex": [["a", 0, "a.dds"], ["b", 1, "b.dds"]], "land": [{"grid": [9, 9], "flags": 1, "heights": [400, 1, 1, 9, 0, 0, -1, 0]}]},
+            {"name": "A.esp", "masters": ["Base.esm"], "ltex": [["rock", 0, "rock.dds"], ["b", 1, "b.dds"]], "land": [{"grid": [0, 0], "flags": 4, "textures": [1, 3, 2]}]},
+            {"name": "B.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 2, "colors": [10, 20, 30, 1]}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let files: std::collections::HashMap<u32, String> =
+        plugin.objects.iter().filter_map(|o| if let TES3Object::LandscapeTexture(t) = o { Some((t.index, t.file_name.to_lowercase())) } else { None }).collect();
+    let land = plugin.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).unwrap();
+    let flags = format!("{:?}", land.landscape_flags);
+    assert!(flags.contains("USES_TEXTURES") && flags.contains("USES_VERTEX_COLORS"), "{flags}");
+    let mut painted: std::collections::BTreeMap<String, usize> = Default::default();
+    for &v in land.texture_indices.data.iter().flatten() {
+        assert!(v > 0, "no vertex is left on the default texture");
+        let file = files.get(&(u32::from(v) - 1)).unwrap_or_else(|| panic!("index {v} has no LTEX in the plugin: {files:?}"));
+        *painted.entry(file.clone()).or_default() += 1;
+    }
+    // A's pattern: `b` where (column + row) is a multiple of three, `rock` elsewhere.
+    let b = (0..256).filter(|i| ((i % 16) + (i / 16)) % 3 == 0).count();
+    assert_eq!(painted, [("b.dds".to_string(), b), ("rock.dds".to_string(), 256 - b)].into_iter().collect(), "{files:?}");
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// A layer that is there with every value zero is still terrain (the OpenMW fork's "present
+/// zero-valued layers"): `A.esp` makes a new cell flat at height 0, and `B.esp`'s later record
+/// there has colors alone, so the game drops A's ground to the engine's default (-2,048). The
+/// merge keeps A's heights, zero as they are, and writes them with B's colors.
+#[test]
+fn a_layer_of_zeros_is_still_a_layer() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let data = setup(
+        "zero layer",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [9, 9], "flags": 1, "heights": [400, 1, 1, 9, 0, 0, -1, 0]}]},
+            {"name": "A.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": [0, 0, 0, 1, 0, 0, -1, 0]}]},
+            {"name": "B.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 2, "colors": [10, 20, 30, 1]}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let out = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let land = out.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).unwrap();
+    let flags = format!("{:?}", land.landscape_flags);
+    assert!(flags.contains("USES_VERTEX_HEIGHTS_AND_NORMALS") && flags.contains("USES_VERTEX_COLORS"), "{flags}");
+    assert_eq!(land.vertex_heights.offset, 0.0);
+    assert!(land.vertex_heights.data.iter().flatten().all(|&d| d == 0));
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// `LTEX` ids are one texture whatever their letters' case, and the later record's file wins
+/// (the OpenMW fork's `f35a2bd`, `7f7a460`). `Patch.esp` respells the masters' `Grass01` as
+/// `gRaSs01` under another index and gives it a new file; `A.esp` paints a cell with it, and the
+/// plugin written names the new file for that texture, once.
+#[test]
+fn a_texture_id_is_the_same_in_any_letter_case() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let hill = json!([400, 1, 1, 9, 20, 20, 6, 60]);
+    let data = setup(
+        "ltex case",
+        json!([
+            {"name": "Base.esm", "ltex": [["Grass01", 0, "grass_old.dds"], ["b", 1, "b.dds"]], "land": [{"grid": [0, 0], "flags": 5, "heights": [400, 1, 1, 9, 0, 0, -1, 0], "textures": [2, 3, 2]}]},
+            {"name": "Patch.esp", "masters": ["Base.esm"], "ltex": [["gRaSs01", 7, "grass_new.dds"]]},
+            {"name": "A.esp", "masters": ["Base.esm"], "ltex": [["Grass01", 0, "grass_old.dds"], ["b", 1, "b.dds"]], "land": [{"grid": [0, 0], "flags": 5, "heights": hill, "textures": [1, 3, 2]}]},
+            {"name": "B.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 2, "colors": [10, 20, 30, 1]}]},
+            {"name": "Late.esp", "masters": ["Base.esm"], "ltex": [["GRASS01", 3, "grass_new.dds"]]},
+        ]),
+    );
+    // B's later record has colors alone, so A's ground and textures are restored and written.
+    let r = run(&data, &["Base.esm", "Patch.esp", "A.esp", "B.esp", "Late.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let files: Vec<(String, String)> =
+        plugin.objects.iter().filter_map(|o| if let TES3Object::LandscapeTexture(t) = o { Some((t.id.to_lowercase(), t.file_name.to_lowercase())) } else { None }).collect();
+    assert_eq!(files.iter().filter(|(id, _)| id == "grass01").count(), 1, "{files:?}");
+    assert!(files.contains(&("grass01".to_string(), "grass_new.dds".to_string())), "{files:?}");
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// Cells left out of the merge (the OpenMW fork's `cell_ignore_by_plugin`, and its
+/// `remove_heightless_overrides_of_ignored_cells`). `Big.esm` is left out at (0,0) and (1,0).
+/// At (0,0) it is the only terrain, so nothing is written and its own stays in the game. At
+/// (1,0) `Early.esp` before it has heights, which are restored over it. At (2,0) it is left out
+/// too and the only other record is `Paint.esp`'s textures: that is not written, for a record
+/// of textures alone would replace Big's and take its heights.
+#[test]
+fn a_cell_left_out_for_a_plugin_keeps_that_plugins_terrain_unless_another_has_it() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let level = |stored: i32| json!([stored, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "cells left out",
+        json!([
+            {"name": "Base.esm", "ltex": [["a", 0, "a.dds"], ["b", 1, "b.dds"]], "land": [{"grid": [9, 9], "flags": 1, "heights": level(0)}]},
+            {"name": "Early.esp", "masters": ["Base.esm"], "land": [{"grid": [1, 0], "flags": 1, "heights": level(16)}]},
+            {"name": "Paint.esp", "masters": ["Base.esm"], "land": [{"grid": [2, 0], "flags": 4, "textures": [1, 3, 2]}]},
+            {"name": "Big.esm", "land": [
+                {"grid": [0, 0], "flags": 1, "heights": level(32)},
+                {"grid": [1, 0], "flags": 1, "heights": level(32)},
+                {"grid": [2, 0], "flags": 1, "heights": level(32)}]},
+        ]),
+    );
+    let mut ignored = landcore::landmass::IgnoredCells::default();
+    ignored.by_plugin.insert("big.esm".into(), [(0, 0), (1, 0), (2, 0)].into_iter().collect());
+    let r = run(&data, &["Base.esm", "Early.esp", "Paint.esp", "Big.esm"], MergeOptions { ignored_cells: ignored, ..Default::default() });
+    assert!(r.lines.iter().any(|l| l.contains("left out of the merge for one plugin: big.esm (3 cell(s))")), "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let lands: Vec<_> = plugin.objects.iter().filter_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).collect();
+    assert_eq!(lands.iter().map(|l| l.grid).collect::<Vec<_>>(), vec![(1, 0)], "{:#?}", r.lines);
+    assert_eq!(lands[0].vertex_heights.offset, 16.0, "Early's ground, restored");
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// Normals are authored data, merged by the plugin's height strategy (the OpenMW fork's
+/// `9ebee72`). `A.esp` and `B.esp` leave the masters' flat ground as it is and each gives it
+/// normals of its own. Nothing moves, so either set still describes the terrain: with nothing
+/// said the later plugin's stand (B's, which is what loads, so nothing is written), and with B
+/// set to `Ignore` the earlier edit is kept, A's, and written over B's record.
+#[test]
+fn normals_are_merged_as_the_plugins_strategy_says() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let flat = json!([400, 0, 0, 1, 0, 0, -1, 0]);
+    let build = |toml: Option<&str>| {
+        let mut b = json!({"name": "B.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": flat, "normals": [0, 60, 110]}]});
+        if let Some(t) = toml {
+            b["toml"] = json!(t);
+        }
+        setup(
+            "normals merged",
+            json!([
+                {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat}]},
+                {"name": "A.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": flat, "normals": [60, 0, 110]}]},
+                b,
+            ]),
+        )
+    };
+    let data = build(None);
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 0, "B's normals are the merge's and what loads: {:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+    let data = build(Some("meta_type = \"Patch\"\n[height_map]\nconflict_strategy = \"Ignore\"\n"));
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions::default());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+    let land = plugin.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l) } else { None }).unwrap();
+    assert!(land.vertex_normals.data.iter().flatten().all(|n| *n == [60, 0, 110]), "A's normals, kept: {:?}", land.vertex_normals.data[3][3]);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
