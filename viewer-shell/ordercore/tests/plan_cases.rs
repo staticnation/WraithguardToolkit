@@ -29,11 +29,13 @@ fn unrooted(text: &str, root: &str) -> String {
         .replace(&slashed, "<root>")
 }
 
-fn plugin_bytes(masters: &[(String, u64)]) -> Vec<u8> {
+fn plugin_bytes(masters: &[(String, u64)], master_flag: bool) -> Vec<u8> {
     let mut body = b"HEDR".to_vec();
     body.extend(300u32.to_le_bytes());
     body.extend(1.3f32.to_le_bytes());
-    body.extend([0u8; 4 + 32 + 256 + 4]);
+    // The file type: a master (`.esm`) is flagged as one, as the game has it.
+    body.extend(u32::from(master_flag).to_le_bytes());
+    body.extend([0u8; 32 + 256 + 4]);
     for (name, size) in masters {
         let mut raw = name.as_bytes().to_vec();
         raw.push(0);
@@ -74,7 +76,7 @@ fn make_setup(root: &Path, files: &Value) {
             .iter()
             .map(|m| (s(&m[0]), m[1].as_u64().unwrap()))
             .collect();
-        fs::write(&path, plugin_bytes(&masters)).unwrap();
+        fs::write(&path, plugin_bytes(&masters, path.extension().is_some_and(|e| e.eq_ignore_ascii_case("esm")))).unwrap();
         if let Some(t) = spec.get("mtime").and_then(Value::as_u64) {
             let f = fs::File::options().write(true).open(&path).unwrap();
             f.set_modified(UNIX_EPOCH + Duration::from_secs(t)).unwrap();

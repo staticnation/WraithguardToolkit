@@ -32,7 +32,7 @@ const WgLoadOrder={
   KEY:'wgLoadOrder.fields',
 
   /** The warning kinds the report tags, as the filter names them. */
-  KINDS:{rule:'Rule warnings', yml:'plugin-order.yml', master:'Masters', master_size:'Master sizes',
+  KINDS:{rule:'Rule warnings', yml:'plugin-order.yml', master:'Masters', master_size:'Master sizes', master_flag:'Master flags',
     data_path:'Data paths', stale:'Stale merges', rule_conflict:'Rules not applied', drift:'Drift',
     groundcover:'Groundcover', orphan:'Unmanaged'},
 

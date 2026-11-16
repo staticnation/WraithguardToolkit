@@ -30,11 +30,13 @@ fn unrooted(text: &str, root: &str) -> String {
 }
 
 /// A header-only plugin with these masters (`gen_plan_cases.plugin_bytes`).
-fn plugin_bytes(masters: &[(String, u64)], data: bool, pad: usize) -> Vec<u8> {
+fn plugin_bytes(masters: &[(String, u64)], data: bool, pad: usize, master_flag: bool) -> Vec<u8> {
     let mut body = b"HEDR".to_vec();
     body.extend(300u32.to_le_bytes());
     body.extend(1.3f32.to_le_bytes());
-    body.extend([0u8; 4 + 32 + 256 + 4]);
+    // The file type: a master (`.esm`) is flagged as one, as the game has it (see plan_cases.rs).
+    body.extend(u32::from(master_flag).to_le_bytes());
+    body.extend([0u8; 32 + 256 + 4]);
     for (name, size) in masters {
         let mut raw = name.as_bytes().to_vec();
         raw.push(0);
@@ -78,7 +80,8 @@ fn make_setup(root: &Path, files: &Value) {
             spec["masters"].as_array().unwrap().iter().map(|m| (s(&m[0]), m[1].as_u64().unwrap())).collect();
         let data = spec.get("data").and_then(Value::as_bool).unwrap_or(true);
         let pad = spec.get("pad").and_then(Value::as_u64).unwrap_or(0) as usize;
-        fs::write(&path, plugin_bytes(&masters, data, pad)).unwrap();
+        let esm = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("esm"));
+        fs::write(&path, plugin_bytes(&masters, data, pad, esm)).unwrap();
         if let Some(t) = spec.get("mtime").and_then(Value::as_u64) {
             let f = fs::File::options().write(true).open(&path).unwrap();
             f.set_modified(UNIX_EPOCH + Duration::from_secs(t)).unwrap();

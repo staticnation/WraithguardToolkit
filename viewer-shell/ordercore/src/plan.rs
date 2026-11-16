@@ -60,7 +60,7 @@ pub struct Item {
     pub kind: ItemKind,
     /// The text, in the Python's English.
     pub text: String,
-    /// For a warning, what it is about: `rule`, `yml`, `master`, `master_size`, `data_path`,
+    /// For a warning, what it is about: `rule`, `yml`, `master`, `master_size`, `master_flag`, `data_path`,
     /// `stale`, `drift`, `rule_conflict`, `groundcover`, `orphan`, `input`.
     pub warning: Option<&'static str>,
     /// The plugins (or folders) it names, for the page's links.
@@ -931,7 +931,13 @@ fn check_masters(
             report.warn("master_size", w.clone(), named_in(w, active));
         }
     }
-    if issues == 0 && got.size_notes.is_empty() {
+    if !got.flag_notes.is_empty() {
+        report.subsection(format!("{} master flag note(s): the extension and the header disagree", got.flag_notes.len()));
+        for w in &got.flag_notes {
+            report.warn("master_flag", w.clone(), named_in(w, active));
+        }
+    }
+    if issues == 0 && got.size_notes.is_empty() && got.flag_notes.is_empty() {
         report.line("  All masters present and correctly ordered.");
     }
     let mut warnings = got.missing;

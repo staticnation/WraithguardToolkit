@@ -172,6 +172,11 @@ const WgToolsPage={
     <span>Leave out</span><input type="text" id="tlMlIgnore" placeholder="plugin names or folders, comma separated" style="flex:1;min-width:200px" title="Plugins with nothing to merge that are slow to read (generated patches), by name or by folder. The output's own name is always left out.">
   </div>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <label title="Also repair seams the load order already has between neighbouring cells that no plugin changed (off: only the borders of cells a plugin changed). A wider gap is taken to be meant."><input type="checkbox" id="tlMlSeams"> Also repair seams the terrain already has, up to</label>
+    <input type="number" id="tlMlSeamGap" min="1" max="1024" value="24" style="width:70px" title="The widest gap, in world units, that is repaired (24 is three eight-unit steps; wider ones make steep slopes the format cannot always hold)"><span>units wide, leaving out</span>
+    <input type="text" id="tlMlSeamExcept" placeholder="cells as X,Y; X,Y" style="flex:1;min-width:140px" title="Cells whose borders are never repaired, either side of them (a cliff or an edge the load order means to have)">
+  </div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <span>Write into</span><input type="text" id="tlMlFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px"><button class="btn dim" id="tlMlBrowse">Browse...</button></div>
   <div class="scroll"><div id="tlMlIntro" class="empty">Where two mods reshape different vertices of the same exterior cell, the load order keeps only the last one's LAND record and discards the other; this recovers both into a new plugin, Merged Lands.esp. Seams between cells are repaired and the terrain is conditioned so every height fits the format. Your mods are never modified, and deleting the merged plugin restores your previous behaviour exactly. Load it LAST. Merge settings (a plugin's .mergedlands.toml) decide, per layer, what a mod contributes and how its edits resolve.</div>
   <pre id="tlMlOut" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
@@ -278,6 +283,11 @@ const WgToolsPage={
     try{ const m=localStorage.getItem('wgTools.mergeLandsModel'); if(m) $('#tlMlModel').value=m; const ig=localStorage.getItem('wgTools.mergeLandsIgnore'); if(ig!=null) $('#tlMlIgnore').value=ig; }catch(_){}
     $('#tlMlModel').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsModel', $('#tlMlModel').value); }catch(_){} };
     $('#tlMlIgnore').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsIgnore', $('#tlMlIgnore').value); }catch(_){} };
+    // The seam repair settings, kept like the others (off until asked for).
+    try{ $('#tlMlSeams').checked=localStorage.getItem('wgTools.mergeLandsSeams')==='1'; const g=localStorage.getItem('wgTools.mergeLandsSeamGap'); if(g) $('#tlMlSeamGap').value=g; const e=localStorage.getItem('wgTools.mergeLandsSeamExcept'); if(e!=null) $('#tlMlSeamExcept').value=e; }catch(_){}
+    $('#tlMlSeams').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeams', $('#tlMlSeams').checked?'1':'0'); }catch(_){} };
+    $('#tlMlSeamGap').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamGap', $('#tlMlSeamGap').value); }catch(_){} };
+    $('#tlMlSeamExcept').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamExcept', $('#tlMlSeamExcept').value); }catch(_){} };
     $('#tlJrFind').oninput=()=>this.drawQuests();
     $('#tlBkRestore').onclick=()=>this.restoreBackups();
     $('#tlBkDelete').onclick=()=>this.deleteBackups();
@@ -358,7 +368,8 @@ const WgToolsPage={
     tick();
     try{
       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
-      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore}).finally(()=>{ live=false; });
+      const seams=$('#tlMlSeams').checked;
+      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore, seamGap: seams? Math.max(1, parseInt($('#tlMlSeamGap').value,10)||24) : null, seamExcept: $('#tlMlSeamExcept').value}).finally(()=>{ live=false; });
       // What the log showed while it ran (every line, with its time) stays: `r.log`. `r.lines` is the
       // report alone, without the timings or the progress lines, for a backend that sends no log.
       const said=Array.isArray(r.log) && r.log.length? r.log : r.lines;

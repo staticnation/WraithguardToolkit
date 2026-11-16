@@ -39,13 +39,14 @@ import gen_plan_cases as plan  # noqa: E402
 
 
 def _header(
-    *masters: tuple[str, int], author: str = "me", description: str = "a test"
+    *masters: tuple[str, int], author: str = "me", description: str = "a test", esm: bool = False
 ) -> dict[str, Any]:
     return {
         "type": "Header",
         "flags": "",
         "version": 1.3,
-        "file_type": "Esp",
+        # A master is flagged as one, as the game has it (the master flag check reads it).
+        "file_type": "Esm" if esm else "Esp",
         "author": author,
         "description": description,
         "num_objects": 0,
@@ -114,7 +115,7 @@ GMST_EVIL = {
 
 SCAN_PLUGINS: dict[str, list[dict[str, Any]]] = {
     "game/Morrowind.esm": [
-        _header(description="the base"),
+        _header(description="the base", esm=True),
         _static("rock", "r.nif"),
         _static("tree", "t.nif"),
         _exterior(0, 0),

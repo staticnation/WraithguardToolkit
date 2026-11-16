@@ -168,8 +168,10 @@ pub fn game_files(ini: &Path) -> Vec<String> {
 /// *which* plugins load (`[Game Files]`), not in what order: the game sorts them by the dates of
 /// the files, the masters (`.esm`) first and then the plugins, and the ini lists them as the
 /// launcher last wrote them. So the ini's order is only the tie-break here, for files with one
-/// date. A file is looked for in the data folders (the last holding it, as a cfg's are read);
-/// one that is not there cannot be dated, and goes last of its kind.
+/// date. A master is told by its extension, here as everywhere in the tools; a file whose header
+/// flag disagrees is reported by the master check (`inputs::check_missing_masters`). A file is
+/// looked for in the data folders (the last holding it, as a cfg's are read); one that is not there
+/// cannot be dated, and goes last of its kind.
 pub fn by_date(names: &[String], data: &[PathBuf]) -> Vec<String> {
     let mut found: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
     for d in data {

@@ -753,6 +753,19 @@ impl crate::predicates::Plugins for PluginIndex {
     }
 }
 
+/// Whether a plugin's `TES3` header is flagged as a master (`file_type` is `Esm`): the flag the game
+/// goes by. `None` when the file cannot be read as a plugin (empty, or no `HEDR` first).
+pub fn header_master_flag(path: &Path) -> Option<bool> {
+    use std::io::Read;
+    // The record's 16 bytes, then `HEDR`, its size, the version (4) and the file type (4).
+    let mut b = [0u8; 32];
+    fs::File::open(path).ok()?.read_exact(&mut b).ok()?;
+    if &b[0..4] != b"TES3" || &b[16..20] != b"HEDR" {
+        return None;
+    }
+    Some(u32::from_le_bytes([b[28], b[29], b[30], b[31]]) == 1)
+}
+
 /// What [`check_missing_masters`] found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MasterCheck {
@@ -762,6 +775,11 @@ pub struct MasterCheck {
     pub order_problems: Vec<String>,
     /// `[MASTER SIZE]` lines: the installed master's size is not the one the header recorded.
     pub size_notes: Vec<String>,
+    /// `[MASTER FLAG]` lines: a `.esm` whose header is not flagged as a master, or a `.esp` whose
+    /// header is. The tools take the extension for the kind and the game takes the flag, so they
+    /// disagree about where the file loads until it is converted (the Construction Set, or the
+    /// merge-to-master tool) or renamed.
+    pub flag_notes: Vec<String>,
     /// How many plugin files were read (0: the mod folders are not reachable from here).
     pub checked: usize,
     /// The plugins behind `missing` and `order_problems`, sorted ignoring case.
@@ -789,6 +807,18 @@ pub fn check_missing_masters<S: AsRef<str>>(
         }
         out.checked += 1;
         let tag = origins.get(&p.to_lowercase()).map(|o| format!(" [{o}]")).unwrap_or_default();
+        // The extension is the kind everywhere in the tools; the game goes by the header's flag.
+        match (ends_with_any(p, &[".esm"]), ends_with_any(p, &[".esp"]), header_master_flag(path)) {
+            (true, _, Some(false)) => out.flag_notes.push(format!(
+                "[MASTER FLAG] '{p}'{tag} is named .esm but its header is not flagged as a master -- the game loads it as a \
+                 plugin, after the masters. Convert it with the Construction Set or the merge-to-master tool, or rename it .esp."
+            )),
+            (_, true, Some(true)) => out.flag_notes.push(format!(
+                "[MASTER FLAG] '{p}'{tag} is named .esp but its header is flagged as a master -- the game loads it with the \
+                 masters. Rename it .esm, or convert it back to a plugin."
+            )),
+            _ => {}
+        }
         for (m, recorded) in pairs {
             let Some(&mpos) = pos.get(&m.to_lowercase()) else {
                 out.missing.push(if index.find(&m).is_none() {
@@ -1088,6 +1118,36 @@ pub fn infer_data_path_anchors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A TES3 header with `file_type` (1: master), as bytes.
+    fn tes3_header(file_type: u32) -> Vec<u8> {
+        let mut b = b"TES3".to_vec();
+        b.extend(308u32.to_le_bytes());
+        b.extend([0u8; 8]);
+        b.extend(b"HEDR");
+        b.extend(300u32.to_le_bytes());
+        b.extend(1.3f32.to_le_bytes());
+        b.extend(file_type.to_le_bytes());
+        b.extend(vec![0u8; 32 + 256 + 4]);
+        b
+    }
+
+    /// The extension is the kind; a header that says otherwise is noted, either way, and only then.
+    #[test]
+    fn the_extension_and_the_masters_flag_are_checked_against_each_other() {
+        let d = std::env::temp_dir().join(format!("wg_mflag_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        for (n, ft) in [("Fine.esm", Some(1)), ("Fine.esp", Some(0)), ("Unflagged.esm", Some(0)), ("Flagged.esp", Some(1)), ("Empty.esm", None)] {
+            fs::write(d.join(n), ft.map(tes3_header).unwrap_or_default()).unwrap();
+        }
+        let order = ["Fine.esm", "Fine.esp", "Unflagged.esm", "Flagged.esp", "Empty.esm"];
+        let got = check_missing_masters(&order, &PluginIndex::build(&[d.to_string_lossy().to_string()]), &HashMap::new());
+        assert_eq!(got.flag_notes.len(), 2, "{:#?}", got.flag_notes);
+        assert!(got.flag_notes[0].contains("'Unflagged.esm'") && got.flag_notes[0].contains("not flagged as a master"));
+        assert!(got.flag_notes[1].contains("'Flagged.esp'") && got.flag_notes[1].contains("flagged as a master"));
+        let _ = fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn a_hash_in_a_name_is_not_a_comment() {
