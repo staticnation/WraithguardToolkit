@@ -181,15 +181,72 @@ pub fn plugin_bytes(records: Vec<TES3Object>, masters: &[(String, u64)]) -> Resu
         masters: masters.to_vec(),
         ..Default::default()
     };
-    let mut objects = vec![TES3Object::Header(header)];
-    objects.extend(records);
-    let mut plugin = Plugin { objects };
-    plugin.save_bytes().map_err(|e| e.to_string())
+    /* Each record encoded on its own and dropped (Static, 2026-11-17): handed to tes3 together they
+       were all held until the last was written, beside the file's bytes. tes3 writes a plugin's
+       objects one after another with nothing carried between them (the writer's `context` is the
+       NIF code's), so the bytes are the same; `the_streamed_plugin_is_tes3s_byte_for_byte` holds
+       it to that. A plugin of one header is written with its count set to 0 (save_bytes counts the
+       objects after it), so the count is put back where HEDR keeps it. */
+    let one = |object: TES3Object| Plugin { objects: vec![object] }.save_bytes().map_err(|e| e.to_string());
+    let count = records.len() as u32;
+    let mut bytes = one(TES3Object::Header(header))?;
+    set_object_count(&mut bytes, count)?;
+    for record in records {
+        bytes.extend_from_slice(&one(record)?);
+    }
+    Ok(bytes)
+}
+
+/// Where HEDR keeps the plugin's record count: after the TES3 record's 16-byte header, HEDR's tag
+/// and size (8), the version (4), the file type (4), the author (32) and the description (256).
+const HEDR_COUNT_AT: usize = 16 + 8 + 4 + 4 + 32 + 256;
+
+/// Puts the record count into an encoded header, after checking the bytes are a TES3 record whose
+/// first subrecord is HEDR, holding a count of 0 where it is put.
+fn set_object_count(bytes: &mut [u8], count: u32) -> Result<(), String> {
+    let at = HEDR_COUNT_AT;
+    let laid_out = bytes.len() >= at + 4 && &bytes[..4] == b"TES3" && &bytes[16..20] == b"HEDR" && bytes[at..at + 4] == [0; 4];
+    if !laid_out {
+        return Err("the encoded header is not laid out as HEDR is: the record count has nowhere to go".into());
+    }
+    bytes[at..at + 4].copy_from_slice(&count.to_le_bytes());
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The plugin written a record at a time is the one tes3 writes all at once.
+    #[test]
+    fn the_streamed_plugin_is_tes3s_byte_for_byte() {
+        let records = || -> Vec<TES3Object> {
+            let mut out = vec![TES3Object::LandscapeTexture(LandscapeTexture { id: "a".into(), index: 0, file_name: "a.dds".into(), ..Default::default() })];
+            for x in 0..3 {
+                let mut l = Landscape { grid: (x, -x), landscape_flags: LandscapeFlags::USES_VERTEX_HEIGHTS_AND_NORMALS, ..Default::default() };
+                l.vertex_heights.offset = x as f32 * 8.0;
+                l.vertex_heights.data[1][2] = 3;
+                l.texture_indices.data[0][0] = 1;
+                out.push(TES3Object::Landscape(l));
+            }
+            out
+        };
+        let masters = vec![("Morrowind.esm".to_string(), 79_837_557u64)];
+        let streamed = plugin_bytes(records(), &masters).unwrap();
+        let header = Header {
+            version: 1.3,
+            author: FixedString(AUTHOR.to_string()),
+            description: FixedString(DESCRIPTION.to_string()),
+            num_objects: 4,
+            masters: masters.clone(),
+            ..Default::default()
+        };
+        let mut objects = vec![TES3Object::Header(header)];
+        objects.extend(records());
+        let whole = Plugin { objects }.save_bytes().unwrap();
+        assert_eq!(streamed, whole);
+        assert_eq!(u32::from_le_bytes(streamed[HEDR_COUNT_AT..HEDR_COUNT_AT + 4].try_into().unwrap()), 4);
+    }
 
     #[test]
     fn world_map_follows_the_heights() {

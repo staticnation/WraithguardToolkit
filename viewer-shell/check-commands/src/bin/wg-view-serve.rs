@@ -541,6 +541,10 @@ fn run() -> i32 {
     code
 }
 
+// Counts the heap so Merge Lands' Verbose log can say the merge's own peak (landcore::memory).
+#[global_allocator]
+static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;
+
 fn main() { std::process::exit(run()) }
 
 /* Round 18bk — the two registries a command has to be in, checked against each other.

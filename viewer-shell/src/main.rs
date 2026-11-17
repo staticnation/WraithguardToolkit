@@ -62,6 +62,10 @@ fn launch_env() {
     }
 }
 
+// Counts the heap so Merge Lands' Verbose log can say the merge's own peak (landcore::memory).
+#[global_allocator]
+static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;
+
 fn main() {
     launch_env();
     let args: Vec<String> = std::env::args().collect();

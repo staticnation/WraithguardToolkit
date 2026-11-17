@@ -1,6 +1,31 @@
-//! The process's peak memory, for the merge's Verbose log (Static, 2026-11-17): the most it held
-//! at once since it started, so a merge run in the app counts the app's own memory too.
-//! Linux reads VmHWM; Windows asks kernel32 for the peak working set; elsewhere there is none.
+//! Peak memory, for the merge's Verbose log (Static, 2026-11-17). Two figures:
+//! - the process's: the most it held at once since it started, the app's own memory too. Linux
+//!   reads VmHWM; Windows asks kernel32 for the peak working set; elsewhere there is none.
+//! - the merge's own: the most the Rust heap grew above what it held when the merge started,
+//!   counted by peakmem-alloc's allocator (Static's pick). A program has it only where it
+//!   installs [`COUNTING`] as its global allocator; elsewhere there is no such figure. Other
+//!   threads' allocations in the window count too (the viewer's, run from the app); memory the
+//!   webview or GTK hold does not, nor the allocator's own overhead, so it reads below the
+//!   process's figure.
+
+use peakmem_alloc::PeakMemAllocTrait as _;
+
+/// The counting allocator: the system's, its bytes counted. A program installs it with
+/// `#[global_allocator] static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;`
+pub type Counting = peakmem_alloc::PeakMemAlloc<std::alloc::System>;
+pub use peakmem_alloc::INSTRUMENTED_SYSTEM as COUNTING;
+
+/// Starts the merge's window: the count and its peak back to 0. Two merges at once would share it.
+pub fn start_merge_window() {
+    COUNTING.reset_peak_memory();
+}
+
+/// The most the heap grew since [`start_merge_window`], in bytes; `None` where [`COUNTING`] is
+/// not the program's allocator (it never moves, and a merge always allocates).
+pub fn merge_peak_bytes() -> Option<u64> {
+    let peak = COUNTING.get_peak_memory();
+    (peak > 0).then_some(peak as u64)
+}
 
 /// The peak resident memory in bytes, when the system says.
 pub fn peak_bytes() -> Option<u64> {
@@ -80,5 +105,9 @@ mod tests {
         assert!(super::peak_bytes().is_some_and(|b| b > 0));
         assert_eq!(super::human(1_310_000_000), "1.31 GB");
         assert_eq!(super::human(153_400_000), "153 MB");
+        // This test binary does not install the counting allocator, so there is no such figure.
+        super::start_merge_window();
+        let _held: Vec<u8> = Vec::with_capacity(1 << 20);
+        assert_eq!(super::merge_peak_bytes(), None);
     }
 }

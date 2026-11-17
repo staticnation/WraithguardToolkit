@@ -250,8 +250,10 @@ fn describe_meta(m: &PluginMeta) -> String {
 }
 
 /// The plugins the merged file depends on, in load order (`_contributors`).
-fn contributors(outcome: &MergeOutcome, texture_sources: &[String], reference: &Landmass, load_order: &[String]) -> Vec<String> {
-    let mut set: BTreeSet<String> = texture_sources.iter().cloned().collect();
+/// The plugins whose terrain the merged cells carry: each cell's editors, and the master whose
+/// record each came from. Taken before the cells are turned into records and freed.
+fn cell_contributors(outcome: &MergeOutcome, reference: &Landmass) -> BTreeSet<String> {
+    let mut set = BTreeSet::new();
     for (c, cell) in &outcome.cells {
         set.extend(cell.editors.iter().cloned());
         if let Some(origin) = reference.sources.get(c)
@@ -260,6 +262,11 @@ fn contributors(outcome: &MergeOutcome, texture_sources: &[String], reference: &
             set.insert(origin.clone());
         }
     }
+    set
+}
+
+fn contributors(mut set: BTreeSet<String>, texture_sources: &[String], load_order: &[String]) -> Vec<String> {
+    set.extend(texture_sources.iter().cloned());
     let seen: BTreeSet<String> = load_order.iter().map(|n| n.to_lowercase()).collect();
     let mut ordered: Vec<String> = load_order.iter().filter(|n| set.contains(*n)).cloned().collect();
     ordered.extend(set.iter().filter(|n| !seen.contains(&n.to_lowercase())).cloned());
@@ -321,6 +328,8 @@ fn read_all(paths: &[&Path], cancel: Option<&std::sync::atomic::AtomicBool>, pro
 /// `say` is called with each progress line as it happens. `Err` is the Python's
 /// `MergeServiceError`, with the lines said before it in `lines`.
 pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeOptions, say: &mut dyn FnMut(&str)) -> Result<MergeResult, (String, Vec<String>)> {
+    // The merge's own peak counted from here (where the program counts it; memory.rs).
+    crate::memory::start_merge_window();
     let mut lines: Vec<String> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
     macro_rules! say {
@@ -533,6 +542,8 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         Ok(t) => t,
         Err(e) => fail!("{e}"),
     };
+    // The load order's landmass is the finish step's alone: freed before the records are made.
+    drop(loaded);
     stop!();
     // The steps' times with Verbose (the Tools page's box, the command line's -v): the log
     // is otherwise the Python's, line for line.
@@ -597,13 +608,19 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         ..Default::default()
     };
 
-    // _build_records
+    // What the declared masters need of the cells and the reference, kept; the reference freed.
+    let from_cells = cell_contributors(&outcome, &reference);
+    drop(reference);
+
+    // _build_records: each cell freed as its record is made (they held the merge's layers as
+    // 32-bit values, several times what the record keeps).
     let mut lands = Vec::new();
     let mut pending: Vec<(usize, Vec<Value>)> = Vec::new();
     let mut used: BTreeSet<Value> = BTreeSet::new();
     let mut clamped = 0;
     let mut clamped_cells: Vec<(i64, i64)> = Vec::new();
-    for (c, cell) in &outcome.cells {
+    for (c, cell) in std::mem::take(&mut outcome.cells) {
+        let c = &c;
         match build_landscape_record_for(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref(), cell.textures.is_some()) {
             Ok((mut record, clamps)) => {
                 if opts.keep_world_map {
@@ -681,7 +698,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         result.notes = notes;
         return Ok(result);
     }
-    let mut declared = contributors(&outcome, &texture_sources, &reference, load_order);
+    let mut declared = contributors(from_cells, &texture_sources, load_order);
     if declared.is_empty() {
         declared = master_names.clone();
     }
@@ -716,9 +733,13 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     // Verbose: the encoding and the disk apart (a real order's write took 4.4 s, 2026-11-10).
     if opts.verbose {
         say!("  encoded in {:.2} s, written to disk in {:.2} s", encoded.as_secs_f64(), writing.elapsed().as_secs_f64());
-        // The most the process held at once (the app's own memory too, when run from the app).
-        if let Some(peak) = crate::memory::peak_bytes() {
-            say!("  peak memory {}", crate::memory::human(peak));
+        // The most the process held at once (the app's own memory too, when run from the app),
+        // and the most the merge itself added to the heap, where the program counts it.
+        match (crate::memory::peak_bytes(), crate::memory::merge_peak_bytes()) {
+            (Some(p), Some(m)) => say!("  peak memory {} for the process, {} added by the merge at most", crate::memory::human(p), crate::memory::human(m)),
+            (Some(p), None) => say!("  peak memory {} for the process", crate::memory::human(p)),
+            (None, Some(m)) => say!("  peak memory {} added by the merge at most", crate::memory::human(m)),
+            (None, None) => {}
         }
     }
     say!("wrote {} ({} bytes, {} records)", target.display(), bytes.len(), total + 1);

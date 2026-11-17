@@ -20,6 +20,10 @@
 mod cellmap;
 mod pypath;
 
+// Counts the heap so Merge Lands' Verbose log can say the merge's own peak (landcore::memory).
+#[global_allocator]
+static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::Write as _;

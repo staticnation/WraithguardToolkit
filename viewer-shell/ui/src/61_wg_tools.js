@@ -171,7 +171,7 @@ const WgToolsPage={
   <select id="tlMlModel" title="What a plugin's change is measured against"><option value="loadorder">Against the load order (follow the winners, fix the seams)</option><option value="masters">Against the masters (keep every mod's edits, blend where two meet)</option></select>
   <button class="btn" id="tlMlRun">Build Merged Lands.esp</button><button class="btn dim" id="tlMlCancel" hidden title="Stop at the next step; nothing is written">Cancel</button></h3>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
-    <span>Leave out</span><input type="text" id="tlMlIgnore" placeholder="plugin names or folders, comma separated" style="flex:1;min-width:200px" title="Plugins with nothing to merge that are slow to read (generated patches), by name or by folder. The output's own name is always left out.">
+    <span>Leave out</span><input type="text" id="tlMlIgnore" placeholder="plugin names or folders, comma separated" style="flex:1;min-width:200px" title="Plugins with nothing to merge that are slow to read (generated patches), by name or by folder. The output's own name is always left out. Empty: none."><button class="btn dim" id="tlMlIgnoreDefault" title="Put back the default list: the generated patches (delta-merged, deleted_groundcover, groundcover, S3LightFixes, OMWLLFMod, merged, Merged Objects)">Default</button>
   </div>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <label title="Also repair seams the load order already has between neighbouring cells that no plugin changed (off: only the borders of cells a plugin changed). A wider gap is taken to be meant."><input type="checkbox" id="tlMlSeams"> Also repair seams the terrain already has, up to</label>
@@ -321,6 +321,16 @@ const WgToolsPage={
       }catch(err){ toast('OpenMWMergedLands\' settings: '+String(err.message||err),'err',8000); }
     };
     $('#tlMlCellDefault').onclick=()=>{ $('#tlMlCellIgnore').value=CELL_DEFAULT; $('#tlMlCellIgnore').onchange(); };
+    /* The plugins left out put back (Static, 2026-11-17): an emptied box is kept as empty, so the
+       default never came back by itself and every generated patch was read. The list is the
+       engine's own (land_merge_home's `ignore`, service::DEFAULT_IGNORE). */
+    $('#tlMlIgnoreDefault').onclick=async()=>{
+      try{
+        let h=(this.ml && this.ml.home) || await Engine.call('land_merge_home',{cfg:this.cfg()});
+        if(typeof h==='string') h=JSON.parse(h);
+        $('#tlMlIgnore').value=((h && h.ignore)||[]).join(', '); $('#tlMlIgnore').onchange();
+      }catch(err){ toast('The default list: '+String(err.message||err),'err',5000); }
+    };
     $('#tlMlSeams').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeams', $('#tlMlSeams').checked?'1':'0'); }catch(_){} };
     $('#tlMlSeamGap').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamGap', $('#tlMlSeamGap').value); }catch(_){} };
     $('#tlMlSeamExcept').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamExcept', $('#tlMlSeamExcept').value); }catch(_){} };

@@ -1,7 +1,7 @@
 # Changelog
 
 
-## Unreleased
+## 5.0.5
 
 ### Changed
 
@@ -24,6 +24,20 @@
   are names, and the average of texture 3 and texture 7 is texture 5, a third and unrelated one.
   `Curvature` on a layer with no height surface is `Resolve`. Both were errors.
 
+- The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
+  the engine to the Python's bytes where the fixes above change them (three of the five
+  cases); `landcore/tests/fixtures/land_merge_cases_audit.json` records what the engine
+  answers there, and says how to re-record it.
+
+- **Merge Lands, faster on a real order** (Static's 619 plugins, 2026-11-10: the finish step
+  took 4 s, slopes 2.2 s of it, and the reference landmass 3.9 s). The slope limiter stops
+  going over the cells once nothing changes (a pass then is the one before it again: its
+  refusals counted for each pass left, the report the same), and goes over a handful of
+  changed cells on one thread instead of waiting at every level on every core. The masters'
+  terrain is decoded across the cores. The cell digests' loop is quicker (the same numbers).
+  The same `Merged Lands.esp` byte for byte. With Verbose the log now also splits the digests
+  from the cleaning, and the plugin's encoding from its write to disk.
+
 ### Fixed
 
 - **Merge Lands' "repair the seams the terrain already has" mends a seam between two cells it only
@@ -36,15 +50,30 @@
 - **Merge Lands uses less memory**: each cell's working grids are dropped as soon as it is merged,
   not kept until every cell is done, and the plugins' records are freed once they are decoded (the
   masters' once the reference landmass is built, each mod's as its cells are read out), where they
-  were held to the end of the merge. On the 300-plugin benchmark the peak went from 1.72 GB to
-  1.31 GB, then to 0.97 GB (1.42 GB before the normals were merged), with the same plugin written.
-  Heights are also packed in 16 bits where they fit, not 32.
+  were held to the end of the merge. The write frees as it goes too: the load order's landmass and
+  the reference once the finish step is done, each merged cell once its record is made, each
+  record once it is encoded (they were all held beside the file's bytes). On the 300-plugin
+  benchmark the process's peak went from 1.72 GB to 1.31 GB, then to about 0.9-1.0 GB (1.42 GB
+  before the normals were merged), and what the merge itself adds to the heap from 783 MB to
+  669 MB, with the same plugin written. Heights are also packed in 16 bits where they fit, not 32.
 
 ### Added
 
-- **Merge Lands' Verbose log says the peak memory** ("peak memory 992 MB", after the encode and
-  write times): the most the process held at once, read from VmHWM on Linux and the peak working
-  set on Windows. Run from the app it counts the app's own memory too.
+- **Merge Lands' "Leave out" has a Default button**, as "Leave cells out" has. The box is kept as
+  last typed, so once emptied the default list never came back and every generated patch was
+  read (Static's order: 600 mods where the default leaves out 3). The button puts back the
+  engine's list (`delta-merged`, `deleted_groundcover`, `groundcover`, `S3LightFixes`,
+  `OMWLLFMod`, `merged`, `Merged Objects`).
+
+- **Merge Lands' Verbose log says the peak memory**, after the encode and write times: "peak
+  memory 952 MB for the process, 669 MB added by the merge at most". The first is the most the
+  process held at once (VmHWM on Linux, the peak working set on Windows; the app's own memory
+  too, and it moves by 100 MB or so between runs of the same merge). The second is the most the
+  Rust heap grew above what it held when the merge started, counted by `peakmem-alloc`'s
+  allocator, which the app, the command line and `wg-view-serve` now install; it reads the same
+  every run. The allocator passes reallocation to the system's, so a growing buffer still grows
+  in place, and cost nothing measurable on the benchmark (2.45-2.53 s with it, 2.63-3.62 s
+  without, within the runs' noise).
 
 - **Merge Lands remakes a world map made for ground that has moved.** A cell whose map no plugin
   changed has the masters' (or the winning record's), made for their heights; where a plugin then
@@ -172,8 +201,6 @@
   normal-only patch) is now kept first, wherever its own heights still hold, and the master's after
   it. A zero normal is still worked out.
 
-### Added
-
 - **Merge Lands reads OpenMWMergedLands' settings** (`merged_lands.toml`; Static, 2026-11-16): the
   Tools page's "Import from OpenMWMergedLands" finds it beside the setup's `openmw.cfg` or in
   OpenMW's config folder (Shift+click, or none found, to pick it) and fills in the plugins and
@@ -228,26 +255,6 @@
   on the Load order page): a `.esm` whose header is not flagged as a master, or a `.esp` whose header is.
   The extension is the kind everywhere and nothing acts on the note; it is for a file renamed where a
   conversion (the Construction Set, or the merge-to-master tool) was meant.
-
-### Changed
-
-- The cases recorded from the Python (`tests/fixtures/land_merge_cases.json`) no longer hold
-  the engine to the Python's bytes where the fixes above change them (three of the five
-  cases); `landcore/tests/fixtures/land_merge_cases_audit.json` records what the engine
-  answers there, and says how to re-record it.
-
-## 5.0.5
-
-### Changed
-
-- **Merge Lands, faster on a real order** (Static's 619 plugins, 2026-11-10: the finish step
-  took 4 s, slopes 2.2 s of it, and the reference landmass 3.9 s). The slope limiter stops
-  going over the cells once nothing changes (a pass then is the one before it again: its
-  refusals counted for each pass left, the report the same), and goes over a handful of
-  changed cells on one thread instead of waiting at every level on every core. The masters'
-  terrain is decoded across the cores. The cell digests' loop is quicker (the same numbers).
-  The same `Merged Lands.esp` byte for byte. With Verbose the log now also splits the digests
-  from the cleaning, and the plugin's encoding from its write to disk.
 
 ## 5.0.4
 

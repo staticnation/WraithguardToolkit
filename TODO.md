@@ -53,7 +53,7 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
 
 ## Terrain audit (`TERRAIN_AUDIT_2026-11-11.md`, against 5.0.5)
 
-Done in `Unreleased` (see `CHANGELOG.md`): WG-A03 (normals kept by their three heights), WG-A07 (OpenMW's world map), WG-A05 (configured order), WG-A01 (heights finalized before normals), WG-A04
+Done in 5.0.5 (see `CHANGELOG.md`): WG-A03 (normals kept by their three heights), WG-A07 (OpenMW's world map), WG-A05 (configured order), WG-A01 (heights finalized before normals), WG-A04
 (slope limiter at VHGT's real bounds), WG-A02 (what loads is the last whole record; absent colours
 are white; layers the merge has nothing to say about come from the winning record) and WG-A06
 (texture-only records written; a cell that cannot be written stops the merge). Open:
@@ -108,12 +108,14 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
   were merged as authored data, 1.72 GB after, 1.31 GB once each cell's working grids were dropped
   as it was merged rather than at the end (the same plugin, byte for byte), 0.97 GB once the
   records were freed after decoding (2026-11-17). Heights pack as `i16` now; on this order that
-  moved the peak by 1 MB (969.6 to 968.6 MB), since the peak is not where they are held. Where it is
-  (VmHWM at each step, 2026-11-17): masters read 300 MB, mods read 456, merged 798, finished 841,
-  encoded 979. The encode holds the merged cells, the tes3 objects made from them and the plugin's
-  bytes at once: turning each cell into its record and dropping it is the next saving, if needed.
-  The merged normals are still `i32` (50 KB a cell, 12.7 KB as `i8`): pack them if a bigger order
-  shows it.
+  moved the peak by 1 MB (969.6 to 968.6 MB), since the peak is not where they are held. VmHWM
+  moves by up to 130 MB between runs of the same merge (970 MB to 1.10 GB): compare the merge's
+  own figure (`peakmem-alloc`, the log's "added by the merge"), which does not. That figure, after
+  the write was made to free as it goes (2026-11-17): 783 MB to 669 MB. Where it is reached, each
+  step: masters read 182 MB, mods read 379, merged 598, finished 669, then no higher through the
+  records and the encode. The finish step (seam repair, the slope limiter, the step repair) is
+  where a next saving would be looked for. The merged normals are still `i32` (50 KB a cell,
+  12.7 KB as `i8`): pack them if a bigger order shows it.
 - The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
   Tools page's "Keep world maps as merged" (`the_world_map_as_merged_or_made_again`).
 - Ignored cells: the command line (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`) and the

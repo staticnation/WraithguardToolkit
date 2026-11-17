@@ -13,6 +13,11 @@ use landcore::service::{build_merged_lands, MergeOptions, DEFAULT_NAME};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+// The counting allocator, as the programs that merge have it, so big_order's log says the merge's
+// own peak (landcore::memory).
+#[global_allocator]
+static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;
+
 const CASES: &str = include_str!("../../../tests/fixtures/land_merge_cases.json");
 /// What the engine now answers where the audit of 2026-11-11 (`TERRAIN_AUDIT_2026-11-11.md`,
 /// WG-A01 and WG-A04) made it differ from the Python these cases were recorded from: heights
