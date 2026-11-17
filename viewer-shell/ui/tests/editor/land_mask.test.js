@@ -48,6 +48,15 @@ module.exports = async (t) => {
   t.ok(Math.abs(h(32, 32) - full / 2) < 1e-3, 'the vertex on the line takes half (' + h(32, 32) + ' of ' + full + ')');
   t.ok(h(32, 30) > 0 && h(33, 30) === 0, 'along the line: on it some, past it none');
 
+  // As drawn: the road fades into the grass between the two texture cells' centres (vertex
+  // columns 30 and 34, the road's last column of cells and the grass's first), not at the line.
+  fresh(); L.b.maskEdge = 'drawn';
+  stroke();
+  t.ok(h(30, 32) === full && h(34, 32) === 0, 'as drawn: whole at the road cell\'s centre, none at the grass cell\'s (' + h(30, 32) + ', ' + h(34, 32) + ')');
+  t.ok(Math.abs(h(31, 32) - full * 0.75) < 1e-3 && Math.abs(h(32, 32) - full / 2) < 1e-3 && Math.abs(h(33, 32) - full / 4) < 1e-3,
+    'and in quarters between (' + [h(31, 32), h(32, 32), h(33, 32)].join(', ') + ')');
+  L.b.maskEdge = 'cell';
+
   fresh(); L.b.mask = 'not';
   stroke();
   t.ok(h(30, 32) === 0 && h(34, 32) === full, 'everywhere but road: the grass rises, the road stays');

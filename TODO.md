@@ -68,13 +68,6 @@ are white; layers the merge has nothing to say about come from the winning recor
   and every normal is either a kept authored one (155,548 of 156,325 the winning record's, 31 an
   earlier one's) or the formula on the saved heights; 5.0.5 had 2,452 that were neither. Left: the
   real order itself, and the 303-against-36 record count, which is repair scope (below).
-- WG-A03, what is left: normals are not in the cleaning digests. The loaded record's authored
-  normals are kept first, so a merged cell's normals differ from the loaded cell's only where its
-  heights do and the heights already decide; a case where an authored normal alone should keep a
-  cell would need them in. Cleaning by the Python's rule (no load-order cleaning) has no loaded
-  record, so only the masters' normals are kept there. Not covered: a normal-only patch followed by
-  a later plugin that moves some of the heights (the later record's own normals win, as the engine
-  loads them).
 - Plain Morrowind order (not an audit finding; Static, 2026-11-11): the ini only says which plugins
   load, and the game sorts them by file date, masters first. `ordercore::install` and the viewer's
   connect sort that way. `gardenfell-install`'s `plugins::arrange` is left as it is, on purpose: it
@@ -85,8 +78,6 @@ are white; layers the merge has nothing to say about come from the winning recor
   simplicity and uniformity). The TES3 header's flag only matters when a file is converted between
   `.esp` and `.esm`, so the master check just notes a name and a header that disagree, either way
   (`[MASTER FLAG]`, `inputs::check_missing_masters`; the page's "Master flags"); nothing acts on it.
-- WG-A02, what is left: a present zero-valued layer that differs from the engine's effective result,
-  and the world map of a loaded cell that has none (see A07), are not handled apart.
 - **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
   already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`; the Tools
   page has a box, a gap and a list of cells, which the viewer build has not been run to see). Left:
@@ -110,12 +101,10 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
 - A cell the step repair brings in from outside the merge keeps its own phase: where that differs
   from the piece's, the lowered vertex is floored onto it by the encoder (said as a border a few
   units apart).
-- Normals: memory, measured
-  2026-11-16 on `big_order` (300 plugins, 2,453 cells written): peak 1.42 GB before the normals were
-  merged as authored data, 1.72 GB after (2.10 s to 2.44 s), about 120 KB a cell - the merged
-  normals and the heights each world map was made for, kept as `i32` for every cell to the end.
-  On the real order (4,668 cells) that is about half a gigabyte more: worth packing them (`i8` for
-  normals) if it shows.
+- Memory, `big_order` (300 plugins, 2,453 cells written), 2026-11-16: 1.42 GB before the normals
+  were merged as authored data, 1.72 GB after, 1.31 GB once each cell's working grids were dropped
+  as it was merged rather than at the end (the same plugin, byte for byte). The merged normals are
+  still `i32` (50 KB a cell, 12.7 KB as `i8`): pack them if a bigger order shows it.
 - The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
   Tools page's "Keep world maps as merged" (`the_world_map_as_merged_or_made_again`).
 - Ignored cells: the command line (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`) and the
@@ -147,8 +136,9 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
 ## The Land view's masks (2026-11-16)
 
 - Neither has been seen in the viewer: the page tests drive them (`land_mask.test.js`).
-- The texture mask reads each texture cell's own texture, not the blend the ground is drawn with
-  between two of them.
+- The texture mask's edge is the texture cell's own by default; "As drawn" follows the blend the
+  ground is drawn with (linear between texture cells' centres). Whether the renderer adds anything
+  to that blend (a shader curve) was not checked against the picture.
 - Cells written broken before the fix of 2026-11-16 are found by Verify ("the border with ... is
   N vertex/vertices apart"); it does not mend them: undo them or take them out of the patch, and
   shape them again.

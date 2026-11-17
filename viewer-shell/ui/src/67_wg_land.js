@@ -53,7 +53,7 @@ const WgLand={
      noiseScale:1024, noiseOct:4, noiseRough:0.5, noiseSeed:1, terrace:128, edge:0.2, talus:35,
      /* The texture mask: the height and color brushes held to the ground painted with some
         land textures ('only'), or kept off it ('not'). `maskTex` the texture ids. */
-     mask:'off', maskTex:[],
+     mask:'off', maskTex:[], maskEdge:'cell',
      /* The painted mask (the Mask mode paints it): the same two ways. `pshow` draws it. */
      pmask:'off', pshow:true},
   pmaskCells:new Map(),  // "gx,gy" -> Uint8Array(65 x 65): the painted mask, 0 to 255, kept for the session
@@ -317,6 +317,8 @@ const WgLand={
       sec('wgLandMask','Texture mask',
         '<div class="row"><label title="Hold the brush to the ground painted with some land textures, or keep it off them">Sculpt</label><div class="ctl"><select class="fld" id="wgLandMaskM">'+
           opt('off','Everywhere',b.mask)+opt('only','Only on these textures',b.mask)+opt('not','Everywhere but these textures',b.mask)+'</select></div></div>'+
+        '<div class="row" id="wgLandMaskEdgeR"><label title="Where the mask ends between two textures">Edge</label><div class="ctl"><select class="fld" id="wgLandMaskEdge">'+
+          opt('cell','As painted: the texture cell\'s own',b.maskEdge)+opt('drawn','As drawn: the blend between textures',b.maskEdge)+'</select></div></div>'+
         '<div class="lrow" id="wgLandMaskBtns"><button class="btn sm" id="wgLandMaskPick" title="Add the texture under the next click">Pick</button>'+
         '<button class="btn sm" id="wgLandMaskUse" title="Add the texture the Texture brush paints with">Add paint texture</button>'+
         '<button class="btn sm dim" id="wgLandMaskClear">Clear</button></div>'+
@@ -405,6 +407,8 @@ const WgLand={
       { const m=this.b.mask||'off', ids=this.b.maskTex||[], on=m!=='off';
         $('#wgLandMaskM').value=m;
         $('#wgLandMaskBtns').style.display=on? '' : 'none';
+        $('#wgLandMaskEdgeR').style.display=on? '' : 'none';
+        $('#wgLandMaskEdge').value=this.b.maskEdge||'cell';
         $('#wgLandMaskList').style.display=on && ids.length? '' : 'none';
         $('#wgLandMaskPick').classList.toggle('pri', this._picking==='mask');
         $('#wgLandMaskList').innerHTML=ids.map(id=>'<div class="ltex on" data-mid="'+escHtml(id)+'" title="Click to take it out of the mask">'+escHtml(id)+'</div>').join('');
@@ -451,6 +455,7 @@ const WgLand={
     $('#wgLandTexF').oninput=drawTex;
     $('#wgLandPick').onclick=()=>{ this._picking=this._picking===true? false : true; show(); };
     $('#wgLandMaskM').onchange=e=>{ this.b.mask=e.target.value; if(this.b.mask==='off' && this._picking==='mask') this._picking=false; show(); };
+    $('#wgLandMaskEdge').onchange=e=>{ this.b.maskEdge=e.target.value; show(); };
     $('#wgLandMaskPick').onclick=()=>{ this._picking=this._picking==='mask'? false : 'mask'; show(); };
     $('#wgLandMaskUse').onclick=()=>{ if(this.texture) this.maskAdd(this.texture); else this.status('The Texture brush has no texture yet: pick one off the ground'); show(); };
     $('#wgLandMaskClear').onclick=()=>{ this.b.maskTex=[]; show(); };
@@ -938,6 +943,7 @@ const WgLand={
   maskAt(cells, vx, vy){
     const b=this.b, ids=b.maskTex||[];
     if(!b.mask || b.mask==='off' || !ids.length) return 1;
+    if(b.maskEdge==='drawn'){ const f=this.drawnShare(cells, vx, vy, ids); return b.mask==='only'? f : 1-f; }
     const TS=this.TS, Q=this.TSTEP/this.STEP;   // vertices to a texture cell: 4
     const txs=vx%Q===0? [vx/Q-1, vx/Q] : [Math.floor(vx/Q)], tys=vy%Q===0? [vy/Q-1, vy/Q] : [Math.floor(vy/Q)];
     let on=0, n=0;
@@ -948,6 +954,22 @@ const WgLand={
     }
     const f=n? on/n : 0;
     return b.mask==='only'? f : 1-f;
+  },
+
+  /** How much of the ground at a world vertex is drawn with the textures `ids`, 0 to 1, as the
+      renderer draws it: each texture's coverage map holds 0 or 255 a texture cell and is read
+      with linear filtering, so between two texture cells' centres (512 units apart) one fades
+      into the other. A vertex at a texture cell's centre is that texture's alone; one a quarter
+      of the way to the next is three parts its own to one of the next. Ground with no texture
+      cell to read counts as none of them. */
+  drawnShare(cells, vx, vy, ids){
+    const Q=this.TSTEP/this.STEP, TS=this.TS;          // vertices to a texture cell: 4
+    const qx=vx/Q-0.5, qy=vy/Q-0.5, kx=Math.floor(qx), ky=Math.floor(qy), fx=qx-kx, fy=qy-ky;
+    const is=(tx, ty)=>{
+      const gx=Math.floor(tx/TS), gy=Math.floor(ty/TS), c=cells.get(gx+','+gy);
+      return c && ids.includes(this.ids(c)[(ty-gy*TS)*TS+(tx-gx*TS)])? 1 : 0;
+    };
+    return is(kx, ky)*(1-fx)*(1-fy) + is(kx+1, ky)*fx*(1-fy) + is(kx, ky+1)*(1-fx)*fy + is(kx+1, ky+1)*fx*fy;
   },
 
   /** A dab's vertices (`vertices`) under the texture mask: each weight scaled by it, and the

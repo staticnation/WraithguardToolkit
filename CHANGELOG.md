@@ -26,6 +26,10 @@
 
 ### Fixed
 
+- **Merge Lands uses less memory**: each cell's working grids are dropped as soon as it is merged,
+  not kept until every cell is done. On the 300-plugin benchmark the peak went from 1.72 GB to
+  1.31 GB (1.42 GB before the normals were merged), with the same plugin written.
+
 - **Merge Lands remakes a world map made for ground that has moved.** A cell whose map no plugin
   changed has the masters' (or the winning record's), made for their heights; where a plugin then
   moved the ground under an entry, the entry kept describing the old ground. It is now made again,
@@ -177,6 +181,8 @@
   brush, and taken out by a click on their name. Every height tool goes by it (raise, lower,
   smooth, sharpen, flatten, ramp, noise, terrace, erode). A texture cell is four vertices wide, so
   a vertex on the line between two textures takes part of the brush and no step is cut along it.
+  Its "Edge" can follow the blend the ground is drawn with instead ("As drawn"): the brush then
+  fades across the 512 units between two texture cells' centres, as the textures do.
 - **Orbit navigation does not run out** (Static, 2026-11-16). An orbit (right-drag) or a pan
   (middle-drag) no longer stops where the pointer meets the edge of the screen: the pointer is
   hidden and kept in the viewport, as the WASD look does it, and comes back where it was pressed.

@@ -39,7 +39,8 @@ pub struct MergedCell {
     /// Each layer as the one plugin that alone supplied it has it, for cleaning.
     pub sole_source: CellDigest,
     /// The heights its world map was made for, where that is not the merge's own: the masters'
-    /// for a map no plugin changed, the winning record's for one taken from it.
+    /// for a map no plugin changed, the winning record's for one taken from it. Only the 81 the
+    /// map reads (`emit::world_map_vertex`).
     pub world_map_heights: Option<Vec<Value>>,
 }
 
@@ -298,7 +299,10 @@ pub fn merge_landmass(
     }
     let want_loaded = loaded.is_some();
     let loaded_ref: Option<&Landmass> = loaded.as_deref();
-    type CellOut = (Option<(MergedCell, HashMap<Layer, RelativeGrid>)>, Option<LandscapeLayers>, Option<String>);
+    // A cell's merge comes back flat, its working grids dropped on the core that made them: held
+    // for every cell until the last was done, they were most of the merge's memory (the normals'
+    // alone about 105 KB a cell; Static's order has 4,668). The flag: a plugin's world map merged.
+    type CellOut = (Option<(MergedCell, bool)>, Option<LandscapeLayers>, Option<String>);
     let one = |coords: Coords, touches: Vec<Touch>| -> Result<CellOut, String> {
         let single = |l: Option<&LandscapeLayers>| {
             let mut m = Landmass::default();
@@ -363,7 +367,16 @@ pub fn merge_landmass(
             cell.normal_predecessors = predecessors;
         }
         let winner = here.as_mut().and_then(|l| l.sources.remove(&coords));
-        Ok((cell.map(|c| (c, grids)), here.and_then(|mut l| l.cells.remove(&coords)), winner))
+        let map_merged = grids.contains_key(&Layer::WorldMap);
+        let cell = cell.map(|mut c| {
+            for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
+                if let Some(g) = grids.remove(&which) {
+                    *slot(&mut c, which) = Some(g.flat());
+                }
+            }
+            (c, map_merged)
+        });
+        Ok((cell, here.and_then(|mut l| l.cells.remove(&coords)), winner))
     };
     // Each cell's touches handed to the core that takes it (taken out, so they move).
     let cells: Vec<(Coords, std::sync::Mutex<Vec<Touch>>)> = by_cell.into_iter().map(|(c, t)| (c, std::sync::Mutex::new(t))).collect();
@@ -414,15 +427,10 @@ pub fn merge_landmass(
                     l.sources.insert(coords, w);
                 }
             }
-            let Some((mut cell, grids)) = merged else { continue };
-            for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
-                if let Some(g) = grids.get(&which) {
-                    *slot(&mut cell, which) = Some(g.flat());
-                }
-            }
+            let Some((mut cell, map_merged)) = merged else { continue };
             // A world map no plugin changed is the masters', made for the masters' heights.
-            if !grids.contains_key(&Layer::WorldMap) {
-                cell.world_map_heights = reference.get(coords).and_then(|l| l.heights.as_deref()).map(crate::layers::Packed::to_vec);
+            if !map_merged {
+                cell.world_map_heights = reference.get(coords).and_then(|l| l.heights.as_deref()).map(map_samples);
             }
             inherit_reference_layers(&mut cell, reference);
             if ignored_winner_has_heights && cell.heights.is_none() {
@@ -463,6 +471,11 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass, loaded:
     })
     .into_iter()
     .sum()
+}
+
+/// The 81 heights a world map is made from, out of a cell's 65 x 65.
+fn map_samples(h: &crate::layers::Packed) -> Vec<Value> {
+    (0..crate::grid::WNAM_SIZE * crate::grid::WNAM_SIZE).map(|k| h.at(crate::emit::world_map_vertex(k)).unwrap_or(0)).collect()
 }
 
 /// `f` over `items` on every core, the answers in the items' order.
@@ -728,7 +741,7 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
         for (c, cell) in outcome.cells.iter_mut() {
             let Some(winner) = loaded.get(*c) else { continue };
             if cell.world_map.is_none() && winner.world_map.is_some() {
-                cell.world_map_heights = winner.heights.as_deref().map(crate::layers::Packed::to_vec);
+                cell.world_map_heights = winner.heights.as_deref().map(map_samples);
             }
             for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
                 let slot = slot(cell, which);
@@ -754,8 +767,9 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
         .iter()
         .filter(|(c, _)| outcome.cells[*c].world_map.as_ref().is_some_and(|w| w.iter().any(|&v| v != 0)))
         .map(|(c, h)| {
-            let from = outcome.cells[c].world_map_heights.as_ref().filter(|f| f.len() == h.len()).unwrap_or(h);
-            (*c, (0..crate::grid::WNAM_SIZE * crate::grid::WNAM_SIZE).map(|k| from[crate::emit::world_map_vertex(k)]).collect())
+            let n = crate::grid::WNAM_SIZE * crate::grid::WNAM_SIZE;
+            let samples = outcome.cells[c].world_map_heights.clone().filter(|f| f.len() == n);
+            (*c, samples.unwrap_or_else(|| (0..n).map(|k| h[crate::emit::world_map_vertex(k)]).collect()))
         })
         .collect();
     let mut phases: BTreeMap<Coords, Value> = BTreeMap::new();
