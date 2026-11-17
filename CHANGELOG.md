@@ -22,6 +22,18 @@
 
 ### Fixed
 
+- **The Land view writes land a record can hold** (Static, 2026-11-16, with the patch journal of
+  four broken cells round (-5, -1)). Two faults, both fixed:
+  - Heights are made storable before they are written, and the page draws what is written: put on
+    the eight-unit grid, and every stored step brought within -1,024 and +1,016 by lowering its
+    higher end in every cell that has the vertex (`fitSteps`, the step repair Merge Lands uses). A
+    cliff steeper than that used to be clamped by the encoder, and as a record's steps add up the
+    rest of the row went with it: tears of up to 79 units and spikes where four cells meet.
+  - The encoder kept the phase of a cell's first vertex (unreleased, from the OpenMWMergedLands
+    alignment above), so the Land view's cells, each with its own, were written up to seven units
+    apart at their borders ((-5, -1) with an offset of 88.125). A cell's heights now keep a phase
+    only when all of them share it; any other cell is floored onto the whole grid, as before.
+
 - **Merge Lands follows OpenMWMergedLands' own fixes for the terrain audit** (its
   `docs/terrain-storage-audit.md`; Static, 2026-11-16):
   - *Heights keep their phase.* `VHGT`'s offset is a float, so a record can hold 3,204 as well as

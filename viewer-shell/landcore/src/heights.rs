@@ -71,9 +71,13 @@ pub fn finalized(heights: &[Value]) -> Vec<Value> {
 /// `encode_vertex_heights`: the offset, the 65x65 deltas, and the vertices whose step had
 /// to be clamped to fit a signed byte. Heights are whole world units here.
 pub fn encode_vertex_heights(heights: &[Value]) -> (f32, Vec<i8>, Vec<(usize, usize)>) {
-    // The first height's phase goes into the offset as a fraction (3,204 is 400.5), so heights
-    // that share it are saved exactly; one off it is floored onto it.
-    let phase = heights[0].rem_euclid(HEIGHT_SCALE);
+    // A cell whose heights all share one phase (3,204 is 400.5 and steps of eight) is saved
+    // with it as a fraction of the offset, exactly. Any other is floored onto the whole grid,
+    // as it always was: a phase taken from one vertex of a cell with several would differ from
+    // the neighbor's, and the border they share would open by the difference (Static,
+    // 2026-11-16: the Land view's writes came out up to seven units apart).
+    let first = heights[0].rem_euclid(HEIGHT_SCALE);
+    let phase = if heights.iter().all(|v| v.rem_euclid(HEIGHT_SCALE) == first) { first } else { 0 };
     let stored: Vec<Value> = heights.iter().map(|&v| (v - phase).div_euclid(HEIGHT_SCALE)).collect();
     let at = |x: usize, y: usize| stored[y * LAND_SIZE + x];
     let offset = at(0, 0);
@@ -279,12 +283,20 @@ mod tests {
         assert!(clamped.is_empty());
         let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();
         assert_eq!(decode_heights(&raw, offset as f64).unwrap(), heights);
-        // A height off the eight-unit grid keeps its phase in the offset (the OpenMW fork): -3 is
-        // -8 and 5, so the offset is -1 + 5/8, and it reads back as -3.
+        // Every height on one phase off the eight-unit grid keeps it in the offset (the OpenMW
+        // fork): -3 is -8 and 5, so the offset is -1 + 5/8, and it reads back as -3.
         let (offset, deltas, _) = encode_vertex_heights(&vec![-3; LAND_NUM_VERTS]);
         assert_eq!(offset, -0.375);
         let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();
         assert_eq!(decode_heights(&raw, offset as f64).unwrap(), vec![-3; LAND_NUM_VERTS]);
+        // Mixed phases are floored onto the whole grid: equal heights in two cells stay equal.
+        let mut mixed = vec![705; LAND_NUM_VERTS];
+        mixed[1] = 712;
+        let (offset, deltas, _) = encode_vertex_heights(&mixed);
+        assert_eq!(offset, 88.0);
+        let raw: Vec<u8> = deltas.iter().map(|&d| d as u8).collect();
+        let back = decode_heights(&raw, offset as f64).unwrap();
+        assert_eq!((back[0], back[1], back[2]), (704, 712, 704));
         // An offset that crosses zero is still one phase: -0.3 is -2, and a step up is 6.
         let mut raw = vec![0u8; LAND_NUM_VERTS];
         raw[1] = 1;

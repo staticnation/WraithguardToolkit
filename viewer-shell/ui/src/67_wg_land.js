@@ -1198,6 +1198,61 @@ const WgLand={
     R.dirty=true;
   },
 
+  /** The heights of the cells about to be written made what a record can hold (the OpenMW
+      fork's height repair, as Merge Lands does it): each put on the eight-unit grid (floored,
+      so a vertex two cells share stays one height), and every stored step - along a row, and
+      down the first column - brought within -1,024 and +1,016 by lowering its higher end, in
+      every cell that has that vertex, and on from there until none is left. Done before the
+      write and drawn: what the page shows is what is saved. A step left over used to be
+      clamped by the encoder, and since a record's steps add up, the rest of the row went with
+      it (Static, 2026-11-16: a masked flatten left tears of up to 79 units and spikes round a
+      corner four cells share). Answers the keys of every cell it changed. */
+  fitSteps(cells, keys){
+    const N=this.N, L=N-1, UP=1016, DOWN=1024, changed=new Set();
+    const set=(vx, vy, v)=>{
+      for(const h of this.holders(cells, vx, vy)){
+        if(!h.c.heights || h.c.heights[h.k]===v) continue;
+        this.original(h.c); h.c.heights[h.k]=v; changed.add(h.key);
+      }
+    };
+    const at=(vx, vy)=>{ const h=this.holders(cells, vx, vy).find(h=>h.c.heights); return h? h.c.heights[h.k] : null; };
+    for(const key of keys){
+      const c=cells.get(key); if(!c || !c.heights) continue;
+      for(let i=0;i<c.heights.length;i++){
+        const f=Math.floor(c.heights[i]/8)*8;
+        if(f!==c.heights[i]){ this.original(c); c.heights[i]=f; changed.add(key); }
+      }
+    }
+    // An edge from vertex a to vertex b (world vertex coordinates), held to its bounds.
+    const pending=[];
+    const edge=(ax, ay, bx, by)=>{
+      const a=at(ax, ay), b=at(bx, by); if(a==null || b==null) return;
+      if(b-a>UP){ set(bx, by, a+UP); pending.push([bx, by]); }
+      else if(a-b>DOWN){ set(ax, ay, b+DOWN); pending.push([ax, ay]); }
+    };
+    // The stored edges a vertex is an end of, in every cell that holds it.
+    const edgesAt=(vx, vy)=>{
+      for(const h of this.holders(cells, vx, vy)){
+        const lx=h.k%N, ly=(h.k-lx)/N, ox=vx-lx, oy=vy-ly;
+        if(lx>0) edge(ox+lx-1, oy+ly, vx, vy);
+        if(lx<L) edge(vx, vy, ox+lx+1, oy+ly);
+        if(lx===0){ if(ly>0) edge(ox, oy+ly-1, vx, vy); if(ly<L) edge(vx, vy, ox, oy+ly+1); }
+      }
+    };
+    for(const key of [...changed, ...keys]){
+      const [gx, gy]=key.split(',').map(Number), ox=gx*L, oy=gy*L;
+      for(let ly=0; ly<N; ly++){
+        if(ly>0) edge(ox, oy+ly-1, ox, oy+ly);
+        for(let lx=1; lx<N; lx++) edge(ox+lx-1, oy+ly, ox+lx, oy+ly);
+      }
+    }
+    // Each lowering is down to a bound of a neighbour that does not rise, so this ends; the
+    // count is a guard against a wrong neighbour table, not a limit the terrain reaches.
+    let guard=200000;
+    while(pending.length && guard-->0){ const [vx, vy]=pending.pop(); edgesAt(vx, vy); }
+    return changed;
+  },
+
   scheduleCommit(){
     clearTimeout(this._commitT);
     if(this.preview) return;
@@ -1214,7 +1269,19 @@ const WgLand={
     if(!this._pressed) this._stroke=null;
     if(!this.dirty.size){ this.showWait(); return; }
     // A changed cell the scene has since left is written from the object the strokes changed.
-    const cells=this.cells(), work=[...this.dirty], edited=new Map(this._edited); this.dirty.clear(); this._edited.clear();
+    const cells=this.cells(), edited=new Map(this._edited);
+    // The heights made storable first (`fitSteps`): a cell beside the stroke that shares a vertex
+    // it lowers is written with it, and the page draws what is saved.
+    {
+      const all=new Map(cells); for(const [k, c] of edited) if(!all.has(k)) all.set(k, c);
+      const shaped=[...this.dirty].filter(([, kinds])=>kinds.has('h')).map(([k])=>k);
+      if(shaped.length){
+        const moved=this.fitSteps(all, shaped);
+        for(const k of moved){ this.mark(k, 'h'); if(!cells.has(k) && all.has(k)) edited.set(k, all.get(k)); }
+        if(moved.size){ for(const k of moved) this.renormal(all.get(k), all); this.rebuild(moved); }
+      }
+    }
+    const work=[...this.dirty]; this.dirty.clear(); this._edited.clear();
     this._committing=true;
     let clamped=0, done=0, made=0;
     const failed=[];
@@ -1248,7 +1315,7 @@ const WgLand={
     if(failed.length>1 && typeof WgLog==='object') for(const f of failed) WgLog.add(f, 'err');
     this.status(done? done+' cell'+(done===1?'':'s')+' in the patch'+
       (made? ' · '+made+' land texture'+(made===1?'':'s')+' added to the patch' : '')+
-      (clamped? ' · '+clamped+' step(s) too steep for the format, clamped' : '') : '');
+      (clamped? ' · '+clamped+' step(s) too steep for the format, clamped (please report it: the steps are made storable before they are written)' : '') : '');
     this._committing=false;
     this.showWait();
     // What the patch now has, so a later reconnect or undo draws it.

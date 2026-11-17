@@ -132,6 +132,7 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
 
 ## Orbit navigation without an end (2026-11-16)
 
+- Tried by Static 2026-11-16: serviceable, wants work and polish (nothing named yet).
 - Not run: the renderer's mouse handling has no page test (it needs the shell to move the
   pointer and a GL context). To try in the viewer: a long right-drag and middle-drag past the
   screen edge, the pointer coming back where it was pressed, the brush ring after it in the Land
@@ -142,6 +143,9 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
 
 ## The Land view's masks (2026-11-16)
 
+- Cells written broken before the fix of 2026-11-16 stay broken in a patch: undo them, or take
+  them out of the patch, and shape them again. Nothing finds them for you yet (a Verify check for
+  a land record with a step at -128 or +127 at the start of a row, followed by a jump, would).
 - Neither has been seen in the viewer: the page tests drive them (`land_mask.test.js`).
 - The painted mask's tint is put on a cell's mesh when the Land view rebuilds that cell (a stroke
   on it, Show, Invert, Clear). A cell the scene builds again itself (a cell arrow, Go) is drawn

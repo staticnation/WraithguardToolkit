@@ -117,4 +117,52 @@ module.exports = async (t) => {
   fresh(); L._stroke = null; L.paint([4096, 4096, 0]);
   t.ok(h(30, 32) === full, 'with nothing painted, "only inside the mask" is no mask');
   L.b.pmask = 'off';
+
+  // Static, 2026-11-16: a masked flatten left a cliff steeper than a record can store round the
+  // corner four cells share, and the write clamped it into tears and spikes. What is written now
+  // is on the eight-unit grid, every stored step within -1,024 and +1,016, and every border the
+  // cells share agrees.
+  {
+    const asked = [];
+    w.WgEditor.ask = async (name, body) => { asked.push([name, body]); return {}; };
+    const mk = (gx, gy) => ({ kind: 'ext', gx, gy, heights: new w.Float32Array(N * N).fill(704), normals: new w.Float32Array(N * N * 3), colours: null, layers: [], _landIds: ids.slice() });
+    const quad = [mk(-6, -2), mk(-5, -2), mk(-6, -1), mk(-5, -1)];
+    w.App._scene = { origin: [0, 0], cells: quad, chunks: [] };
+    L._edited.clear(); L.dirty.clear(); L._before = null; L.preview = false;
+    // A plateau of 2,203.4 units (off the grid, as a brush leaves it) in the corner, sheer to 704.
+    const world = (c, lx, ly) => [c.gx * 64 + lx, c.gy * 64 + ly];
+    for (const c of quad) {
+      for (let ly = 0; ly < N; ly++) for (let lx = 0; lx < N; lx++) {
+        const [vx, vy] = world(c, lx, ly);
+        if (Math.abs(vx - (-5 * 64)) <= 3 && Math.abs(vy - (-1 * 64)) <= 3) c.heights[ly * N + lx] = 2203.4;
+      }
+      L._edited.set(c.gx + ',' + c.gy, c); L.mark(c.gx + ',' + c.gy, 'h');
+    }
+    await L.commit();
+    const wrote = new Map(asked.filter(a => a[0] === 'editLandSet').map(a => [a[1].cell, a[1].heights]));
+    t.ok(wrote.size === 4, 'the four cells are written: ' + [...wrote.keys()].join(' '));
+    let off = 0, steep = 0;
+    for (const hs of wrote.values()) {
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const v = hs[y * N + x];
+        if (v % 8 !== 0) off++;
+        if (x > 0) { const d = v - hs[y * N + x - 1]; if (d > 1016 || d < -1024) steep++; }
+        if (x === 0 && y > 0) { const d = v - hs[(y - 1) * N]; if (d > 1016 || d < -1024) steep++; }
+      }
+    }
+    t.ok(off === 0, 'every height on the eight-unit grid (' + off + ' off it)');
+    t.ok(steep === 0, 'every stored step within what a record holds (' + steep + ' beyond)');
+    const H = k => wrote.get(k);
+    const sw = H('(-6, -2)'), se = H('(-5, -2)'), nw = H('(-6, -1)'), ne = H('(-5, -1)');
+    let open = 0;
+    for (let i = 0; i < N; i++) {
+      if (sw[i * N + 64] !== se[i * N]) open++;
+      if (nw[i * N + 64] !== ne[i * N]) open++;
+      if (sw[64 * N + i] !== nw[i]) open++;
+      if (se[64 * N + i] !== ne[i]) open++;
+    }
+    t.ok(open === 0, 'every shared border agrees (' + open + ' vertices apart)');
+    t.ok(ne[0] === se[64 * N] && ne[0] === nw[64] && ne[0] === sw[64 * N + 64], 'the corner is one height in all four: ' + [sw[64 * N + 64], se[64 * N], nw[64], ne[0]]);
+    t.ok(w.App._scene.cells[3].heights[0] === ne[0], 'and the page draws what is written');
+  }
 };
