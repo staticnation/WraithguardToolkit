@@ -560,6 +560,12 @@ pub fn required_ids(exists: &dyn Fn(&[&str], &str) -> bool) -> Vec<Value> {
 
 /// A landscape's 65 x 65 heights from its `vertex_heights` (`None` when there are none,
 /// or they cannot be read).
+/// `(x, y)` from a land key such as "(-6, -2)".
+fn exterior_grid_of(key: &str) -> Option<(i64, i64)> {
+    let (x, y) = key.trim().trim_start_matches('(').trim_end_matches(')').split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
 pub fn land_heights(record: &Value) -> Option<Vec<Vec<f64>>> {
     let vh = record.get("vertex_heights").filter(|v| truthy(v))?;
     let data = vh.get("data").filter(|d| !d.is_null())?;
@@ -653,6 +659,61 @@ impl Editor {
         let last = self.session.id_holders("LAND", &format!("({}, {})", want.0, want.1)).pop();
         let found = last.and_then(|plugin| self.session.land_record(&plugin, want));
         land_heights(&found?)
+    }
+
+    /// The borders a cell's land shares with its four neighbours that the patch opens: vertices
+    /// the two cells hold apart as the patch leaves them, where the load order had them as one
+    /// (a seam the load order already has is not the patch's). Static, 2026-11-16: the Land view
+    /// wrote cells whose clamped steps tore their borders, and nothing said so. A border between
+    /// two cells of the patch is told once, by the one to the south or west.
+    fn land_borders(&self, key: &str, record: &Value) -> Vec<Value> {
+        let Some(grid) = exterior_grid_of(key) else { return Vec::new() };
+        let Some(mine) = land_heights(record) else { return Vec::new() };
+        let before = self.land(&json!([grid.0, grid.1]));
+        let in_patch = |k: &str| {
+            self.queue.fields().get(&("Landscape".to_string(), k.to_string())).is_some() || self.queue.new_records().any(|m| m.record_type == "Landscape" && m.key == k)
+        };
+        // Side by side: this cell's vertex and the neighbour's at step `t` along the border.
+        let sides: [(i64, i64, fn(&[Vec<f64>], usize) -> f64, fn(&[Vec<f64>], usize) -> f64); 4] = [
+            (1, 0, |h, t| h[t][64], |h, t| h[t][0]),
+            (-1, 0, |h, t| h[t][0], |h, t| h[t][64]),
+            (0, 1, |h, t| h[64][t], |h, t| h[0][t]),
+            (0, -1, |h, t| h[0][t], |h, t| h[64][t]),
+        ];
+        let mut out = Vec::new();
+        for (dx, dy, here, there) in sides {
+            let other = (grid.0 + dx, grid.1 + dy);
+            let other_key = format!("({}, {})", other.0, other.1);
+            if (dx < 0 || dy < 0) && in_patch(&other_key) {
+                continue;
+            }
+            let Some(found) = self.find("LAND", &other_key, None) else { continue };
+            let Some(theirs) = land_heights(&self.as_written(&found)) else { continue };
+            let theirs_before = self.land(&json!([other.0, other.1]));
+            let (mut count, mut worst) = (0, 0.0f64);
+            for t in 0..65 {
+                let gap = (here(&mine, t) - there(&theirs, t)).abs();
+                let was = match (&before, &theirs_before) {
+                    (Some(a), Some(b)) => (here(a, t) - there(b, t)).abs(),
+                    _ => 0.0,
+                };
+                if gap > 0.0 && was == 0.0 {
+                    count += 1;
+                    worst = worst.max(gap);
+                }
+            }
+            if count > 0 {
+                out.push(finding(
+                    "warning",
+                    "Landscape",
+                    "LAND",
+                    key,
+                    "vertex_heights",
+                    format!("the border with {other_key} is {count} vertex/vertices apart, by up to {worst} units, where the load order had it whole: shape the two cells again, or take the land out of the patch"),
+                ));
+            }
+        }
+        out
     }
 
     /// Whether the patch has anything Verify reads dialogue for: a response or a topic edited or
@@ -768,6 +829,9 @@ impl Editor {
             }
             if rtype == "Dialogue" && record.get("dialogue_type").map(str_of).as_deref() == Some("Journal") {
                 journals.insert(key.to_string());
+            }
+            if rtype == "Landscape" {
+                findings.extend(self.land_borders(key, &record));
             }
             if rtype == "PathGrid" {
                 let grid = record.get("data").and_then(|d| d.get("grid")).filter(|g| truthy(g)).cloned().unwrap_or(json!([0, 0]));

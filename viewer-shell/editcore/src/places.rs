@@ -1173,6 +1173,35 @@ mod tests {
         }
     }
 
+    /// Verify tells a border the patch opens (Static, 2026-11-16: broken land written by the
+    /// Land view went unnoticed), and not one that meets.
+    #[test]
+    fn verify_tells_a_land_border_the_patch_opens() {
+        use crate::queue::PatchQueue;
+        use crate::session::Session;
+        let (a, b) = (flat_land((2, -3), 256.0, 0).unwrap(), flat_land((3, -3), 256.0, 0).unwrap());
+        let header = json!({"type": "Header", "flags": "", "version": 1.3, "file_type": "Esm", "author": "", "description": "", "num_objects": 2, "masters": []});
+        let session = Session::with_reader(
+            vec![("Base.esm".into(), std::path::PathBuf::from("Base.esm"))],
+            Box::new(move |_, tag| Ok(match tag { "TES3" => vec![header.clone()], "LAND" => vec![a.clone(), b.clone()], _ => Vec::new() })),
+        );
+        let mut ed = Editor::new(session, PatchQueue::new(), None);
+        // Raised inside, the border left at the load order's height: it still meets.
+        let hill: Vec<f64> = (0..65 * 65).map(|i| if (i % 65) < 60 { 512.0 } else { 256.0 }).collect();
+        ed.set_land("2, -3", &hill).unwrap();
+        let said = |ed: &Editor| ed.verify(None)["findings"].as_array().cloned().unwrap_or_default().iter().filter(|f| f["check"] == "Landscape").map(|f| f["message"].as_str().unwrap_or("").to_string()).collect::<Vec<_>>();
+        assert!(said(&ed).is_empty(), "{:?}", said(&ed));
+        // The east column raised too: (3, -3) still has the load order's 256 there.
+        let torn: Vec<f64> = vec![512.0; 65 * 65];
+        ed.set_land("2, -3", &torn).unwrap();
+        let s = said(&ed);
+        assert_eq!(s.len(), 1, "{s:?}");
+        assert!(s[0].starts_with("the border with (3, -3) is 65 vertex/vertices apart, by up to 256 units"), "{}", s[0]);
+        // Both cells shaped alike: whole again, and a border between two of the patch's is told once.
+        ed.set_land("3, -3", &torn).unwrap();
+        assert!(said(&ed).is_empty(), "{:?}", said(&ed));
+    }
+
     #[test]
     fn shaped_heights_queue_as_landcore_encodes_them() {
         use crate::queue::PatchQueue;

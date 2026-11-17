@@ -7648,9 +7648,15 @@ class Renderer{
         this._pushStep=(this._pushT && now-this._pushT<300)? Math.min((this._pushStep||96)*1.2, 4096) : 96;
         this._pushT=now;
         const c=this.cam, ce=Math.cos(c.el), se=Math.sin(c.el), ca=Math.cos(c.az), sa=Math.sin(c.az);
-        // The pivot-to-eye direction is (ce·ca, ce·sa, se): ahead is the other way.
         const d=this._pushStep-(g.dist-nd);
-        g.tx-=ce*ca*d; g.ty-=ce*sa*d; g.tz-=se*d;
+        /* Ahead is where the cursor points when the wheel zooms to the cursor (the ray the pick
+           and the brush use), so the push carries on the way the zoom was going; else straight
+           down the view (the pivot-to-eye direction is (ce·ca, ce·sa, se), and ahead the other way).
+           Pivot and eye move together, so the view turns no more than it would. */
+        let ray=null;
+        if(this.opts.zoomToCursor){ try{ ray=this.rayAt(e.clientX, e.clientY).dir; }catch(_){ ray=null; } }
+        if(ray && isFinite(ray[0]+ray[1]+ray[2])){ g.tx+=ray[0]*d; g.ty+=ray[1]*d; g.tz+=ray[2]*d; }
+        else { g.tx-=ce*ca*d; g.ty-=ce*sa*d; g.tz-=se*d; }
         g.dist=nd;
         this.dirty=true;
         return;

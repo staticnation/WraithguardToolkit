@@ -24,7 +24,7 @@
    There is a painted mask as well (the Mask mode): the brush paints it onto the ground, Alt
    rubs it out, and it is drawn over the ground as a tint. The height and color brushes can then
    be held inside it or kept out of it, with or without the texture mask (both are weights, and
-   multiply). It is the page's own: nothing of it goes to the patch, and it lasts the session.
+   multiply). It is the page's own: nothing of it goes to the patch; it is kept in the page's storage.
    Each dab changes the cells in the page at once and the touched cells are rebuilt, so the
    ground changes under the brush; a vertex on a border belongs to both cells and changes
    in both, so no seam opens. A moment after the stroke ends the touched cells go to the
@@ -110,7 +110,10 @@ const WgLand={
     if(!WgEditor.canEdit()){ toast('Land editing needs the Editor open on an OpenMW setup (see Messages)','warn',5000); return; }
     if(WgEditor.on) WgEditor.leave();
     this.restore();
+    this.loadMask();
     this.on=true;
+    // Cells the scene kept from before are drawn without the mask's tint: drawn again with it.
+    if(this.pmaskCells.size) setTimeout(()=>{ if(this.on) this.rebuild(new Set(this.pmaskCells.keys())); }, 0);
     /* A view mode of its own (Static, 2026-11-02: "it just overlayed a small panel not opened
        its own mode"): the Land dock where the Cell Preview's settings are, as the Editor
        docks its windows there, the brand and the hint saying so. */
@@ -193,6 +196,8 @@ const WgLand={
       R.dirty=true;
     }
     this.on=false;
+    // The painted mask's tint goes with the Land view (it is drawn only while it is on).
+    if(this.pmaskCells.size) this.rebuild(new Set(this.pmaskCells.keys()));
     clearInterval(this._poll); this._poll=0;
     if(this._keys){ window.removeEventListener('keydown', this._keys); this._keys=null; }
     if(this._mod){ window.removeEventListener('keydown', this._mod); window.removeEventListener('keyup', this._mod); this._mod=null; }
@@ -451,7 +456,7 @@ const WgLand={
     $('#wgLandMaskClear').onclick=()=>{ this.b.maskTex=[]; show(); };
     $('#wgLandPMaskM').onchange=e=>{ this.b.pmask=e.target.value; show(); };
     $('#wgLandPMaskShow').onchange=e=>{ this.b.pshow=!!e.target.checked; this.rebuild(new Set(this.pmaskCells.keys())); show(); };
-    $('#wgLandPMaskClear').onclick=()=>{ const keys=new Set(this.pmaskCells.keys()); this.pmaskCells.clear(); this.rebuild(keys); show(); };
+    $('#wgLandPMaskClear').onclick=()=>{ const keys=new Set(this.pmaskCells.keys()); this.pmaskCells.clear(); this.rebuild(keys); this.saveMask(); show(); };
     $('#wgLandPMaskInv').onclick=()=>{ this.pmaskInvert(); show(); };
     $('#wgLandCol').oninput=e=>{ this.color=e.target.value; };
     $('#wgLandSize').oninput=e=>{ this.sizePos=+e.target.value; show(); };
@@ -885,7 +890,7 @@ const WgLand={
     if(this.mode==='mask'){
       const touched=new Set();
       for(const [wx, wy, m] of dabs) if(m>0) this.dabMask(cells, wx, wy, m, touched);
-      if(touched.size){ this.rebuild(touched); if(this._show) this._show(); }
+      if(touched.size){ this.rebuild(touched); this.saveMask(); if(this._show) this._show(); }
       return;
     }
     if(!cells.size && !fresh.length) return;
@@ -996,6 +1001,40 @@ const WgLand={
       keys.add(key);
     }
     this.rebuild(keys);
+    this.saveMask();
+  },
+
+  /** The painted mask kept between sessions, in the page's storage: each cell's 65 x 65 bytes
+      as base64, only the cells with any of it, a moment after the last change. A mask too
+      big for the storage is kept for the session only, and said once. */
+  MASK_KEY:'wgLandPMask',
+  saveMask(){
+    clearTimeout(this._maskT);
+    this._maskT=setTimeout(()=>{
+      try{
+        const out={};
+        for(const [k, m] of this.pmaskCells){
+          if(!m.some(v=>v)) continue;
+          let bin=''; for(let i=0;i<m.length;i+=8192) bin+=String.fromCharCode.apply(null, m.subarray(i, i+8192));
+          out[k]=btoa(bin);
+        }
+        if(Object.keys(out).length) localStorage.setItem(this.MASK_KEY, JSON.stringify(out));
+        else localStorage.removeItem(this.MASK_KEY);
+      }catch(_){
+        if(!this._maskFull){ this._maskFull=true; this.status('The painted mask is too big to keep after this session; it lasts until you close'); }
+      }
+    }, 600);
+  },
+  loadMask(){
+    if(this.pmaskCells.size) return;
+    try{
+      const v=JSON.parse(localStorage.getItem(this.MASK_KEY)||'{}'), N=this.N;
+      for(const [k, b64] of Object.entries(v)){
+        const bin=atob(b64); if(bin.length!==N*N) continue;
+        const m=new Uint8Array(N*N); for(let i=0;i<m.length;i++) m[i]=bin.charCodeAt(i);
+        this.pmaskCells.set(k, m);
+      }
+    }catch(_){}
   },
 
   /** The painted mask drawn on a cell's mesh: its vertex colors (which the ground's textures
@@ -1004,7 +1043,7 @@ const WgLand={
   PMASK_TINT:[255,70,200],
   tintMask(key, mesh){
     const m=this.pmaskCells.get(key);
-    if(!m || !mesh || !mesh.col || !(this.b.pshow || this.mode==='mask')) return;
+    if(!m || !mesh || !mesh.col || !this.on || !(this.b.pshow || this.mode==='mask')) return;
     const col=mesh.col, T=this.PMASK_TINT;
     for(let i=0;i<m.length;i++){
       if(!m[i]) continue;

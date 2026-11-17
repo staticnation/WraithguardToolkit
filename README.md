@@ -393,6 +393,7 @@ yourself, last, as you would after the Tools page's merge.
 | `--exclude ...` | Plugins the scans leave out. |
 | `--merge-lands [FOLDER]` | Merge Lands, writing `Merged Lands.esp` into FOLDER (default: the folder holding most of the load order). |
 | `--merge-model loadorder\|masters` | Measure each plugin's terrain against the load order before it (default: the later plugin wins a contested vertex, as OpenMWMergedLands), or against the masters (contested heights, normals, colors and world map are blended, as the original Merged Lands). |
+| `--merge-fork-config [FILE]` | Take the plugins, folders and cells OpenMWMergedLands leaves out, and where it writes, from its `merged_lands.toml` (FILE, or found beside the cfg or in OpenMW's config folder). Anything given on the command line still wins. |
 | `--merge-keep-world-map` | Write the world maps (WNAM) as the merge has them, as OpenMWMergedLands does (default: entries made again where a repair moved the height, a missing map generated). |
 | `--merge-cell-ignore X,Y ...` | Exterior cells left out of the merge for every plugin. |
 | `--merge-cell-ignore-by-plugin PLUGIN=X,Y;X,Y ...` | One plugin's terrain left out at those cells (default: Tamriel Rebuilt's Hunza Camp; with no value, none). |

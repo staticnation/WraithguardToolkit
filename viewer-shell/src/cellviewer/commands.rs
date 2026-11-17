@@ -4088,6 +4088,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             land_meta_preview,
             land_meta_write,
             land_merge_home,
+            land_merge_fork_config,
             land_merge,
             land_merge_progress,
             land_merge_cancel,

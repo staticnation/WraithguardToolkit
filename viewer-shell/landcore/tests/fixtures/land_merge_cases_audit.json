@@ -19,7 +19,7 @@
       "  slope limiter moved 5168 vertex/vertices in 24 pass(es)",
       "  96 adjustment(s) refused: the vertex is shared with terrain outside the merge",
       "  22 vertex/vertices lowered to fit a step the record can store (0 cell(s) outside the merge brought in for it)",
-      "  69 world map entry/entries made again: seam repair or the slope limiter moved the height under them",
+      "  76 world map entry/entries made again: the height under them moved",
       "  cleaning dropped 5 redundant cell(s)",
       "  land textures: 5 known, 3 painted by the merge",
       "  declaring 7 master(s): the plugins that actually contributed",
@@ -37,7 +37,7 @@
       "slopes": 5168,
       "textures": 3
     },
-    "sha256": "6fc0cd0ef6923da48dddfc8f27028944db6bc615a05d2b235288438d5c07945f",
+    "sha256": "1d9c635ac1a63c81746a2d40c5704f7d001ddb659defbc7749ae52a3d7f81538",
     "size": 156405
   },
   "a mod painting with a texture no LTEX defines, passed through": {
@@ -82,7 +82,7 @@
       "merging ...",
       "  2 modified cell(s)",
       "  seam repair moved 67 vertex/vertices (widest gap 120 units)",
-      "  9 world map entry/entries made again: seam repair or the slope limiter moved the height under them",
+      "  13 world map entry/entries made again: the height under them moved",
       "  cleaning dropped 0 redundant cell(s)",
       "  declaring 4 master(s): the plugins that actually contributed",
       "wrote <root>/out/Merged Lands.esp (59925 bytes, 3 records)",
@@ -99,7 +99,7 @@
       "slopes": 0,
       "textures": 0
     },
-    "sha256": "508ab20451c1f070474faa922468f7b13e1e70dde1f25e8c5a416872cc6e0683",
+    "sha256": "c3d3357dc4ed4db888b44df70cdc749fdb86987a4f6146b6ca9d73e8bbc174c9",
     "size": 59925
   }
 }

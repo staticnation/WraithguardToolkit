@@ -85,12 +85,8 @@ are white; layers the merge has nothing to say about come from the winning recor
   simplicity and uniformity). The TES3 header's flag only matters when a file is converted between
   `.esp` and `.esm`, so the master check just notes a name and a header that disagree, either way
   (`[MASTER FLAG]`, `inputs::check_missing_masters`; the page's "Master flags"); nothing acts on it.
-- WG-A06, what is left: no test stops a CLI run (exit status) on a record that cannot be written.
 - WG-A02, what is left: a present zero-valued layer that differs from the engine's effective result,
   and the world map of a loaded cell that has none (see A07), are not handled apart.
-- WG-A07, what is left: a map the record lacks decodes as all zeros, so an authored all-zero map is
-  regenerated; OpenMW would keep it (it generates only for a record with no `WNAM` at all), and the
-  two cannot be told apart from the decoded record.
 - **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
   already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`; the Tools
   page has a box, a gap and a list of cells, which the viewer build has not been run to see). Left:
@@ -114,12 +110,19 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
 - A cell the step repair brings in from outside the merge keeps its own phase: where that differs
   from the piece's, the lowered vertex is floored onto it by the encoder (said as a border a few
   units apart).
-- Normals: a `VNML` with no `VHGT` is not written (the fork can emit one); the snapshots and the
-  plugins' records are kept per cell for the whole merge (memory on a big order not measured).
+- Normals: memory, measured
+  2026-11-16 on `big_order` (300 plugins, 2,453 cells written): peak 1.42 GB before the normals were
+  merged as authored data, 1.72 GB after (2.10 s to 2.44 s), about 120 KB a cell - the merged
+  normals and the heights each world map was made for, kept as `i32` for every cell to the end.
+  On the real order (4,668 cells) that is about half a gigabyte more: worth packing them (`i8` for
+  normals) if it shows.
 - The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
-  Tools page's "Keep world maps as merged" (not run in the viewer; no test of its own).
-- Ignored cells are on the command line only (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`);
-  the Tools page has no place for them and always uses the default (Hunza Camp).
+  Tools page's "Keep world maps as merged" (`the_world_map_as_merged_or_made_again`).
+- Ignored cells: the command line (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`) and the
+  Tools page's "Leave cells out" (`Plugin.esp=X,Y;X,Y | X,Y`, Hunza Camp by default; not seen in
+  the viewer). The fork's `merged_lands.toml` is read when asked (`--merge-fork-config`, the page's
+  "Import from OpenMWMergedLands"): once, into Wraithguard's own settings, never as a second source.
+  The default leave-out list is the fork's, `groundcover.omwaddon` included (2026-11-16).
 - `Auto` is each model's own now (2026-11-16; `pipeline::folded_with_normals`). Left of it: a cell
   no master has still takes the later plugin's heights in both models (the Python's rule; the
   original has no such rule that was found), and against the masters the blend is of the two
@@ -138,21 +141,17 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
   screen edge, the pointer coming back where it was pressed, the brush ring after it in the Land
   view, alt-tab during a drag, and the wheel in past the pivot and out to the limit (fog and the
   far plane at 300,000).
-- The push past the pivot goes along the view's axis, not toward the cursor (zoom to cursor ends
-  where the pivot is reached).
+- The push past the pivot goes toward the cursor when zoom to cursor is on, down the view when it
+  is off (not run in the viewer).
 
 ## The Land view's masks (2026-11-16)
 
-- Cells written broken before the fix of 2026-11-16 stay broken in a patch: undo them, or take
-  them out of the patch, and shape them again. Nothing finds them for you yet (a Verify check for
-  a land record with a step at -128 or +127 at the start of a row, followed by a jump, would).
 - Neither has been seen in the viewer: the page tests drive them (`land_mask.test.js`).
-- The painted mask's tint is put on a cell's mesh when the Land view rebuilds that cell (a stroke
-  on it, Show, Invert, Clear). A cell the scene builds again itself (a cell arrow, Go) is drawn
-  without it until then, though the mask is still there and still holds the brush.
 - The texture mask reads each texture cell's own texture, not the blend the ground is drawn with
   between two of them.
-- The painted mask is not kept between sessions.
+- Cells written broken before the fix of 2026-11-16 are found by Verify ("the border with ... is
+  N vertex/vertices apart"); it does not mend them: undo them or take them out of the patch, and
+  shape them again.
 
 ## After 5.0
 

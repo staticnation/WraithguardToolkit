@@ -88,9 +88,12 @@ pub struct MergeOptions {
 
 /// The fork's starting `ignore_plugins`: generated or non-land plugins, expensive to read and
 /// with nothing to merge.
-pub const DEFAULT_IGNORE: [&str; 6] = [
+pub const DEFAULT_IGNORE: [&str; 7] = [
     "delta-merged.omwaddon",
     "deleted_groundcover.omwaddon",
+    // Grass placed as references, no land of its own: the fork's default leaves it out too
+    // (Static, 2026-11-16).
+    "groundcover.omwaddon",
     "S3LightFixes.omwaddon",
     "OMWLLFMod.omwaddon",
     "merged.omwaddon",
@@ -555,7 +558,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         say!("  the step repair was given up: copies of a vertex kept apart on purpose kept undoing each other");
     }
     if outcome.world_map_regenerated > 0 {
-        say!("  {} world map entry/entries made again: seam repair or the slope limiter moved the height under them", outcome.world_map_regenerated);
+        say!("  {} world map entry/entries made again: the height under them moved", outcome.world_map_regenerated);
     }
     say!("  cleaning dropped {} redundant cell(s)", outcome.cleaning.dropped());
     if let Some(worst) = outcome.seams.tears.first() {

@@ -132,3 +132,31 @@ fn a_dry_run_and_a_failure_write_nothing() {
     assert!(!data.join(DEFAULT_NAME).exists());
     let _ = fs::remove_dir_all(&root);
 }
+
+/// OpenMWMergedLands' merged_lands.toml beside the cfg (`--merge-fork-config`): the plugin it
+/// leaves out is left out, and where it writes is where the merge goes. A `--merge-ignore` given
+/// on the command line wins over it.
+#[test]
+fn the_forks_settings_are_taken_from_beside_the_cfg() {
+    let root = setup("fork");
+    let out = root.join("Fork Output");
+    fs::create_dir_all(&out).unwrap();
+    fs::write(root.join("merged_lands.toml"), "ignore_plugins = [\"B.esp\"]\noutput_file_dir = \"Fork Output\"\n[cell_ignore_by_plugin]\n\"A.esp\" = [[5, 5]]\n").unwrap();
+    let (stdout, stderr, code) = wraithguard(&root, &["--merge-lands", "--merge-model", "masters", "--merge-fork-config"]);
+    assert_eq!(code, 0, "{stdout}\n{stderr}");
+    assert!(stdout.contains(&format!("  OpenMWMergedLands' settings: {}\n", root.join("merged_lands.toml").display())), "{stdout}");
+    assert!(stdout.contains("left out 1 plugin(s): B.esp"), "{stdout}");
+    assert!(stdout.contains("cells left out of the merge for one plugin: a.esp (1 cell(s))"), "{stdout}");
+    assert!(stdout.contains(&format!("  writing into: {}\n", out.display())), "{stdout}");
+    // B left out, A's record is all that loads: the merge is that, so nothing is written.
+    assert!(stdout.contains("  nothing to merge; no plugin written\n"), "{stdout}");
+    let (stdout, _, code) = wraithguard(&root, &["--merge-lands", "--merge-model", "masters", "--merge-fork-config", "--merge-ignore", "Nothing.esp", "--dry-run"]);
+    assert_eq!(code, 0, "{stdout}");
+    assert!(!stdout.contains("left out 1 plugin(s): B.esp"), "the command line's own --merge-ignore wins: {stdout}");
+    // None to be found: said, and nothing done.
+    fs::remove_file(root.join("merged_lands.toml")).unwrap();
+    let (stdout, stderr, code) = wraithguard(&root, &["--merge-lands", "--merge-fork-config", "--dry-run"]);
+    assert_eq!(code, 1, "{stdout}");
+    assert!(stderr.contains("--merge-fork-config: no merged_lands.toml in"), "{stderr}");
+    let _ = fs::remove_dir_all(&root);
+}

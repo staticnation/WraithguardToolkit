@@ -179,6 +179,9 @@ const WgToolsPage={
     <input type="text" id="tlMlSeamExcept" placeholder="cells as X,Y; X,Y" style="flex:1;min-width:140px" title="Cells whose borders are never repaired, either side of them (a cliff or an edge the load order means to have)">
   </div>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span title="Cells the merge leaves alone: not merged, not repaired, not written. X,Y for every plugin, Plugin.esp=X,Y;X,Y for one plugin's terrain there (the others still merged); entries split by |">Leave cells out</span><input type="text" id="tlMlCellIgnore" placeholder="TR_Mainland.esm=-9,-46;-9,-47;-10,-46;-10,-47" style="flex:1;min-width:240px" title="X,Y for every plugin, or Plugin.esp=X,Y;X,Y for one; entries split by |. Empty: none. The default is Tamriel Rebuilt's Hunza Camp (its four cells, as OpenMWMergedLands has it)."><button class="btn dim" id="tlMlCellDefault" title="Put back the default: Tamriel Rebuilt's Hunza Camp">Default</button><button class="btn dim" id="tlMlFork" title="Read OpenMWMergedLands' merged_lands.toml (beside the setup's openmw.cfg, or in OpenMW's config folder) and fill in the plugins and cells it leaves out, and where it writes. Shift+click to pick the file.">Import from OpenMWMergedLands</button>
+  </div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <span>Write into</span><input type="text" id="tlMlFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px"><button class="btn dim" id="tlMlBrowse">Browse...</button></div>
   <div class="scroll"><div id="tlMlIntro" class="empty">Where two mods reshape different vertices of the same exterior cell, the load order keeps only the last one's LAND record and discards the other; this recovers both into a new plugin, Merged Lands.esp. Seams between cells are repaired and the terrain is conditioned so every height fits the format. Your mods are never modified, and deleting the merged plugin restores your previous behaviour exactly. Load it LAST. Merge settings (a plugin's .mergedlands.toml) decide, per layer, what a mod contributes and how its edits resolve.</div>
   <pre id="tlMlOut" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
@@ -291,6 +294,33 @@ const WgToolsPage={
     try{ $('#tlMlKeepWnam').checked=localStorage.getItem('wgTools.mergeLandsKeepWnam')==='1'; }catch(_){}
     $('#tlMlKeepWnam').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsKeepWnam', $('#tlMlKeepWnam').checked?'1':'0'); }catch(_){} };
     $('#tlMlNoClamp').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsNoClamp', $('#tlMlNoClamp').checked?'1':'0'); }catch(_){} };
+    // The cells left out, kept like the others; never set, the default (Hunza Camp).
+    const CELL_DEFAULT='TR_Mainland.esm=-9,-46;-9,-47;-10,-46;-10,-47';
+    try{ const v=localStorage.getItem('wgTools.mergeLandsCellIgnore'); $('#tlMlCellIgnore').value=v==null? CELL_DEFAULT : v; }catch(_){ $('#tlMlCellIgnore').value=CELL_DEFAULT; }
+    $('#tlMlCellIgnore').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsCellIgnore', $('#tlMlCellIgnore').value); }catch(_){} };
+    /* OpenMWMergedLands' merged_lands.toml (Static, 2026-11-16: "read the fork's merged_lands.toml"):
+       read once, into the fields - what it leaves out, by plugin and folder and by cell, and where it
+       writes. Wraithguard's settings stay the ones used; this only fills them in. Shift+click, or
+       nothing found, picks the file by hand. */
+    $('#tlMlFork').onclick=async(e)=>{
+      try{
+        let path=null;
+        if(e && e.shiftKey){ path=await Engine.pick('open',{filters:[{name:'merged_lands.toml',extensions:['toml']}]}); if(!path) return; }
+        let r=await Engine.call('land_merge_fork_config',{cfg:this.cfg(), path:path? String(path) : null});
+        if(typeof r==='string') r=JSON.parse(r);
+        if(!r.found){
+          const pick=await Engine.pick('open',{filters:[{name:'merged_lands.toml',extensions:['toml']}]});
+          if(!pick){ toast('No merged_lands.toml in '+(r.looked||[]).join(', '),'warn',6000); return; }
+          r=await Engine.call('land_merge_fork_config',{cfg:this.cfg(), path:String(pick)}); if(typeof r==='string') r=JSON.parse(r);
+        }
+        const said=[];
+        if(r.ignore && r.ignore.length){ $('#tlMlIgnore').value=r.ignore.join(', '); $('#tlMlIgnore').onchange(); said.push(r.ignore.length+' plugin(s) or folder(s) left out'); }
+        $('#tlMlCellIgnore').value=r.cells||''; $('#tlMlCellIgnore').onchange(); said.push(r.cells? 'cells left out: '+r.cells : 'no cells left out');
+        if(r.output){ $('#tlMlFolder').value=r.output; if($('#tlMlFolder').onchange) $('#tlMlFolder').onchange(); said.push('writes into '+r.output); }
+        toast('Read '+r.path+': '+said.join('; '),'ok',8000);
+      }catch(err){ toast('OpenMWMergedLands\' settings: '+String(err.message||err),'err',8000); }
+    };
+    $('#tlMlCellDefault').onclick=()=>{ $('#tlMlCellIgnore').value=CELL_DEFAULT; $('#tlMlCellIgnore').onchange(); };
     $('#tlMlSeams').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeams', $('#tlMlSeams').checked?'1':'0'); }catch(_){} };
     $('#tlMlSeamGap').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamGap', $('#tlMlSeamGap').value); }catch(_){} };
     $('#tlMlSeamExcept').onchange=()=>{ try{ localStorage.setItem('wgTools.mergeLandsSeamExcept', $('#tlMlSeamExcept').value); }catch(_){} };
@@ -375,7 +405,7 @@ const WgToolsPage={
     try{
       const ignore=$('#tlMlIgnore').value.split(',').map(x=>x.trim()).filter(Boolean);
       const seams=$('#tlMlSeams').checked;
-      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore, seamGap: seams? Math.max(1, parseInt($('#tlMlSeamGap').value,10)||24) : null, seamExcept: $('#tlMlSeamExcept').value, noClamp: $('#tlMlNoClamp').checked, keepWorldMap: $('#tlMlKeepWnam').checked}).finally(()=>{ live=false; });
+      const r=await Engine.call('land_merge',{cfg:this.cfg(), folder, dryRun:dry, verbose:$('#tlMlVerbose').checked, model:$('#tlMlModel').value, ignore, seamGap: seams? Math.max(1, parseInt($('#tlMlSeamGap').value,10)||24) : null, seamExcept: $('#tlMlSeamExcept').value, noClamp: $('#tlMlNoClamp').checked, keepWorldMap: $('#tlMlKeepWnam').checked, cellIgnore: $('#tlMlCellIgnore').value}).finally(()=>{ live=false; });
       // What the log showed while it ran (every line, with its time) stays: `r.log`. `r.lines` is the
       // report alone, without the timings or the progress lines, for a backend that sends no log.
       const said=Array.isArray(r.log) && r.log.length? r.log : r.lines;

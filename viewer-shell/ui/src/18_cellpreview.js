@@ -1208,6 +1208,8 @@ async function _rebuildCellPreview(){
     }
     if(!bed) landCells++;
     const T=cellTerrain(src,(dx,dy)=>byGrid.get((c.gx+dx)+','+(c.gy+dy))||null,extent);
+    // Wraithguard: the Land view's painted mask, drawn on the cells the scene builds again too.
+    if(!bed && typeof WgLand==='object' && WgLand.tintMask) WgLand.tintMask(c.gx+','+c.gy, T.mesh);
     if(off[0]||off[1]){
       const p=T.mesh.pos;
       for(let i=0;i<p.length;i+=3){ p[i]+=off[0]; p[i+1]+=off[1]; }

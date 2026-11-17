@@ -20,6 +20,7 @@
 pub mod cleaning;
 pub mod curvature;
 pub mod emit;
+pub mod forkconfig;
 pub mod grid;
 pub mod heights;
 pub mod landmass;

@@ -275,6 +275,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "land_meta_preview" => Reply::Json(t::land_meta_preview(s(a, "metaType"), vals(a, "layers"))?),
         "land_meta_write" => Reply::Json(t::land_meta_write(s(a, "plugin"), s(a, "metaType"), vals(a, "layers"))?),
         "land_merge_home" => Reply::Json(t::land_merge_home(s(a, "cfg"))?),
+        "land_merge_fork_config" => Reply::Json(t::land_merge_fork_config(s(a, "cfg"), a.get("path").and_then(|v| v.as_str()).map(String::from))?),
         "land_merge" => Reply::Json(t::land_merge(
             s(a, "cfg"),
             s(a, "folder"),
@@ -286,6 +287,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             a.get("seamExcept").and_then(|v| v.as_str()).map(String::from),
             a.get("noClamp").and_then(|v| v.as_bool()),
             a.get("keepWorldMap").and_then(|v| v.as_bool()),
+            a.get("cellIgnore").and_then(|v| v.as_str()).map(String::from),
         )?),
         "land_merge_cancel" => Reply::Raw(t::land_merge_cancel()?.to_string()),
         "land_merge_progress" => Reply::Json(t::land_merge_progress(u(a, "from"))?),

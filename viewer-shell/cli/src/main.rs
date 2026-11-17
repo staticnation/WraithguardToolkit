@@ -173,6 +173,17 @@ fn command() -> Command {
                      Default: TR_Mainland.esm=-9,-46;-9,-47;-10,-46;-10,-47 (Hunza Camp); given with no value, none",
                 ),
         )
+        .arg(
+            Arg::new("merge-fork-config")
+                .long("merge-fork-config")
+                .num_args(0..=1)
+                .default_missing_value("")
+                .value_name("FILE")
+                .help(
+                    "With --merge-lands: take the plugins, folders and cells OpenMWMergedLands leaves out, and where it writes, from its merged_lands.toml \
+                     (FILE, or found beside the cfg or in OpenMW's config folder). --merge-ignore, --merge-cell-ignore* and a --merge-lands FOLDER given still win",
+                ),
+        )
         .arg(flag(
             "merge-keep-world-map",
             "With --merge-lands: write the world maps (WNAM) as the merge has them, as OpenMWMergedLands does. Without it an entry is made again \
@@ -229,6 +240,8 @@ struct Args {
     /// `--merge-cell-ignore`, and `--merge-cell-ignore-by-plugin` when given (else the default).
     merge_cell_ignore: Vec<(i64, i64)>,
     merge_cell_ignore_by_plugin: Option<Vec<String>>,
+    /// `--merge-fork-config`: `Some("")` to look for it.
+    merge_fork_config: Option<String>,
     /// `--merge-keep-world-map`.
     merge_keep_world_map: bool,
     /// `--merge-no-clamp`: a step that would be clamped stops the merge.
@@ -306,6 +319,7 @@ impl Args {
             merge_seam_except: list("merge-seam-except").iter().filter_map(|c| c.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))).collect(),
             merge_cell_ignore: list("merge-cell-ignore").iter().filter_map(|c| c.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))).collect(),
             merge_cell_ignore_by_plugin: m.contains_id("merge-cell-ignore-by-plugin").then(|| list("merge-cell-ignore-by-plugin")),
+            merge_fork_config: m.get_one::<String>("merge-fork-config").cloned(),
             merge_keep_world_map: on("merge-keep-world-map"),
             merge_no_clamp: on("merge-no-clamp"),
             merge_ignore: m.contains_id("merge-ignore").then(|| list("merge-ignore")),
@@ -524,7 +538,36 @@ fn merge_lands(args: &Args, folder: &str, log: &Log, trace: &Trace) -> Result<()
     let dirs: Vec<std::path::PathBuf> = setup.data.iter().filter(|d| d.is_dir()).cloned().collect();
     section("MERGE LANDS");
     println!("  {} plugin(s) in the load order, {} data folder(s)", order.len(), dirs.len());
-    let folder = if folder.is_empty() { home_folder(&dirs, &order) } else { Some(std::path::PathBuf::from(folder)) };
+    // OpenMWMergedLands' settings, when asked for: what it leaves out and where it writes, under
+    // anything given here (`--merge-ignore`, `--merge-cell-ignore*`, a `--merge-lands FOLDER`).
+    let fork = match &args.merge_fork_config {
+        None => None,
+        Some(path) => {
+            use landcore::forkconfig;
+            let file = if path.is_empty() {
+                let cfg = ordercore::install::feeds_openmw(&args.setup).or_else(|| {
+                    let s = ordercore::install::spec(&args.setup);
+                    (s.kind.name() == "openmw").then(|| std::path::PathBuf::from(&s.path))
+                });
+                let looked = forkconfig::folders_for(cfg.as_deref());
+                forkconfig::find(&looked).ok_or_else(|| {
+                    format!("--merge-fork-config: no {} in {}", forkconfig::FILE_NAME, looked.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", "))
+                })?
+            } else {
+                std::path::PathBuf::from(py_path(path))
+            };
+            let got = forkconfig::read(&file)?;
+            println!("  OpenMWMergedLands' settings: {}", got.path.display());
+            Some(got)
+        }
+    };
+    let folder = if !folder.is_empty() {
+        Some(std::path::PathBuf::from(folder))
+    } else if let Some(out) = fork.as_ref().and_then(|f| f.output_dir.clone()) {
+        Some(out)
+    } else {
+        home_folder(&dirs, &order)
+    };
     let Some(folder) = folder else {
         return Err("no data folder holds any plugin of the load order: give the folder to write into, --merge-lands FOLDER".into());
     };
@@ -532,12 +575,18 @@ fn merge_lands(args: &Args, folder: &str, log: &Log, trace: &Trace) -> Result<()
     let model = if args.merge_model == "masters" { DiffModel::Masters } else { DiffModel::LoadOrder };
     let mut opts =
         MergeOptions { output: Some(folder.join(DEFAULT_NAME)), dry_run: args.dry_run, verbose: args.verbose > 0, model, ..Default::default() };
+    if let Some(f) = &fork {
+        opts.ignore = f.ignore.clone();
+        opts.ignored_cells = f.ignored_cells.clone();
+    }
     if let Some(ignore) = &args.merge_ignore {
         opts.ignore = ignore.clone();
     }
     opts.allow_clamping = !args.merge_no_clamp;
     opts.keep_world_map = args.merge_keep_world_map;
-    opts.ignored_cells.everywhere = args.merge_cell_ignore.iter().copied().collect();
+    if !args.merge_cell_ignore.is_empty() || fork.is_none() {
+        opts.ignored_cells.everywhere = args.merge_cell_ignore.iter().copied().collect();
+    }
     if let Some(entries) = &args.merge_cell_ignore_by_plugin {
         opts.ignored_cells.by_plugin.clear();
         for e in entries {

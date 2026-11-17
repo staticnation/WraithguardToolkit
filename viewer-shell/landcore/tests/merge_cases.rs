@@ -1143,3 +1143,47 @@ fn normals_are_merged_as_the_plugins_strategy_says() {
     assert!(land.vertex_normals.data.iter().flatten().all(|n| *n == [60, 0, 110]), "A's normals, kept: {:?}", land.vertex_normals.data[3][3]);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// The world map as the merge has it (`keep_world_map`, the OpenMW fork's way) or Wraithguard's
+/// (the default). `A.esp` moves the ground and carries no `WNAM`; `B.esp`, a neighbor, authors a
+/// map of 5s that seam repair then moves the height under. By default A's cell, which inherits
+/// the masters' map, has it made again for A's ground, and the entries of B's that the repair
+/// moved are made again; kept, both are written as the merge has them.
+#[test]
+fn the_world_map_as_merged_or_made_again() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let flat = json!([400, 0, 0, 1, 0, 0, -1, 0]);
+    let data = setup(
+        "world map kept",
+        json!([
+            {"name": "Base.esm", "land": [
+                {"grid": [0, 0], "flags": 1, "heights": flat, "world_map": "auto"},
+                {"grid": [1, 0], "flags": 1, "heights": flat, "world_map": "auto"}]},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [800, 0, 0, 1, 0, 0, -1, 0]}]},
+            {"name": "B.esp", "land": [{"grid": [1, 0], "flags": 1, "heights": [400, 1, 1, 9, 20, 20, 6, 60], "world_map": vec![5; 81]}]},
+        ]),
+    );
+    let maps = |keep: bool| {
+        let r = run(&data, &["Base.esm", "A.esp", "B.esp"], MergeOptions { keep_world_map: keep, ..Default::default() });
+        let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+        let got: std::collections::BTreeMap<(i32, i32), Vec<i8>> = plugin
+            .objects
+            .iter()
+            .filter_map(|o| if let TES3Object::Landscape(l) = o { Some((l.grid, l.world_map_data.data.iter().flatten().copied().collect())) } else { None })
+            .collect();
+        (r, got)
+    };
+    let (r, made) = maps(false);
+    // A raised its cell to 6,400 and has no map: the masters' (25, for 3,200) is made again, 50.
+    assert!(made[&(0, 0)].iter().all(|&v| v == 50), "A's cell: the map for its own ground: {:?}", &made[&(0, 0)][..9]);
+    let remade = made[&(1, 0)].iter().filter(|&&v| v != 5).count();
+    assert!(remade > 0 && remade < 81, "the entries of B's map under moved ground made again: {remade} {:#?}", r.lines);
+    assert!(r.lines.iter().any(|l| l.contains("world map entry/entries made again")), "{:#?}", r.lines);
+    let (r, kept) = maps(true);
+    // Kept: the map the merge has for A's cell, the masters', as the fork writes it.
+    assert!(kept[&(0, 0)].iter().all(|&v| v == 25), "kept: the masters' map as merged: {:?}", &kept[&(0, 0)][..9]);
+    assert!(kept[&(1, 0)].iter().all(|&v| v == 5), "kept: B's map as authored {:?}", &kept[&(1, 0)][..9]);
+    assert!(!r.lines.iter().any(|l| l.contains("made again")), "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

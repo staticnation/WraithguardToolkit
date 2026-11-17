@@ -79,6 +79,38 @@ pub(super) fn land_meta_write(plugin: String, meta_type: String, layers: Vec<ser
 /// Wraithguard: where Merge Lands writes by default (`_merged_lands_home`): the data folder
 /// holding most of the load order. Answers `{folders, home, name, exists}` (`exists`: a
 /// `Merged Lands.esp` is already there).
+/// OpenMWMergedLands' settings for this setup (`landcore::forkconfig`): `path` the file to read,
+/// or `None` to look where the fork keeps it (the folder of the setup's `openmw.cfg`, then
+/// OpenMW's own config folder). Answers `{found, path, ignore, cells, output, looked}` -
+/// `found` false with the folders looked in when there is none; an error when it does not read.
+#[tauri::command(async)]
+pub(super) fn land_merge_fork_config(cfg: String, path: Option<String>) -> Result<String, String> {
+    use landcore::forkconfig;
+    let file = match path.filter(|p| !p.trim().is_empty()) {
+        Some(p) => Some(std::path::PathBuf::from(p)),
+        None => {
+            let spec = viewcore::ordercore::install::spec(&cfg);
+            let cfg_path = viewcore::ordercore::install::feeds_openmw(&cfg).or_else(|| (spec.kind.name() == "openmw").then(|| std::path::PathBuf::from(&spec.path)));
+            let looked = forkconfig::folders_for(cfg_path.as_deref());
+            match forkconfig::find(&looked) {
+                Some(f) => Some(f),
+                None => {
+                    return Ok(serde_json::json!({"found": false, "looked": looked.iter().map(|d| d.display().to_string()).collect::<Vec<_>>()}).to_string());
+                }
+            }
+        }
+    };
+    let got = forkconfig::read(&file.unwrap_or_default())?;
+    Ok(serde_json::json!({
+        "found": true,
+        "path": got.path.display().to_string(),
+        "ignore": got.ignore,
+        "cells": got.cells_text,
+        "output": got.output_dir.map(|d| d.display().to_string()),
+    })
+    .to_string())
+}
+
 #[tauri::command(async)]
 pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
     let setup = cf_setup(&cfg)?;
@@ -105,7 +137,9 @@ pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
 /// (`X,Y; X,Y`) whose borders that never touches; `no_clamp` stops the merge, writing nothing, where a
 /// height step is left that a record cannot store (off: it is clamped and said); `keep_world_map` writes
 /// the world maps as the merge has them, as the OpenMW fork does (off: entries made again where a repair
-/// moved the height, a missing map generated). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
+/// moved the height, a missing map generated); `cell_ignore` the cells left out of the merge
+/// (`X,Y` for every plugin, `Plugin.esp=X,Y;X,Y` for one, lines or `|` between them; `None`: the
+/// default, Tamriel Rebuilt's Hunza Camp). Answers `{error, cancelled, lines, notes, output, result: {cells, textures, contested, major,
 /// seams, slopes, clamped, dropped, borrowed}}` - `error` the reason it stopped, the lines said
 /// before it kept. `log` is every line it said, as [`LAND_LOG`] has them (the time it took
 /// before each), for the page to keep showing when the run ends.
@@ -115,7 +149,7 @@ pub(super) fn land_merge_home(cfg: String) -> Result<String, String> {
 /// the load order's terrain..." with nothing to say whether it was moving).
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)] // a command's arguments are the page's keys, one each
-pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>, seam_gap: Option<i32>, seam_except: Option<String>, no_clamp: Option<bool>, keep_world_map: Option<bool>) -> Result<String, String> {
+pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bool, model: String, ignore: Option<Vec<String>>, seam_gap: Option<i32>, seam_except: Option<String>, no_clamp: Option<bool>, keep_world_map: Option<bool>, cell_ignore: Option<String>) -> Result<String, String> {
     use landcore::pipeline::DiffModel;
     use landcore::service::{build_merged_lands, MergeOptions, DEFAULT_NAME};
     // Read before anything is started: a cell that is not one is refused, not skipped.
@@ -132,6 +166,10 @@ pub(super) fn land_merge(cfg: String, folder: String, dry_run: bool, verbose: bo
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     *LAND_STOP.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop.clone());
     let mut opts = MergeOptions { output, dry_run, verbose, model, cancel: Some(stop), existing_seams, allow_clamping: !no_clamp.unwrap_or(false), keep_world_map: keep_world_map.unwrap_or(false), ..Default::default() };
+    // The cells left out, as the page writes them (`None`: the default, Hunza Camp).
+    if let Some(text) = cell_ignore {
+        opts.ignored_cells = landcore::pipeline::parse_ignored_cells(&text)?;
+    }
     if let Some(ignore) = ignore {
         opts.ignore = ignore;
     }

@@ -5,6 +5,10 @@
 
 ### Changed
 
+- **Merge Lands leaves `groundcover.omwaddon` out by default**, as OpenMWMergedLands does: grass
+  placed as references, with no land of its own to merge. A list already saved on the Tools page
+  is kept as it is.
+
 - **Merge Lands measures each plugin against the load order by default** (`--merge-model loadorder`,
   the first choice on the Tools page; Static, 2026-11-16), as OpenMWMergedLands does: the later
   plugin's value stands where two plugins changed a vertex, and a later record that carries plain
@@ -21,6 +25,12 @@
   `Curvature` on a layer with no height surface is `Resolve`. Both were errors.
 
 ### Fixed
+
+- **Merge Lands remakes a world map made for ground that has moved.** A cell whose map no plugin
+  changed has the masters' (or the winning record's), made for their heights; where a plugin then
+  moved the ground under an entry, the entry kept describing the old ground. It is now made again,
+  as an entry under ground seam repair moved already was (the default; "Keep world maps as merged"
+  writes the merge's map as it is).
 
 - **The Land view writes land a record can hold** (Static, 2026-11-16, with the patch journal of
   four broken cells round (-5, -1)). Two faults, both fixed:
@@ -144,6 +154,21 @@
 
 ### Added
 
+- **Merge Lands reads OpenMWMergedLands' settings** (`merged_lands.toml`; Static, 2026-11-16): the
+  Tools page's "Import from OpenMWMergedLands" finds it beside the setup's `openmw.cfg` or in
+  OpenMW's config folder (Shift+click, or none found, to pick it) and fills in the plugins and
+  folders it leaves out, the cells it leaves out and where it writes; `--merge-fork-config [FILE]`
+  does the same for one run, under anything given on the command line. Read once into Wraithguard's
+  own settings, not kept in step with the file.
+
+- **Verify finds land borders the patch opens**: a land record whose border with a neighbor is
+  apart where the load order had it whole is a warning, with how many vertices and by how much (a
+  seam the load order already has is not the patch's). It finds the cells the Land view wrote broken
+  before this release's fix.
+- **Merge Lands' Tools page can leave cells out** ("Leave cells out": `Plugin.esp=X,Y;X,Y` for one
+  plugin's terrain, `X,Y` for every plugin, entries split by `|`), Tamriel Rebuilt's Hunza Camp by
+  default, as the command line has it.
+
 - **The Land view's brushes can be held to the textures on the ground** ("Texture mask", in the
   Height and Color modes; Static, 2026-11-16). "Only on these textures" moves or tints only the
   ground painted with the land textures named, and "Everywhere but these textures" leaves that
@@ -156,13 +181,15 @@
   (middle-drag) no longer stops where the pointer meets the edge of the screen: the pointer is
   hidden and kept in the viewport, as the WASD look does it, and comes back where it was pressed.
   The wheel keeps going in: at the orbit pivot, where the camera used to stop, each notch now
-  pushes the pivot on ahead (faster while the wheel keeps turning). Out, the limit is 300,000
+  pushes the pivot on ahead (faster while the wheel keeps turning), toward the cursor when zoom to
+  cursor is on. Out, the limit is 300,000
   units, from 60,000 (the far plane is at 400,000).
 - **The Land view has a mask that is painted** (the Mask mode, and "Painted mask" in the Height
   and Color modes). The brush paints it onto the ground and Alt rubs it out; it is drawn over the
   ground as a tint (Show), and Invert and Clear do what they say. The height and color brushes are
   then held inside it or kept out of it, alone or together with the texture mask. It is the
-  page's own: nothing of it is written to the patch, and it lasts the session.
+  page's own: nothing of it is written to the patch. It is kept between sessions in the page's
+  storage, and drawn on the cells the scene builds again as well as on those the brush touches.
 
 - **Merge Lands can repair the seams the terrain already has, opt-in** (`--merge-repair-seams [GAP]`,
   `--merge-seam-except X,Y`; `MergeOptions::existing_seams`). Off by default, the merge repairs only

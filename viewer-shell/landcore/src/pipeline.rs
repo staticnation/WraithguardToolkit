@@ -38,6 +38,9 @@ pub struct MergedCell {
     pub new_land: bool,
     /// Each layer as the one plugin that alone supplied it has it, for cleaning.
     pub sole_source: CellDigest,
+    /// The heights its world map was made for, where that is not the merge's own: the masters'
+    /// for a map no plugin changed, the winning record's for one taken from it.
+    pub world_map_heights: Option<Vec<Value>>,
 }
 
 /// The whole merge (`MergeOutcome`).
@@ -417,6 +420,10 @@ pub fn merge_landmass(
                     *slot(&mut cell, which) = Some(g.flat());
                 }
             }
+            // A world map no plugin changed is the masters', made for the masters' heights.
+            if !grids.contains_key(&Layer::WorldMap) {
+                cell.world_map_heights = reference.get(coords).and_then(|l| l.heights.as_deref()).map(crate::layers::Packed::to_vec);
+            }
             inherit_reference_layers(&mut cell, reference);
             if ignored_winner_has_heights && cell.heights.is_none() {
                 outcome.notes.push(format!("cell ({}, {}): not written, it has no heights of its own and would replace the terrain of a plugin left out of this cell", coords.0, coords.1));
@@ -720,6 +727,9 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     if let Some(loaded) = loaded {
         for (c, cell) in outcome.cells.iter_mut() {
             let Some(winner) = loaded.get(*c) else { continue };
+            if cell.world_map.is_none() && winner.world_map.is_some() {
+                cell.world_map_heights = winner.heights.as_deref().map(crate::layers::Packed::to_vec);
+            }
             for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
                 let slot = slot(cell, which);
                 if slot.is_none() {
@@ -736,12 +746,17 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     }
     outcome.borrowed = borrowed.len();
     let mut heights: BTreeMap<Coords, Vec<Value>> = outcome.cells.iter_mut().filter_map(|(c, cell)| cell.heights.take().map(|h| (*c, h))).collect();
-    // The heights each world map entry reads, as the merge left them, for
-    // the cells that carry a map: what the repairs below then move is looked for against these.
+    // The heights each world map entry was made from, for the cells that carry a map: the
+    // merge's own where a plugin's map was merged (what the repairs below then move is looked for
+    // against them), else those of the record the map came from (the masters', or the winner's),
+    // so a map made for ground a plugin has since moved is made again where it moved.
     let mapped: BTreeMap<Coords, Vec<Value>> = heights
         .iter()
         .filter(|(c, _)| outcome.cells[*c].world_map.as_ref().is_some_and(|w| w.iter().any(|&v| v != 0)))
-        .map(|(c, h)| (*c, (0..crate::grid::WNAM_SIZE * crate::grid::WNAM_SIZE).map(|k| h[crate::emit::world_map_vertex(k)]).collect()))
+        .map(|(c, h)| {
+            let from = outcome.cells[c].world_map_heights.as_ref().filter(|f| f.len() == h.len()).unwrap_or(h);
+            (*c, (0..crate::grid::WNAM_SIZE * crate::grid::WNAM_SIZE).map(|k| from[crate::emit::world_map_vertex(k)]).collect())
+        })
         .collect();
     let mut phases: BTreeMap<Coords, Value> = BTreeMap::new();
     if !heights.is_empty() {
@@ -799,8 +814,8 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     for (c, h) in heights {
         let cell = outcome.cells.get_mut(&c).unwrap();
         // An authored world map is kept as it is (WG-A07), but an entry of it describes the
-        // height it was made from: where seam repair or the slope limiter moved that height,
-        // the entry is made again from the height saved, as the engine would generate it.
+        // height it was made from: where that height has moved (a plugin's, seam repair, the
+        // slope limiter), the entry is made again from the height saved, as the engine would.
         if let (false, Some(was), Some(map)) = (outcome.keep_world_map, mapped.get(&c), cell.world_map.as_mut()) {
             for (k, entry) in map.iter_mut().enumerate() {
                 let now = h[crate::emit::world_map_vertex(k)];
@@ -840,9 +855,40 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
     Ok(times)
 }
 
+/// Cells left out of the merge as a page or a settings file writes them: entries split by
+/// lines or `|`; `Plugin.esp=X,Y;X,Y` leaves that plugin's terrain out at those cells, a plain
+/// cell list leaves the cells out for every plugin. An entry that does not read is an error.
+pub fn parse_ignored_cells(text: &str) -> Result<IgnoredCells, String> {
+    let mut out = IgnoredCells::default();
+    for entry in text.split(['\n', '|']).map(str::trim).filter(|e| !e.is_empty()) {
+        match entry.split_once('=') {
+            Some((plugin, cells)) => {
+                let plugin = plugin.trim();
+                if plugin.is_empty() {
+                    return Err(format!("\"{entry}\" names no plugin before the ="));
+                }
+                out.by_plugin.entry(plugin.to_ascii_lowercase()).or_default().extend(parse_cell_list(cells).map_err(|e| format!("{plugin}: {e}"))?);
+            }
+            None => out.everywhere.extend(parse_cell_list(entry)?),
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_cell_list;
+
+    #[test]
+    fn ignored_cells_read_for_every_plugin_and_for_one() {
+        let got = super::parse_ignored_cells("TR_Mainland.esm=-9,-46;-9,-47 | 3,4\nOther.esp=1,1").unwrap();
+        assert_eq!(got.everywhere.into_iter().collect::<Vec<_>>(), vec![(3, 4)]);
+        assert_eq!(got.by_plugin["tr_mainland.esm"].len(), 2);
+        assert!(got.by_plugin.contains_key("other.esp"));
+        assert!(super::parse_ignored_cells("").unwrap().is_empty());
+        assert!(super::parse_ignored_cells("=1,1").is_err());
+        assert!(super::parse_ignored_cells("A.esp=odd").unwrap_err().starts_with("A.esp:"));
+    }
 
     #[test]
     fn a_cell_list_reads_pairs_and_refuses_the_rest() {

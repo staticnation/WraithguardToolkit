@@ -101,9 +101,21 @@ module.exports = async (t) => {
   L.b.mask = 'off';
   // The overlay is on the mesh alone.
   const mesh = { col: new w.Uint8Array(N * N * 3).fill(255) };
+  const offMesh = { col: new w.Uint8Array(N * N * 3).fill(255) };
+  L.tintMask('0,0', offMesh);
+  t.ok(offMesh.col.every(v => v === 255), 'outside the Land view the mask is not drawn');
+  L.on = true;
   L.tintMask('0,0', mesh);
+  L.on = false;
   t.ok(mesh.col[(32 * N + 16) * 3 + 1] < 255 && mesh.col[(32 * N + 40) * 3 + 1] === 255, 'the mask is drawn as a tint where it is painted');
   t.ok(!w.App._scene.cells[0].colours, 'and the cell\'s own colors are not touched');
+  // Kept between sessions: saved a moment after a change, and read back.
+  await p.wait(700);
+  const keptMask = w.localStorage.getItem('wgLandPMask');
+  t.ok(keptMask && JSON.parse(keptMask)['0,0'], 'the mask is kept in the page\'s storage');
+  const was = m().slice();
+  L.pmaskCells.clear(); L.loadMask();
+  t.ok(m() && m().every((v, i) => v === was[i]), 'and read back as it was');
   // Alt rubs it out; Invert turns it round; Clear empties it.
   L.mode = 'mask'; L.strength = 100; L._mods.alt = true;
   L._stroke = null; L.paint([2048, 4096, 0]);
@@ -113,6 +125,8 @@ module.exports = async (t) => {
   t.ok(m()[32 * N + 16] === 255 && m()[32 * N + 40] === 255, 'Invert: what was clear is masked');
   d.getElementById('wgLandPMaskClear').click();
   t.ok(L.pmaskCells.size === 0, 'Clear empties it');
+  await p.wait(700);
+  t.ok(!w.localStorage.getItem('wgLandPMask'), 'and the kept copy with it');
   L.mode = 'height'; L.strength = 40; L.b.pmask = 'only';
   fresh(); L._stroke = null; L.paint([4096, 4096, 0]);
   t.ok(h(30, 32) === full, 'with nothing painted, "only inside the mask" is no mask');
