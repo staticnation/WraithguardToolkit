@@ -300,8 +300,8 @@ fn legend(worst: i64) -> String {
     format!("<div class=\"legend\">Mods per cell: {swatches} &nbsp;(north up; hover a cell for its mods, click it to jump to the list)</div>")
 }
 
-/// The page (`generate_cell_map_html`), stamped `stamped`.
-pub fn html(cov: &Coverage, title: &str, stamped: chrono::NaiveDateTime) -> String {
+/// The page (`generate_cell_map_html`), stamped `stamped` (`YYYY-MM-DD HH:MM:SS`).
+pub fn html(cov: &Coverage, title: &str, stamped: &str) -> String {
     let ext: Vec<&((i64, i64), Vec<String>)> = cov.exterior.iter().filter(|e| in_bounds(e.0)).collect();
     let dropped = cov.exterior.len() - ext.len();
     let worst = ext.iter().map(|e| e.1.len() as i64).max().unwrap_or(1);
@@ -348,7 +348,7 @@ pub fn html(cov: &Coverage, title: &str, stamped: chrono::NaiveDateTime) -> Stri
         scanned = cov.scanned,
         ne = ext.len(),
         ni = cov.interior.len(),
-        stamp = stamped.format("%Y-%m-%d %H:%M:%S"),
+        stamp = stamped,
         legend = legend(worst),
         focus = focus_options(cov),
         grid = svg_grid(&ext, subset, worst),

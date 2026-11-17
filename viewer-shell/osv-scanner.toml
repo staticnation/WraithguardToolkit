@@ -26,4 +26,4 @@ reason = "proc-macro-error 1.0.4 is the fork: same API re-exported from the main
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
-reason = "chrono is unmaintained (an informational notice, 2026-09-14: no flaw reported, no fixed version). It comes in through Tauri (tauri-utils -> serde_with) and the command line's dates (cli/src/main.rs, cellmap.rs). Drop this when Tauri drops it and the command line no longer uses it."
+reason = "chrono is unmaintained (an informational notice, 2026-09-14: no flaw reported, no fixed version). Nothing here builds it: the command line moved to `time`, and Tauri's serde_with leaves its chrono feature off. It stays in Cargo.lock because Cargo locks every optional dependency of a crate whatever its features, and serde_with has chrono as one. Drop this when serde_with drops it or Tauri drops serde_with."

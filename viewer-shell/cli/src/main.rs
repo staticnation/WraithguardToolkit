@@ -36,12 +36,38 @@ use ordercore::plan::{self, Computed, Counts, ExportArgs, ItemKind, PlanArgs, Pl
 
 use pypath::py_path;
 
+/// The local UTC offset, read once at the start of `main`: on Unix `time` refuses to read it
+/// once the process has a second thread (the environment isn't safe to read then), so it is
+/// taken before any start. UTC if the system won't say.
+static LOCAL_OFFSET: std::sync::OnceLock<time::UtcOffset> = std::sync::OnceLock::new();
+
+fn local_offset() -> time::UtcOffset {
+    *LOCAL_OFFSET.get_or_init(|| time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC))
+}
+
 /// The run's clock: local time, or `WRAITHGUARD_CLI_NOW` (`YYYY-MM-DDTHH:MM:SS`, for the tests).
-fn now() -> chrono::NaiveDateTime {
+fn now() -> time::PrimitiveDateTime {
+    const GIVEN: &[time::format_description::BorrowedFormatItem<'static>] =
+        time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]");
     std::env::var("WRAITHGUARD_CLI_NOW")
         .ok()
-        .and_then(|v| chrono::NaiveDateTime::parse_from_str(&v, "%Y-%m-%dT%H:%M:%S").ok())
-        .unwrap_or_else(|| chrono::Local::now().naive_local())
+        .and_then(|v| time::PrimitiveDateTime::parse(&v, GIVEN).ok())
+        .unwrap_or_else(|| {
+            let t = time::OffsetDateTime::now_utc().to_offset(local_offset());
+            time::PrimitiveDateTime::new(t.date(), t.time())
+        })
+}
+
+/// `2026-11-17 13:09:00`: the trace lines' and the cell map's stamp.
+const SHOWN: &[time::format_description::BorrowedFormatItem<'static>] =
+    time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+/// `20261117-130900`: the `.bak` and export stamp.
+const FILED: &[time::format_description::BorrowedFormatItem<'static>] =
+    time::macros::format_description!("[year][month][day]-[hour][minute][second]");
+
+/// `t` in `format`. A PrimitiveDateTime has every field these use, so this cannot fail.
+fn stamp(t: time::PrimitiveDateTime, format: &[time::format_description::BorrowedFormatItem<'_>]) -> String {
+    t.format(format).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------- the arguments
@@ -372,7 +398,7 @@ impl Trace {
     }
     fn line(&self, message: &str) {
         if let Some(mut f) = self.0.as_ref() {
-            let _ = writeln!(f, "{}  {message}", now().format("%Y-%m-%d %H:%M:%S"));
+            let _ = writeln!(f, "{}  {message}", stamp(now(), SHOWN));
             let _ = f.flush();
         }
     }
@@ -466,7 +492,7 @@ fn scan_with(args: &Args, input: &ScanInput, log: &Log, trace: &Trace) {
         if let Some(out) = args.cell_map.as_deref() {
             section("CELL MAP (which mods touch which cells)");
             let cov = cellmap::coverage(&order, &find, subset);
-            let html = cellmap::html(&cov, cellmap::TITLE, now());
+            let html = cellmap::html(&cov, cellmap::TITLE, &stamp(now(), SHOWN));
             trace.line(&format!("cell map: rendered {} bytes", html.len()));
             match write_text(out, &html) {
                 Ok(()) => {
@@ -667,7 +693,7 @@ fn run(args: &Args) -> Result<(), String> {
         no_backup: args.no_backup,
         sort_data_paths: args.plan.sort_data_paths,
         list_name: args.plan.list_name.clone(),
-        stamp: now().format("%Y%m%d-%H%M%S").to_string(),
+        stamp: stamp(now(), FILED),
         toml_line_ending: None,
     };
     let counts = Counts { rule_warnings: got.predicate_warnings.len(), yml_warnings: got.yml_warnings.len() };
@@ -725,7 +751,7 @@ fn plain_run(args: &Args, log: &Log, trace: &Trace) -> Result<(), String> {
     let input = ScanInput { active: &got.order, subset: &got.order, dirs: &dirs, origins: &BTreeMap::new(), custom_data_dirs: &dirs };
     scan_with(args, &input, log, trace);
     let dry = args.dry_run || !args.write_cfg;
-    let stamp = now().format("%Y%m%d-%H%M%S").to_string();
+    let stamp = stamp(now(), FILED);
     let mut lines = match spec.kind {
         Kind::Openmw => {
             // --sort-data-paths: the data folders holding plugins in the order they load.
@@ -773,6 +799,7 @@ fn plain_run(args: &Args, log: &Log, trace: &Trace) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    local_offset();
     let matches = command().get_matches();
     let args = Args::read(&matches);
     match run(&args) {

@@ -11,6 +11,15 @@
   output folder made before still has the same file; its `tool` field now reads "Wraithguard mesh
   optimizer".
 
+- **Tauri 2.12.6** (it was 2.12.0), with tauri-build 2.7.5, wry 0.57.2, tao 0.37.2, the dialog
+  plugin 2.8.4 and the fs plugin 2.7.1: the patch releases since, nothing in the app changed for
+  them.
+
+- **The command line's clock is the `time` crate** (it was chrono, which is no longer maintained,
+  RUSTSEC-2026-0543). Tauri already brings `time` in, so nothing new is built; the `.bak` and
+  export stamps, the trace lines and the cell map's date read as before. The local offset is read
+  once, as the run starts: on Linux `time` won't read it once a second thread is running.
+
 - **The Linux AppImage is `Wraithguard_Toolkit-x86_64.AppImage`** (it was
   `wraithguard-linux-x86_64.AppImage`): AppImageHub's catalog wants no "linux" in the name. The
   plain tarball keeps its name.
