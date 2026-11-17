@@ -108,7 +108,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `58_wg_distant_objects.js` | 5 KB | Distant objects on the distant land (OpenMW-style object paging). |
 | `59_wg_loadorder.js` | 34 KB | The Load order page: Sort and Export, the orders, the rule files, the warnings. |
 | `60_wg_conflicts.js` | 49 KB | The Conflicts page: records, fields, resources, textures, terrain and strategies, plugins, patching. |
-| `61_wg_tools.js` | 61 KB | The Tools page: Lint, Merge Lands, Merge settings, Save Check, tes3cmd, masters, Backups, the Journal, the mesh optimiser. |
+| `61_wg_tools.js` | 61 KB | The Tools page: Lint, Merge Lands, Merge settings, Save Check, tes3cmd, masters, Backups, the Journal, the mesh optimizer. |
 | `62_wg_help.js` | 8 KB | The Help page: the program's own documents (`toolscore::docs`). |
 | `63_wg_sound.js` | 28 KB | Sound: a player for records and files, a play button on every sound field, and the scene's sound (objects' loops, the region, weather, thunder, music). |
 | `64_wg_setup.js` | 15 KB | The Setup page: every path the program runs on, checked as typed. |

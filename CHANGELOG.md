@@ -5,6 +5,12 @@
 
 ### Changed
 
+- **American spelling for the mesh tools**: the mesh viewer's button reads "Optimize draw order"
+  (it was "Optimise"), and the Tools page's Mesh optimiser is the Mesh optimizer, its messages
+  "optimized". The manifest it writes keeps its name, `wraithguard-mesh-optimiser.json`, so an
+  output folder made before still has the same file; its `tool` field now reads "Wraithguard mesh
+  optimizer".
+
 - **The Linux AppImage is `Wraithguard_Toolkit-x86_64.AppImage`** (it was
   `wraithguard-linux-x86_64.AppImage`): AppImageHub's catalog wants no "linux" in the name. The
   plain tarball keeps its name.
@@ -14,7 +20,10 @@
   pair of changes from -2,048 to 2,048: 9,746 of 16.8 million blends were a unit apart, and two
   were judged minor where the original judges them major or the other way. Only `Resolve` and
   `Auto` against the masters blend; against the load order (the default) `Auto` writes the same
-  plugin as before.
+  plugin as before. Two more of its rules, against the masters: a cell no master has is blended
+  as any other (each plugin's change measured from zero), where it took the later plugin's heights
+  (the Python's rule, kept against the load order); and the same change from two plugins is no
+  conflict, where it counted as a contested vertex.
 
 - **Merge Lands leaves `groundcover.omwaddon` out by default**, as OpenMWMergedLands does: grass
   placed as references, with no land of its own to merge. A list already saved on the Tools page
@@ -51,6 +60,15 @@
 
 ### Fixed
 
+- **The Land view's texture mask, "As drawn", where three textures meet.** The renderer lays
+  each texture over the ones below it (the most painted the opaque base, as the engine orders
+  them), so what shows of a lower texture is its own coverage times what the ones over it leave;
+  the mask took each texture's coverage alone, and halfway between a road and a rock cell drawn
+  over it said half road where a quarter shows. It now follows the renderer's order and stacking,
+  and holds a cell's edge where no neighbor is loaded, as the engine does (it had counted that
+  ground as none of the textures). Where two meet nothing changes: the shader adds no curve to
+  the linear blend (checked, 2026-11-17).
+
 - **Merge Lands' "repair the seams the terrain already has" mends a seam between two cells it only
   borrowed** (the untouched neighbours of changed cells, held still so the changed cells meet them).
   Such a seam fell between the two rules that pick existing seams and stayed open: on the audit's
@@ -73,6 +91,15 @@
   freed once its normals are final, and normals that come out as they went in are not copied.
 
 ### Added
+
+- **The viewer wears Wraithguard's own theme from its old settings** (`log_theme`) where
+  nothing else names one: a profile written before themes were kept in it, or a first start
+  with no theme remembered. A theme chosen since stands.
+
+- **A sound is decoded once, not each run.** Its facts and waveform (the Editor's sound
+  player, for a Sound record or a response's voice file) are kept in the scans' cache by the
+  file that supplies it, while that file is unchanged; which folders and archives have it is
+  asked again each time.
 
 - **The Editor's Verify asks less of the record cache on a launch.** A plugin the key index says
   has no records of a type (most plugins have no game settings) is given none without its cached

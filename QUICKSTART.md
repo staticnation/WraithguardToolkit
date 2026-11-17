@@ -71,7 +71,7 @@ The top bar switches between the pages.
   the game on it.
 - **Land**: sculpt, paint and color the terrain with a brush, into the Editor's patch.
 - **Tools**: Lint, Backups, Remove / rename master, Save Check, Journal, tes3cmd, Merge
-  Lands, Merge settings, Merge to master and the Mesh optimiser.
+  Lands, Merge settings, Merge to master and the Mesh optimizer.
 - **Help**: these documents, inside the program.
 
 ---

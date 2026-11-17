@@ -347,6 +347,8 @@ const PrevSettings={
     App.theme=String(P.theme||'').trim();
     if(typeof Themes==='object'){
       Themes.apply();
+      // A profile that names no theme at all (written before it kept one): Wraithguard's own.
+      if(P.theme==null) Themes.fallback();
       /* Round 18cj: and this machine remembers what the profile asked for, so the next
          start-up wears it before it has read any profile. Switching profile is exactly
          the case Robin named — "as well as when I switch profiles later on in a live
@@ -777,6 +779,22 @@ const Themes={
 
   /** The chosen code, trimmed, '' for the one it ships with. */
   code(){ return String(App.theme||'').trim(); },
+
+  /** Wraithguard's own theme from its old settings file (`log_theme`, as `settings_seed` gives
+      it: `wg-` and the preset's name), worn where nothing else names one: a profile written
+      before themes were kept in it, or a first start with no theme remembered (the After 5.0
+      list, done 2026-11-17). Only while the window still wears the one it ships with, so a
+      theme chosen meanwhile stands. */
+  fallback(){
+    if(typeof WgSettings!=='object') return;
+    Promise.resolve(WgSettings.seed()).then(sd=>{
+      if(typeof sd==='string'){ try{ sd=JSON.parse(sd); }catch(_){ return; } }
+      const want=String((sd&&sd.theme)||'').trim();
+      if(!want || this.code()!=='' || !this.all.some(t=>t.code===want)) return;
+      App.theme=want;
+      this.apply();
+    }).catch(()=>{});
+  },
 
   /** Wraithguard's palette, as the toolkit is wearing it now (`__WG_VIEW__.theme`, its
       `DARK` dict): the base colours of the `wraithguard` theme block in viewer_only.html,

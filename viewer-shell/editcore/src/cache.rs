@@ -43,6 +43,9 @@ pub const RECORD_CACHE_BYTES: u64 = 4 << 30;
 /// Reports kept for the load order as it is (the oldest go first).
 pub const REPORTS_KEPT: i64 = 2000;
 
+/// The most facts kept of a kind ([`Cache::put_fact`]): a sound's is a few kilobytes.
+pub const FACTS_KEPT: i64 = 4000;
+
 /// The pseudo-tag the use-report index is stamped under (in `key_stamps`).
 pub const USES_TAG: &str = "~USE";
 
@@ -240,7 +243,9 @@ impl Cache {
              CREATE TABLE IF NOT EXISTS spans2 (plugin TEXT NOT NULL, rtype TEXT NOT NULL, id TEXT NOT NULL,
                off INTEGER NOT NULL, len INTEGER NOT NULL, PRIMARY KEY (plugin, rtype, id)) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS span_stamps2 (plugin TEXT PRIMARY KEY,
-               size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL);",
+               size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL);
+             CREATE TABLE IF NOT EXISTS facts (kind TEXT NOT NULL, key TEXT NOT NULL,
+               size INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (kind, key));",
         )?;
         Cache::forget_missing(&tx)?;
         tx.commit()?;
@@ -722,6 +727,41 @@ impl Cache {
             h.update(format!("{}\0{}\0{}\n", s.key, s.size, s.mtime_ns).as_bytes());
         }
         Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    }
+
+    /// What was worked out from one file, kept while the file is as it was (`stamp`'s size and
+    /// date): a sound's facts and waveform (`sound_info`, Static, 2026-11-17: a sound decoded
+    /// once, not on every run). `key` names the file and the question; `None` is a miss.
+    pub fn get_fact(&self, kind: &str, key: &str, stamp: &Stamp) -> Option<Vec<u8>> {
+        self.read(|c| {
+            let (size, mtime, data): (i64, i64, Vec<u8>) = c
+                .query_row("SELECT size, mtime_ns, data FROM facts WHERE kind=? AND key=?", params![kind, key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .optional()
+                .ok()??;
+            (size == stamp.size && mtime == stamp.mtime_ns).then_some(data)
+        })
+        .and_then(|d| zstd::decode_all(d.as_slice()).ok())
+    }
+
+    /// Keeps what was worked out from a file as it now is ([`Cache::get_fact`]); the oldest of a
+    /// kind go past [`FACTS_KEPT`].
+    pub fn put_fact(&self, kind: &str, key: &str, stamp: &Stamp, data: &[u8]) {
+        let Ok(blob) = zstd::encode_all(data, LEVEL) else { return };
+        self.with(|c| {
+            let r = (|| -> rusqlite::Result<()> {
+                let tx = c.transaction()?;
+                tx.execute("INSERT OR REPLACE INTO facts VALUES (?, ?, ?, ?, ?)", params![kind, key, stamp.size, stamp.mtime_ns, blob])?;
+                tx.execute(
+                    "DELETE FROM facts WHERE kind=? AND rowid IN (SELECT rowid FROM facts WHERE kind=? ORDER BY rowid DESC LIMIT -1 OFFSET ?)",
+                    params![kind, kind, FACTS_KEPT],
+                )?;
+                tx.commit()
+            })();
+            if let Err(e) = r {
+                (self.warn)(&format!("editor: record cache write failed: {e}"));
+            }
+            Some(())
+        });
     }
 
     /// A report kept for a load order ([`Cache::load_order_signature`]).

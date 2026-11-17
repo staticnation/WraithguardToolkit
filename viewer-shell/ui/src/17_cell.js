@@ -8,7 +8,7 @@
 
    The page used to do this itself — walk every plugin, parse CELL and LAND records,
    resolve reference numbers against master lists. It could not survive a real load
-   order: pulling 583 MB through a webview is not something to optimise, it is
+   order: pulling 583 MB through a webview is not something to optimize, it is
    something to stop doing. And it was the second implementation of merge rules that
    only one of the two could get right, because only one of them holds the whole world.
 

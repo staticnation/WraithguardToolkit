@@ -4898,7 +4898,7 @@ class Renderer{
    *  **The order is preserved and has to be.** Within a plane the last mark wins, so a
    *  cell's list is filled in mark order and walked in mark order; the fragment then sees
    *  the same marks in the same sequence as the full walk, with only the unreachable ones
-   *  missing. That is what makes this an optimisation rather than a second answer.
+   *  missing. That is what makes this an optimization rather than a second answer.
    *
    *  Returns null below `DAB_GRID_MIN`, where the grid would cost more than the walk.
    */

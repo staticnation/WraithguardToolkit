@@ -1,5 +1,5 @@
 // The Conflicts page's commands: the record and loose-file scans, a record across its plugins, the
-// terrain preview, the texture compare, the reports, the mesh optimiser, and the plugin view.
+// terrain preview, the texture compare, the reports, the mesh optimizer, and the plugin view.
 // Part of the command layer (`../commands.rs`, which registers every command and says why
 // each is `#[tauri::command(async)]`); split out by page, 2026-11-09.
 
@@ -128,7 +128,7 @@ pub(super) fn mo_folded(p: &str) -> String {
     p.trim_end_matches(['/', '\\']).to_lowercase()
 }
 
-/// The meshes of the load order that the optimiser looks at: the winning copy of each,
+/// The meshes of the load order that the optimizer looks at: the winning copy of each,
 /// not those in the output folder (what it wrote before is not an input).
 pub(super) fn mo_candidates(cfg: &str, opts: &conflictcore::nif_batch::Options, out_dir: &str) -> Result<Vec<conflictcore::nif_batch::Candidate>, String> {
     use conflictcore::nif_batch as nb;
@@ -139,7 +139,7 @@ pub(super) fn mo_candidates(cfg: &str, opts: &conflictcore::nif_batch::Options, 
     Ok(nb::filter(nb::collect(&data), opts))
 }
 
-/// Wraithguard: the mesh optimiser's measurement over a load order (Tools). `opts`:
+/// Wraithguard: the mesh optimizer's measurement over a load order (Tools). `opts`:
 /// `{minGain: percent, minTriangles, folder}`; `out_dir`: the folder the copies will go to
 /// (left out of the inputs); `limit`: the most rows sent, best gain first. Answers
 /// `{stats: {meshes, unreadable, improvable, qualifying, qualifyingTriangles,
@@ -182,16 +182,16 @@ pub(super) fn meshopt_analyse(cfg: String, opts: serde_json::Value, out_dir: Str
     serde_json::to_string(&out).map_err(|e| e.to_string())
 }
 
-/// Wraithguard: writes the optimised copies (Tools). The meshes that qualify under `opts`
+/// Wraithguard: writes the optimized copies (Tools). The meshes that qualify under `opts`
 /// (and, when `paths` is not empty, are in it: the rows the person left ticked), each
-/// optimised, read back and checked to be the same mesh, at its own path under `out_dir`,
+/// optimized, read back and checked to be the same mesh, at its own path under `out_dir`,
 /// and `wraithguard-mesh-optimiser.json` beside them. Nothing in any mod is touched.
 /// Answers `{written, failed, bytesBefore, bytesAfter, failures: [{path, why}]}`.
 #[tauri::command(async)]
 pub(super) fn meshopt_write(cfg: String, opts: serde_json::Value, out_dir: String, paths: Vec<String>) -> Result<String, String> {
     use conflictcore::nif_batch as nb;
     if out_dir.trim().is_empty() {
-        return Err("name the folder the optimised meshes go to".into());
+        return Err("name the folder the optimized meshes go to".into());
     }
     let _gate = scan_gate();
     let o = nb::Options::from_json(&opts);
@@ -217,7 +217,7 @@ pub(super) fn meshopt_write(cfg: String, opts: serde_json::Value, out_dir: Strin
     serde_json::to_string(&res).map_err(|e| e.to_string())
 }
 
-/// Wraithguard: how far the optimiser's run has got, `[done, total]`.
+/// Wraithguard: how far the optimizer's run has got, `[done, total]`.
 #[tauri::command(async)]
 pub(super) fn meshopt_progress() -> [usize; 2] {
     use std::sync::atomic::Ordering;

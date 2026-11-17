@@ -415,7 +415,7 @@ pub fn blocks(bytes: &[u8]) -> io::Result<Value> {
         blocks.insert(i.to_string(), json!({"type": type_name(o), "fields": fields}));
     }
     let tree = tree(&stream, &keys, &index);
-    // What Optimise would do to each shape (a dry run; nothing in `stream` changes).
+    // What Optimize would do to each shape (a dry run; nothing in `stream` changes).
     let draw_order = crate::nif_order::report(&mut stream, &index);
     Ok(json!({"tree": tree, "blocks": blocks, "complete": true, "draw_order": draw_order}))
 }

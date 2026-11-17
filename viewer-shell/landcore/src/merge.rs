@@ -164,6 +164,12 @@ pub fn merge_grids(first: &RelativeGrid, second: &RelativeGrid, chosen: Strategy
                     put(&mut merged, v, d2);
                     continue;
                 }
+                // The same change from both: no conflict, as Merged Lands' `average` has it.
+                (true, true) if d1 == d2 => {
+                    report.taken_from_one += 1;
+                    put(&mut merged, v, d1);
+                    continue;
+                }
                 (true, true) => {}
             }
             report.contested += 1;

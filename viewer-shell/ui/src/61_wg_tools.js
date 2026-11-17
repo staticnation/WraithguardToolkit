@@ -46,7 +46,7 @@ const WgToolsPage={
     ['mergelands','Merge Lands','Merged Lands.esp: the terrain of every mod that reshapes a cell, kept together'],
     ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how'],
     ['m2m','Merge to master','A plugin folded into its master, or a whole load order into one master (merge_to_master)'],
-    ['meshopt','Mesh optimiser','Draw-order copies of the load order\'s meshes, only where it helps']],
+    ['meshopt','Mesh optimizer','Draw-order copies of the load order\'s meshes, only where it helps']],
   t3:{files:[]},
   m2:{plugin:'', master:'', files:[]},
   jr:{data:null, quest:null},
@@ -205,16 +205,16 @@ const WgToolsPage={
   <div id="tlMgForm"></div>
   <div class="empty" style="padding:8px 0 0">Auto = later plugin wins for entries it changed · Overwrite = this plugin wins collisions · Ignore = keep the earlier edit · Resolve = blend conflicting numbers · Curvature = structure-weighted blend (ours).</div>
   <pre id="tlMgPreview" style="white-space:pre;font-family:var(--mono);margin:8px 0 0;padding:8px;background:var(--bg3);border:1px solid var(--line);border-radius:6px"></pre></div></div>
-<div class="col pane" id="tlMo" hidden><h3>Mesh optimiser <span class="sp"></span><span id="tlMoStats" class="empty"></span>
+<div class="col pane" id="tlMo" hidden><h3>Mesh optimizer <span class="sp"></span><span id="tlMoStats" class="empty"></span>
   <button class="btn dim" id="tlMoAll" title="Tick every mesh that qualifies, or none">All</button>
-  <button class="btn dim" id="tlMoWrite" disabled title="Write the ticked meshes, optimised, into the output folder">Write copies</button><button class="btn" id="tlMoRun">Analyse</button></h3>
+  <button class="btn dim" id="tlMoWrite" disabled title="Write the ticked meshes, optimized, into the output folder">Write copies</button><button class="btn" id="tlMoRun">Analyse</button></h3>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <label title="A mesh is rewritten only when it draws at least this much better (vertex cache, overdraw or vertex fetch, weighted by triangles)">Least gain <input type="number" id="tlMoGain" value="3" min="0" step="0.5" style="width:56px"> %</label>
     <label title="Meshes with fewer triangles than this are left alone">Least triangles <input type="number" id="tlMoTris" value="64" min="0" style="width:64px"></label>
     <input type="text" id="tlMoFolder" placeholder="only meshes from data folders containing..." style="flex:1;min-width:180px" title="Part of a data folder's path; empty: every mesh the load order provides"></div>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <span>Write into</span><input type="text" id="tlMoOut" placeholder="a new, empty folder (not one of your mods); add it last in the data= lines" style="flex:1;min-width:240px"><button class="btn dim" id="tlMoBrowse">Browse...</button></div>
-  <div class="scroll"><div id="tlMoIntro" class="empty">Puts the load order's meshes in the order a graphics card draws fastest (vertex cache, then overdraw, then vertex fetch), only the meshes where it pays: each shape is moved only if it really draws better, and a mesh only if the gain reaches the threshold above. Analyse measures the winning copy of every loose mesh (archives are not read); Write copies puts the ticked ones, optimised and checked to be the same mesh, into the folder above, at their own paths. Your mods are not modified; the folder goes last in the load order, or is deleted to undo. What was measured is remembered, so the next run measures only what changed.</div>
+  <div class="scroll"><div id="tlMoIntro" class="empty">Puts the load order's meshes in the order a graphics card draws fastest (vertex cache, then overdraw, then vertex fetch), only the meshes where it pays: each shape is moved only if it really draws better, and a mesh only if the gain reaches the threshold above. Analyse measures the winning copy of every loose mesh (archives are not read); Write copies puts the ticked ones, optimized and checked to be the same mesh, into the folder above, at their own paths. Your mods are not modified; the folder goes last in the load order, or is deleted to undo. What was measured is remembered, so the next run measures only what changed.</div>
   <div id="tlMoBody"></div></div></div>`;
     document.body.appendChild(el);
     for(const d of el.querySelectorAll('#tlNav [data-t]')) d.onclick=()=>this.show(d.dataset.t);
@@ -445,7 +445,7 @@ const WgToolsPage={
     catch(e){ stop.disabled=false; toast(String(e.message||e),'err',5000); }
   },
 
-  /* ---- Mesh optimiser (conflictcore::nif_batch) ---- */
+  /* ---- Mesh optimizer (conflictcore::nif_batch) ---- */
   moOpts(){
     return {minGain:parseFloat($('#tlMoGain').value)||0, minTriangles:parseInt($('#tlMoTris').value,10)||0, folder:$('#tlMoFolder').value.trim()};
   },
@@ -512,14 +512,14 @@ const WgToolsPage={
   async moWrite(){
     if(this.mo.running) return;
     const out=$('#tlMoOut').value.trim();
-    if(!out) return toast('Choose the folder the optimised meshes go to first','warn',3500);
+    if(!out) return toast('Choose the folder the optimized meshes go to first','warn',3500);
     const boxes=[...document.querySelectorAll('#tlMoBody input[data-p]')];
     const ticked=boxes.filter(b=>b.checked).map(b=>this.mo.rows[+b.dataset.p].path);
     // Every box ticked and every qualifying mesh listed: all of them, even those not listed.
     const all=boxes.length>0 && ticked.length===boxes.length && this.mo.stats.qualifying>boxes.length;
     if(boxes.length && !ticked.length) return toast('Tick the meshes to write','warn',3000);
     const n=all? this.mo.stats.qualifying : (ticked.length||this.mo.stats.qualifying);
-    const ok=await wgConfirm(`${n.toLocaleString()} optimised mesh(es) will be written into:\n${out}\n\nYour mods are NOT modified. Each copy is checked to be the same mesh as the original. Add that folder LAST in your data= lines to use them, or delete it to undo.`);
+    const ok=await wgConfirm(`${n.toLocaleString()} optimized mesh(es) will be written into:\n${out}\n\nYour mods are NOT modified. Each copy is checked to be the same mesh as the original. Add that folder LAST in your data= lines to use them, or delete it to undo.`);
     if(!ok) return;
     this.mo.running=true; $('#tlMoRun').disabled=true; $('#tlMoWrite').disabled=true;
     const stop=this.moTick('Writing');
@@ -530,7 +530,7 @@ const WgToolsPage={
       stop();
       const saved=r.bytesBefore-r.bytesAfter;
       $('#tlMoStats').textContent=`${r.written} written${r.failed?`, ${r.failed} failed`:''} to ${out}`;
-      toast(`${r.written} optimised mesh(es) written`+(r.failed?`; ${r.failed} failed`:''), r.failed?'warn':'ok', 6000);
+      toast(`${r.written} optimized mesh(es) written`+(r.failed?`; ${r.failed} failed`:''), r.failed?'warn':'ok', 6000);
       if(r.failures && r.failures.length){
         $('#tlMoBody').insertAdjacentHTML('afterbegin', `<div class="warn">Not written:\n${r.failures.map(f=>loEsc(f.path+': '+f.why)).join('\n')}</div>`);
       }

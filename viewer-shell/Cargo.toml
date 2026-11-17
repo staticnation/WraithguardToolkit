@@ -83,7 +83,7 @@ name = "wraithguard-toolkit"
 path = "src/main.rs"
 
 # Release builds. opt-level 3, not "z": the cell viewer's engine (mesh/texture
-# decoding, terrain, load order) runs in this binary and size-optimising it costs
+# decoding, terrain, load order) runs in this binary and size-optimizing it costs
 # far more in load time than it saves in bytes.
 [profile.release]
 opt-level = 3

@@ -57,6 +57,26 @@ module.exports = async (t) => {
     'and in quarters between (' + [h(31, 32), h(32, 32), h(33, 32)].join(', ') + ')');
   L.b.maskEdge = 'cell';
 
+  // As drawn where three textures meet: the renderer lays each texture over the ones below it,
+  // the most painted the opaque base (engine order). Grass is the base; road has three texture
+  // cells and rock two, so rock is drawn over road. Halfway between the centers of road (4,4)
+  // and rock (5,4): rock shows half, road half of what rock leaves, grass the rest.
+  {
+    const three = []; for (let j = 0; j < TS; j++) for (let i = 0; i < TS; i++) three.push('grass');
+    for (const [i, j] of [[4, 4], [4, 3], [3, 3]]) three[j * TS + i] = 'road';
+    for (const [i, j] of [[5, 4], [6, 3]]) three[j * TS + i] = 'rock';
+    const c3 = Object.assign(cell(), { _landIds: three });
+    const cells = new w.Map([['0,0', c3]]);
+    const at = (ids) => L.drawnShare(cells, 20, 18, ids);
+    t.ok(Math.abs(at(['rock']) - 0.5) < 1e-6 && Math.abs(at(['road']) - 0.25) < 1e-6 && Math.abs(at(['grass']) - 0.25) < 1e-6,
+      'three meet: rock 0.5, road 0.25 under it, grass 0.25 (' + [at(['rock']), at(['road']), at(['grass'])].join(', ') + ')');
+    t.ok(Math.abs(at(['road', 'rock']) - 0.75) < 1e-6, 'two named: what they show together (' + at(['road', 'rock']) + ')');
+    // A texture painted there: the layers kept on the cell are made again.
+    L.texture = 'rock';
+    L.dabTexture(cells, 4.5 * 512, 4.5 * 512, new w.Set());
+    t.ok(at(['rock']) === 1, 'painted over with rock, the vertex is all rock (' + at(['rock']) + ')');
+  }
+
   fresh(); L.b.mask = 'not';
   stroke();
   t.ok(h(30, 32) === 0 && h(34, 32) === full, 'everywhere but road: the grass rises, the road stays');

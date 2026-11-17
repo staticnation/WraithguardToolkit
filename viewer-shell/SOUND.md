@@ -27,8 +27,8 @@ weather's ambient and rain loops as OpenMW reads them (`_Ambient_Loop_Sound_ID`,
 (`viewcore::world::loop_in_script`: the first call on the object itself, not after `->`;
 played whatever the script's conditions are, behind Preview's "Script loops"). **Step 4 is in**
 (2026-11-02): Verify opens the files sound records and responses name (below). Not yet: Battle
-music (no fight to start it), and `sound_peaks` cached by file (the page caches by path for
-the session).
+music (no fight to start it). A sound's facts and waveform are kept by file (2026-11-17,
+below).
 
 ## Reference: Resonix
 
@@ -72,8 +72,10 @@ game resolves it:
   RMS level, which data folder or archive supplied it (`Vfs::providers`).
 - `sound_pcm(path)`: decoded PCM as bytes (a small header, then interleaved 16-bit), the
   same way meshes and textures cross today.
-- `sound_peaks(path, n)`: min/max pairs for a waveform, cached by path and modified time
-  (in the SQLite cache step 4.1 brings to Rust).
+- The waveform, min/max pairs, comes with `sound_info(path, n)`, not a call of its own. What
+  is decoded is kept in the scans' cache (`wraithguard_scan_cache.sqlite3`, `facts`) by the
+  file that supplies the sound, its path or its archive and name, while that file's size and
+  date are as they were; `path` and `from` are asked of the data folders each time.
 
 ## The page side
 

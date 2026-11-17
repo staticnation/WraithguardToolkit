@@ -485,7 +485,7 @@ attributes with locks, with update, sloppy, prune, points, scale). Only `sqrtf` 
 `gardenfell-nif` and order them with your `triorder` (a dev-dependency). The paths in its
 `Cargo.toml` and in `run.sh` are our tree's; adjust them to yours.
 
-What we use it for: the mesh viewer's Draw order report and Optimise (your `triorder`,
+What we use it for: the mesh viewer's Draw order report and Optimize (your `triorder`,
 then the fetch order, written back to the NIF), and later distant LODs.
 
 ## A question for after your release: a grass-free session crate?

@@ -3,41 +3,20 @@
 Open work only. Done items go to `CHANGELOG.md`; what a finished item taught us goes
 beside its code, or in `viewer-shell/gardenfell/VENDOR.md` for the vendored crates.
 Code and decisions only: what is waiting to be tried on Static's setup is not kept here
-(2026-11-09). Cleaned up 2026-11-02: the port to one program is done (5.0.0, in `CHANGELOG.md`), so its
-history left this file; what was left of it is under "After 5.0" (2026-11-03, from the retired
-`viewer-shell/DROP-TK.md`). Design notes that still guide open work: `viewer-shell/SOUND.md`,
+(2026-11-09). Cleaned up 2026-11-17: finished work, its measurements and status checks left
+for `CHANGELOG.md`; a decision stays as one line where open work depends on it. Design notes that still guide open work: `viewer-shell/SOUND.md`,
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
 ## Tools page
 
-- Merge Lands speed: Static's run of `big_order` on 2026-11-02 (before the merge step's
-  work that day): read 0.37 s, merge 2.91 s, seams 0.68 s, write 0.25 s, the same plugin.
-  The merge step since: no allocation per contested vertex, decoding across the cores, cells
-  taken one at a time (2.15 s to 1.05 s here). Static's run after that (2026-11-02): merge
-  2.23 s, seams 0.9 s, 4.47 s in all, the same SHA. Then: the decoded cells moved rather than
-  cloned (peak memory 1.50 to 1.22 GB), a packed layer compared and read in place, the merge
-  loop settling untouched vertices first - only 1% fewer instructions in the merge (callgrind):
-  what is left is blending the 28 million contested vertices, the work itself. Static's run
-  2026-11-10: merge 1.90 s, finish 0.92 s, 3.86 s in all, the same SHA. The finish step since
-  (2026-11-10, 0.42 s to 0.30 s on 2 cores here): the normals worked out only where the
-  reference's are not kept, the reference read in place (no unpacked copies for the anchor,
-  the normals or the digests), each border's grids looked up once, the cell digests a fast
-  hash instead of SipHash. Static's runs after it (2026-11-10): `big_order` finish 0.42 s
-  (from 0.92 s; the same SHA); the real order (619 plugins, 4,640 modified cells) merge 2.9 s
-  and finish 4.5 s - the finish is the larger part there, not on `big_order`. Verbose now
-  says each finish step's time ("finished in neighbours ..., seams ..., slopes ..., normals
-  ..., borders ..., cleaning ..."): a Verbose Merge Lands of the real order says which to
-  take next. Static's Verbose run (2026-11-10): neighbours 0.03 s, seams 0.10, slopes 2.21,
-  normals 0.27, borders 0.15, cleaning 1.31; masters read 2.2 s, reference landmass 3.9 s, and
-  4.4 s between "declaring" and "wrote" (13.5 MB). Since (5.0.5): the slope passes stop once
-  nothing changes and run a few changed cells on one thread, the masters decode across the
-  cores, the digests are quicker. Verbose now splits digests from cleaning and the encoding
-  from the disk write: the next run says whether the 4.4 s is the disk (or a scanner on the
-  new file) or the encoding. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
-  (Linux only) and the output's SHA-256 (`d3c09862...` as of 2026-11-17; it was `4d2e6cee...` before the terrain audit and the alignment with OpenMWMergedLands changed what is written):
+- Merge Lands speed. Benchmark, from `viewer-shell` (prints each step's time, the peak memory and
+  the output's SHA-256, `d3c09862...` as of 2026-11-17):
 
       cargo test --release -p landcore --test merge_cases -- --ignored --nocapture big_order
 
+  Static's real order (619 plugins, 2026-11-10) spent 4.4 s between "declaring" and "wrote" (13.5
+  MB); Verbose now splits the encoding from the disk write. A Verbose run of the real order says
+  whether that time is the disk (or a scanner on the new file) or the encoding.
 - tes3cmd in Rust (`viewer-shell/TES3CMD-REWRITE.md`; decided 2026-11-09, not started): its own
   repository (`staticnation/tes3cmd-rs`), a library and a `tes3cmd` command line over greatness7's
   `tes3`, with tes3cmd's own commands and flags so the MOMW Tools Pack and existing batch files
@@ -51,114 +30,54 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
   plugins, recorded once. Wraithguard takes it as a git dependency (as merge_to_master) and the
   Tools page drops the staging and the external program as each command lands.
 
-## Terrain audit (`TERRAIN_AUDIT_2026-11-11.md`, against 5.0.5)
+## Merge Lands
 
-Done in 5.0.5 (see `CHANGELOG.md`): WG-A03 (normals kept by their three heights), WG-A07 (OpenMW's world map), WG-A05 (configured order), WG-A01 (heights finalized before normals), WG-A04
-(slope limiter at VHGT's real bounds), WG-A02 (what loads is the last whole record; absent colours
-are white; layers the merge has nothing to say about come from the winning record) and WG-A06
-(texture-only records written; a cell that cannot be written stops the merge). Open:
+Open:
 
-- The audit's decoded inputs replay through the build (`audit1.7z` `decoded/inputs`, numbered as
-  `geometry/inputs.json`'s plugins, not as the config's content list; 74 reduced plugins, LAND and
-  LTEX only), and 5.0.5 on them writes the audit's 39 cells exactly. This build writes 37: seven
-  dropped (three by finalizing before cleaning, four that were only the 1,008-unit slope margin
-  moving ground), five added (whole-record loaded state: three texture restorations and two colour
-  ones, all of which Merged Lands writes). No effective seam differs from 5.0.5's (228 borders,
-  7,023 vertices left open in both, none beside a dropped cell), no clamped vertex, no slope move,
-  and every normal is either a kept authored one (155,548 of 156,325 the winning record's, 31 an
-  earlier one's) or the formula on the saved heights; 5.0.5 had 2,452 that were neither. Left: the
-  real order itself, and the 303-against-36 record count, which is repair scope (below).
-- Plain Morrowind order (not an audit finding; Static, 2026-11-11): the ini only says which plugins
-  load, and the game sorts them by file date, masters first. `ordercore::install` and the viewer's
-  connect sort that way. `gardenfell-install`'s `plugins::arrange` is left as it is, on purpose: it
-  shows the ini's order (the order the user means), and it is the tool that changes the files' dates to
-  match it (`ordercore::plain::dates_for`), not the list that is reordered. `gardenfell-world::read_load_order`
-  returns the ini's order, said in its doc (the connect sorts after it); an MO2 profile's list is the
-  order as it is. A master is told by its extension everywhere in the tools (decided 2026-11-12, for
-  simplicity and uniformity). The TES3 header's flag only matters when a file is converted between
-  `.esp` and `.esm`, so the master check just notes a name and a header that disagree, either way
-  (`[MASTER FLAG]`, `inputs::check_missing_masters`; the page's "Master flags"); nothing acts on it.
-- **Decided (2026-11-12): repair scope is the changed cells by default, and the seams the terrain
-  already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`; the Tools
-  page has a box, a gap and a list of cells, which the viewer build has not been run to see). Left:
-  no ceiling above 24 has been shown safe (600 on the audit's order made three borders worse and clamped two vertices).
-  Replayed 2026-11-16 at 24 on the audit's 74 inputs: 297 records against the masters, 259 against
-  the load order. Three borders of 24 units or less stay open, each one corner vertex where the cells
-  outside the merge that share it disagree with each other ((13,-30)/(14,-30), its northern
-  neighbours at 1,448 and 1,424; (-116,12)/(-115,12); (-12,-15)/(-11,-15)), so no height agrees with
-  them all. The fourth, between two cells the merge had borrowed, is mended now
-  (`mend_between_borrowed`).
-  Fixing those would mean moving terrain outside the merge. The audit's own note
-  stands: do not cut record counts by suppressing small mismatches; known intentional discontinuities
-  go in as exceptions. Record counts against Merged Lands (303 against 115 at 24) are not a measure.
+- The real order through this build (the terrain audit, `TERRAIN_AUDIT_2026-11-11.md`, is done on
+  its 74 decoded inputs: `audit1.7z` `decoded/inputs`, numbered as `geometry/inputs.json`'s
+  plugins).
+- The existing-seams repair (`--merge-repair-seams [GAP]`, opt-in, gap 24): no ceiling above 24
+  has been shown safe (600 on the audit's order made three borders worse and clamped two
+  vertices). Three borders of 24 units or less stay open on the audit's order, each one corner
+  vertex where the cells outside the merge that share it disagree with each other ((13,-30)/
+  (14,-30), its northern neighbors at 1,448 and 1,424; (-116,12)/(-115,12); (-12,-15)/(-11,-15)):
+  closing them means moving terrain outside the merge. The audit's note stands: no record count
+  cut by suppressing small mismatches; known intentional discontinuities go in as exceptions.
+  Record counts against Merged Lands are not a measure.
+- Memory, if a bigger order needs it: the merge's own peak on `big_order` is 451 MB (2026-11-17),
+  reached in seam repair; most of it is what is read (the reference and the loaded landmass, the
+  decoded cells, each cell's normal sources until the normals step, 190 MB). A merged cell's
+  heights are still `i32` (17 KB a cell). The process's figure (VmHWM) moves by up to 130 MB
+  between runs of the same merge: compare the log's "added by the merge".
 
-## Alignment with OpenMWMergedLands (its `docs/terrain-storage-audit.md`, copy of 2026-11-16)
+Decided, and different from OpenMWMergedLands on purpose (Static, 2026-11-16):
 
-The fork fixed the same audit its own way and Wraithguard follows it (Static, 2026-11-16); what was
-done is in `CHANGELOG.md`. Left, and what is different on purpose:
+- The step repair runs after the slope limiter (a hybrid): the limiter shares a cliff out first,
+  the fork's lowering takes what it refused. `--merge-no-clamp` stays for a repair given up.
+- A cell the step repair brings in keeps its own phase; where it differs from the piece's, the
+  lowered vertex is floored onto it by the encoder (said as a border a few units apart).
+- The world map is made again where the ground under it moved; the fork's way is
+  `--merge-keep-world-map` ("Keep world maps as merged").
+- The fork's `merged_lands.toml` is read only when asked (`--merge-fork-config`, "Import from
+  OpenMWMergedLands"), once, into Wraithguard's settings.
+- Its `LTEX` order is ours but for its end pass over previous merges and deleted `LTEX` records:
+  left as it is (2026-11-17).
+- Only here, kept as options: `Curvature`, the masters model, the existing-seams repair, the
+  Python-recorded cases.
 
-- The step repair runs after the slope limiter, not in its place (a hybrid, as asked): the limiter
-  shares a cliff out first, and the fork's lowering takes what it refused. With it nothing is left
-  to clamp, so `allow_clamping` off (`--merge-no-clamp`) no longer has a case that stops, and its
-  test went with it; the setting stays for a repair that is given up.
-- A cell the step repair brings in from outside the merge keeps its own phase: where that differs
-  from the piece's, the lowered vertex is floored onto it by the encoder (said as a border a few
-  units apart).
-- Memory, `big_order` (300 plugins, 2,453 cells written), 2026-11-16: 1.42 GB before the normals
-  were merged as authored data, 1.72 GB after, 1.31 GB once each cell's working grids were dropped
-  as it was merged rather than at the end (the same plugin, byte for byte), 0.97 GB once the
-  records were freed after decoding (2026-11-17). Heights pack as `i16` now; on this order that
-  moved the peak by 1 MB (969.6 to 968.6 MB), since the peak is not where they are held. VmHWM
-  moves by up to 130 MB between runs of the same merge (970 MB to 1.10 GB): compare the merge's
-  own figure (`peakmem-alloc`, the log's "added by the merge"), which does not. That figure, after
-  the write was made to free as it goes (2026-11-17): 783 MB to 669 MB; then 479 MB with a merged
-  cell's colors and normals packed, 451 MB with the normals' sources freed in the normals step.
-  Where it is reached, each step: masters read 182 MB, mods read 380, merged 427, seams 451, then
-  no higher. What is left is what is read: the reference and the loaded landmass, the decoded
-  cells, and each cell's normal sources (190 MB, its plugins' heights and normals, held to the
-  normals step). Heights in a merged cell are still `i32` (17 KB a cell): the finish step
-  reshapes them in place.
-- The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
-  Tools page's "Keep world maps as merged" (`the_world_map_as_merged_or_made_again`).
-- Ignored cells: the command line (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`) and the
-  Tools page's "Leave cells out" (`Plugin.esp=X,Y;X,Y | X,Y`, Hunza Camp by default; not seen in
-  the viewer). The fork's `merged_lands.toml` is read when asked (`--merge-fork-config`, the page's
-  "Import from OpenMWMergedLands"): once, into Wraithguard's own settings, never as a second source.
-  The default leave-out list is the fork's, `groundcover.omwaddon` included (2026-11-16).
-- `Auto` is each model's own now (2026-11-16; `pipeline::folded_with_normals`). Left of it: a cell
-  no master has still takes the later plugin's heights in both models (the Python's rule; the
-  original has no such rule that was found). Against the masters the blend is the original's:
-  it too blends the two plugins' changes from the masters (`ResolveConflictStrategy`, on
-  `get_difference`), and since 2026-11-17 in its arithmetic, number for number
-  (`merge::the_blend_is_merged_lands_own`). The one difference left is in the counts: where both
-  made the same change the original has no conflict, and `merge_grids` counts it contested (a
-  minor one); what is written is the same.
-- `Curvature` is only here.
-- The fork's `LTEX` palette order: the same as ours but for its end pass over previous merges and
-  deleted `LTEX` records (audited 2026-11-17, left as it is). Its memory work: done here as above.
-- Only here, from the original Merged Lands and the Python, kept as options: the masters model, the
-  existing-seams repair, the Python-recorded cases.
+Plain Morrowind order (decided 2026-11-11/12): the game sorts the ini's plugins by file date,
+masters first (`ordercore::install` and the viewer's connect sort that way); `gardenfell-install`
+shows the ini's order and changes the files' dates to match it (`ordercore::plain::dates_for`). A
+master is told by its extension everywhere; the master check only notes a header that disagrees.
 
-## Orbit navigation without an end (2026-11-16)
+## The viewer
 
-- Tried by Static 2026-11-16: serviceable, wants work and polish (nothing named yet).
-- Not run: the renderer's mouse handling has no page test (it needs the shell to move the
-  pointer and a GL context). To try in the viewer: a long right-drag and middle-drag past the
-  screen edge, the pointer coming back where it was pressed, the brush ring after it in the Land
-  view, alt-tab during a drag, and the wheel in past the pivot and out to the limit (fog and the
-  far plane at 300,000).
-- The push past the pivot goes toward the cursor when zoom to cursor is on, down the view when it
-  is off (not run in the viewer).
-
-## The Land view's masks (2026-11-16)
-
-- Neither has been seen in the viewer: the page tests drive them (`land_mask.test.js`).
-- The texture mask's edge is the texture cell's own by default; "As drawn" follows the blend the
-  ground is drawn with (linear between texture cells' centres). Whether the renderer adds anything
-  to that blend (a shader curve) was not checked against the picture.
-- Cells written broken before the fix of 2026-11-16 are found by Verify ("the border with ... is
-  N vertex/vertices apart"); it does not mend them: undo them or take them out of the patch, and
-  shape them again.
+- Orbit navigation without an end (2026-11-16): serviceable, wants polish (nothing named yet). The
+  renderer's mouse handling has no page test (it needs the shell to move the pointer and a GL
+  context).
+- Verify finds a cell written broken before the fix of 2026-11-16 ("the border with ... is N
+  vertex/vertices apart") but does not mend it: undo it or take it out of the patch.
 
 ## After 5.0
 
@@ -174,11 +93,8 @@ files as their source; the platforms are Windows, Linux, macOS, Android and iOS.
   its files elsewhere), window management, hover-only controls, the gamepad and keyboard
   paths. Then the builds in CI and a device test reading a real install.
 - An installer (the WebView2-bundled Windows package is in).
-- The viewer wearing the old settings' `theme` (`toolscore::settings` reads it) when its
-  profile names none.
 - Lint on the scan cache.
-- Sound (`viewer-shell/SOUND.md`): Battle music (no fight to start it yet); `sound_peaks`
-  cached by file (the page caches by path for the session).
+- Sound (`viewer-shell/SOUND.md`): Battle music (no fight to start it yet).
 - First person: the encumbrance from what the body wears rather than a slider.
 - glam (`viewer-shell/GLAM-PLAN.md`, its rules first): the NIF transform pipeline
   (`gardenfell-nif/src/nif.rs`), tests against the current code and real fixtures before
@@ -203,59 +119,28 @@ for code: it is GPL-3.
 - Why `editor_records` came back unreadable on Static's setup (Messages has the first 120
   characters of the answer).
 
-### Editor stalls (Messages "Editor link ... took N s"): done, 2026-11-07
+### Speed and caches
 
-Done and measured (`CHANGELOG.md`, 5.0.4): the Editor's lock is not held across a plugin read, a
-scan or a Verify; reads run on threads before it; cell names, ids, the use index, dialogue
-and records are kept between launches. Verify went from over 6 minutes (357.8 s, the PC
-pinned) to 2.7 s warm; the first open of a type is about 4 s cold and the next almost instant;
-placing reads a cell's spelling from the file framing (0.10 s against 5.03 s of parsing the
-cells of `TR_Mainland.esm`, same key); a topic is read from its own records (48 ms for 1,446
-records, against every plugin's dialogue). What is left is small:
-
-- Verify's game settings (`GMST`, 0.7 s of its 2.7 s): they were on disk already; a launch now
-  skips the plugins the key index says have none (2026-11-17, about 6x less on a synthetic order,
-  `editcore/tests/warm_settings.rs`). Time Verify again on the real order.
-- Not done, on purpose: `read_tag` builds its values through JSON text (a record's `f32`
-  fields would come out widened to `f64` from `serde_json::to_value`); `editRevision` is not
-  answered without the lock (a stale revision would hide the refresh the poll is for).
-- The first launch with no cache reads every plugin file from disk (about 45 s on Static's
-  order, the disk, not the parsing): nothing to do but not to need it twice.
-
-### Merged Lands and the caches the port may have lost (audit, 2026-11-07)
-
-Found auditing the Python's caches against the port. The Editor's record cache and the key
-index were the ones lost, and are back (`CHANGELOG.md`, 5.0.4).
-
-- Merged Lands: `landcore::service::records_of` read each plugin twice, after a scan of every
-  byte for `LAND`/`LTEX`; it now reads each once (`read::read_terrain_records`, tested to give
-  the same records as the scan-then-read, and by the Python-parity merge cases). That is a
-  saving of roughly a second over a load order of this size by a synthetic run, not measured on
-  the real one. If the read is still a large share of a Merge Lands (`probe_land_read`,
-  `tests/probe_land_read.rs`, measures it), keep each plugin's `LAND`/`LTEX` records on disk as the Python kept `<stem>.land.json` and
-  asked the scan cache whether a plugin has terrain (`landcore` does not depend on `editcore`:
-  a shared cache crate, or move the cache).
-- Checked and kept: the NIF measurements (`nif_batch`, scan cache), the overlay's file
-  index (`wraithguard_overlay_index.bin`), the conflict scan's keys, cells and terrain flags
-  (`wraithguard_scan_cache.sqlite3`), the dialogue graph's lookups. Not needed (2026-11-09):
-  the Lua archive scripts the Python unpacked into `wraithguard_lua_archives` (the engine
-  reads them out of the archives where they are, `viewcore::luascan::VfsScripts` over the
-  overlay), and the Conflicts window's `_conf_singles` and `_conflict_adjacency_cache` (a
-  mode's rescan takes the cached keys, and the page counts a plugin's peers from the scan's
-  list it already holds).
-- `conflicts_verdicts` and `conflicts_plugin_group` read the scan's plugins again on each
-  call (`cf_read_many`); Judge all calls the second once per plugin, so a plugin's records
-  are read again for every plugin it shares one with. Both are timed in Messages
-  ("Conflicts: judged ..."), 2026-11-09: read the times on the big order, and if Judge all
-  is slow, keep each plugin's records of the scan's keys between calls, dropped with the scan.
-
-### The record cache (`editcore::cache`)
-
-- If the cache grows too big (the `uses` table is most of it): keep only the strings of
-  fields that can name a record.
-- Search all over a big order (2026-11-09): the hover on its count has the time. The
-  matches' text is held until the answer is made (a common word over 621 plugins is tens of
-  megabytes): if that shows, count past the first 2,000 fields without keeping them.
+- Verify's game settings (0.7 s of its 2.7 s on Static's order, 2026-11-07): a launch now skips the
+  plugins the key index says have none (2026-11-17, `editcore/tests/warm_settings.rs`). Time
+  Verify again on the real order.
+- Merge Lands reads each plugin once (`read::read_terrain_records`). If the read is still a large
+  share of a merge (`probe_land_read`, `tests/probe_land_read.rs`, measures it): keep each
+  plugin's `LAND`/`LTEX` records on disk as the Python kept `<stem>.land.json`, and ask the scan
+  cache whether a plugin has terrain (`landcore` does not depend on `editcore`: a shared cache
+  crate, or move the cache).
+- `conflicts_verdicts` and `conflicts_plugin_group` read the scan's plugins again on each call
+  (`cf_read_many`); Judge all calls the second once per plugin, so a plugin's records are read
+  again for every plugin it shares one with. Both are timed in Messages ("Conflicts: judged ..."):
+  if Judge all is slow on the big order, keep each plugin's records of the scan's keys between
+  calls, dropped with the scan.
+- The record cache: if it grows too big (the `uses` table is most of it), keep only the strings
+  of fields that can name a record. Search all over a big order holds the matches' text until the
+  answer is made (tens of megabytes for a common word over 621 plugins): if that shows, count past
+  the first 2,000 fields without keeping them.
+- Not done, on purpose: `read_tag` builds its values through JSON text (a record's `f32` fields
+  would come out widened to `f64` from `serde_json::to_value`); `editRevision` is not answered
+  without the lock (a stale revision would hide the refresh the poll is for).
 
 ## Opening a big install (the viewer engine)
 
@@ -269,43 +154,27 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 
 ## Release and CI
 
-Checked 2026-11-10 against GitHub: CI, SAST, Audit and Deny pass on `main` (the last push's
-CI and SAST still running then); the five workflows in `.github/workflows` match
-`subset sort\workflows`; only `viewer-shell\gardenfell\target` is left of the per-crate
-`target` folders (Gardenfell keeps its own workspace, so that one is used).
-
-- Releases: v5.0.4 is tagged and pushed (2026-11-10, everything to 2b84e38); the version is
-  5.0.5 now in `viewer-shell/Cargo.toml`, `cli/Cargo.toml`, `tauri.conf.json` and
-  `Cargo.lock`, and `CHANGELOG.md` 5.0.5 gathers what comes after.
-  - The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`;
-    `get_wraithguard` in `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in
-    the Linux pack and the macOS binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet
-    sent upstream). Move it to the release that is current when the merge request goes in
-    (its four archives' and the AppImage's sha256s from the release page), then open the
-    merge request.
-- The dependency audit (`audit.yml`) is clean as of 2026-11-09: SQLite through `rusqlite` 0.41,
-  `paste` gone with merge_to_master's `lending-iterator`, `glib` and `proc-macro-error` patched
-  (below), `tokio` 1.54.1 and `yoke-derive` 0.8.4 taken earlier. It runs weekly: a new advisory
-  fails it on a Monday with nothing changed here.
-- gtk-0.18-patches (`viewer-shell/Cargo.toml` `[patch.crates-io]`, 2026-11-09). Each Tauri
-  release: is `webkit2gtk` still in `viewer-shell/Cargo.lock`? When it is gone (a wry on
-  WebKitGTK 6), drop the two patch lines and archive the repository.
-- Actions are pinned to a commit of their current major; moving to the Node 24 majors
-  (checkout 7, upload-artifact 7, cache 6) is a separate step: read each one's breaking
-  changes, then re-pin.
-- Tauri pins gtk 0.18 (glib patched, above), string_cache 0.9 and jsonptr 0.7 (Aikido: waiting
-  on upstream); recheck each Tauri release.
-
-### AppImage catalog PR (`appimage.github.io#11424`, test of 2026-11-10 on v5.0.3)
-
-- Name (decided 2026-11-17): `Wraithguard_Toolkit-x86_64.AppImage` from 5.0.5, the catalog wanting
-  no "linux" in it; the CI artifact is `Wraithguard_Toolkit-x86_64-appimage`. `build-app.yml` is
-  changed in `subset sort\workflows` (to copy into `.github/workflows`), and the README table. Left:
-  the catalog PR's data file, if it names the asset, and the MOMW Tools Pack's `get_wraithguard`
-  (`build.sh`), which fetches the AppImage by name, when it moves to 5.0.5. The plain tarball
-  stays `wraithguard-linux-x86_64.tar.gz`.
-- Theme (decided 2026-11-17): the program's own themes, as they are; the window keeps its dark
-  default on a light system, and the catalog's warning about it stands.
+- The MOMW Tools Pack (Static's fork, `C:\tools\build\momw-tools-pack`; `get_wraithguard` in
+  `build.sh`): rewritten for 5.0.1 with its sha256s, the AppImage in the Linux pack and the macOS
+  binaries as `-macos-arm64`/`-macos-amd64` (1.58, not yet sent upstream). Move it to the release
+  that is current when the merge request goes in (its four archives' and the AppImage's sha256s
+  from the release page; the AppImage is `Wraithguard_Toolkit-x86_64.AppImage` from 5.0.5), then
+  open the merge request.
+- AppImage catalog PR (`appimage.github.io#11424`): the asset is `Wraithguard_Toolkit-x86_64.AppImage`
+  from 5.0.5 (the catalog wants no "linux" in the name; `build-app.yml` changed in
+  `subset sort\workflows`, to copy into `.github/workflows`). Left: the PR's data file, if it names
+  the asset. The window keeps the program's own themes (dark by default on a light system; decided
+  2026-11-17), so the catalog's warning about it stands.
+- gtk-0.18-patches (`viewer-shell/Cargo.toml` `[patch.crates-io]`). Each Tauri release: is
+  `webkit2gtk` still in `viewer-shell/Cargo.lock`? When it is gone (a wry on WebKitGTK 6), drop the
+  two patch lines and archive the repository. Tauri also pins string_cache 0.9 and jsonptr 0.7
+  (Aikido: waiting on upstream): recheck each Tauri release.
+- Actions re-pinned 2026-11-17 in `subset sort\workflows`, to copy into `.github/workflows`:
+  checkout 7.0.1, upload-artifact 7.0.2, cache 6.1.0, setup-node 7.1.0 (all were Node 24 already;
+  the new majors are their move to ES modules, and checkout 7's block on fork PRs is for
+  `pull_request_target` and `workflow_run`, which no workflow here uses). Check the first CI run.
+- The dependency audit (`audit.yml`) runs weekly: a new advisory fails it on a Monday with nothing
+  changed here.
 
 ## Forks: LUAL, Clippy
 
@@ -363,7 +232,7 @@ the vanilla CS, so then:
 
 ## Meshes and distant view
 
-- "Optimise draw order": compare with G7's Blender exporter's output on the same mesh.
+- "Optimize draw order": compare with G7's Blender exporter's output on the same mesh.
 - From MGE XE, not taken yet: VRAM streaming with eviction, a frame-budgeted upload pump,
   horizon culling of terrain, static texture atlases, building classification.
 

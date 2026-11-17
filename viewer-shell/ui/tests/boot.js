@@ -1058,7 +1058,7 @@ setTimeout(async ()=>{
     if(!w.eval("!!(App.R&&App.R.statics.some(b=>b.nrm))")) errors.push('the normal map beside tr.dds was not found');
     if(!w.eval("!!(App.R&&App.R.statics.some(b=>b.spec))")) errors.push('the specular map beside tr.dds was not found');
     /* The Draw order panel (native/src/nif_order.rs's report, through Wraithguard's
-       `inspect`): a row per shape, and with an edit target Optimise queues the reorder. */
+       `inspect`): a row per shape, and with an edit target Optimize queues the reorder. */
     try{
       const r=w.eval(`(()=>{
         const V=WgMeshView, cur=V.list[V.idx]; if(!cur) return 'no mesh';
@@ -1070,7 +1070,7 @@ setTimeout(async ()=>{
         cur.edit={url:'http://127.0.0.1:1/apply', filename:'x.nif'};
         V.pending={}; V.panel();
         const rows=document.querySelectorAll('.mvOrder tbody tr').length;
-        const btn=document.getElementById('mvOpt'); if(!btn) return 'no Optimise button';
+        const btn=document.getElementById('mvOpt'); if(!btn) return 'no Optimize button';
         btn.click(); const on=!!V.pending.optimize && btn.classList.contains('on');
         btn.click(); const off=!V.pending.optimize;
         const good=document.querySelectorAll('.mvOrder b.good').length;

@@ -331,7 +331,7 @@ Each tool is a section on the left with its work on the right.
 | **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against its masters or against the load order before it, and plugins can be left out by name or folder. See [MERGED_LANDS.md](MERGED_LANDS.md). |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
-| **Mesh optimiser** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. |
+| **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. |
 
 ### Help, Report and Settings
 

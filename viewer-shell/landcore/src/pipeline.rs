@@ -155,7 +155,11 @@ fn folded_with_normals(meta: Option<&PluginMeta>, new_land: bool, default: Strat
             let mut chosen = meta.map(|m| m.strategy_for(bit)).unwrap_or_default();
             if chosen == Strategy::Auto {
                 chosen = if bit == layer::VERTEX_HEIGHTS && default != Strategy::Auto { default } else { auto(bit) };
-                if new_land && bit == layer::VERTEX_HEIGHTS {
+                // A cell no master has, against what loaded before it: the later plugin's heights
+                // (the Python's rule). Against the masters it is blended as any other, from zero,
+                // as Merged Lands does (`LandscapeDiff::from_difference` with no reference;
+                // Static, 2026-11-17).
+                if new_land && bit == layer::VERTEX_HEIGHTS && model == DiffModel::LoadOrder {
                     chosen = Strategy::Overwrite;
                 }
             }

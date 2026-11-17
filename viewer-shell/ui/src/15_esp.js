@@ -8,7 +8,7 @@
 
    This used to be a TES3 record scanner: a blob reader with a sliding window, master
    index resolution, a landscape pass. It could not survive a real load order — pulling
-   583 MB through a webview is not something to optimise — and more to the point it was
+   583 MB through a webview is not something to optimize — and more to the point it was
    a second implementation of merge rules that only the side holding the whole world
    can get right. `crates/gf_core/tests/merge.rs` is where those rules are pinned now.
 

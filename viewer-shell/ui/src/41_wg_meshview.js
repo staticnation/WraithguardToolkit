@@ -189,11 +189,11 @@ const WgMeshView={
     const cb=b.querySelector('#mvCol'); if(cb) cb.onchange=()=>{ this.showCol=cb.checked; schedulePreview(); };
   },
 
-  /** Wraithguard: how each shape draws, as the file has it and as Optimise would put it
+  /** Wraithguard: how each shape draws, as the file has it and as Optimize would put it
       (`inspect.draw_order`, native/src/nif_order.rs): the vertex cache (vertices shaded
       per triangle, 0.5 the best a grid can do, 3 the worst), the vertex fetch (bytes read
       over the buffer, 1 the best) and overdraw (pixels shaded over pixels covered, from
-      the three axes). With `edit`, Optimise queues the reorder as an edit; Save writes it. */
+      the three axes). With `edit`, Optimize queues the reorder as an edit; Save writes it. */
   drawOrderHtml(cur){
     const rows=(cur.inspect && cur.inspect.draw_order)||[];
     if(!rows.length) return '';
@@ -205,7 +205,7 @@ const WgMeshView={
       return n(a)+' → <b'+cls+'>'+n(b)+'</b>';
     };
     const can=rows.some(e=>!e.skipped);
-    let h='<div class="orisec" title="How the GPU will work through each shape. Optimise puts the triangles and vertices in the order it draws fastest (as greatness7\'s Blender exporter does); the picture does not change.">Draw order</div>'+
+    let h='<div class="orisec" title="How the GPU will work through each shape. Optimize puts the triangles and vertices in the order it draws fastest (as greatness7\'s Blender exporter does); the picture does not change.">Draw order</div>'+
       '<table class="edT mvOrder"><thead><tr><th>Shape</th><th title="Vertices shaded per triangle (lower is better)">Cache</th>'+
       '<th title="Bytes read over the vertex buffer\'s size (1 is best)">Fetch</th><th title="Pixels shaded over pixels covered (1 is best)">Overdraw</th></tr></thead><tbody>';
     for(const e of rows){
@@ -226,7 +226,7 @@ const WgMeshView={
         return escHtml(name)+': '+say.join(', ')+' triangle'+((e.degenerate||0)+(e.duplicate||0)===1?'':'s');
       }).join('<br>')+'</div>';
     if(cur.edit && can) h+='<div class="orirow"><button class="btn sm'+(this.pending.optimize?' on':'')+'" id="mvOpt" '+
-      'title="Queue the new order as an edit; Save writes it. Only the shapes it improves are changed.">Optimise draw order</button></div>';
+      'title="Queue the new order as an edit; Save writes it. Only the shapes it improves are changed.">Optimize draw order</button></div>';
     else if(!can) h+='<div class="from">Nothing to gain: every shape is in good order or cannot be reordered.</div>';
     return h;
   },

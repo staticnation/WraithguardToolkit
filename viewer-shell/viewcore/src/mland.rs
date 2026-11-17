@@ -303,20 +303,27 @@ mod tests {
     /// The copy this module had before it called landcore, kept to check landcore against.
     mod before {
         use super::super::VERTS;
-        /// `native/src/land.rs` `average_delta`: towards the larger edit, and whether the
-        /// compromise is major.
+        /// Merged Lands' `classify_conflict` (`merged_lands-main`, `src/merge/conflict.rs`), in
+        /// its `f32`: towards the larger edit, and whether the compromise is major. landcore
+        /// follows it since 2026-11-17 (Static: "match it as we ported from it"); the copy this
+        /// module had, `native/src/land.rs`'s, was the Python's `f64` and a unit apart on some
+        /// pairs (-1,945 and 1,957: 15 there, 14 here and in the original).
         pub fn average_delta(first: i64, second: i64) -> (i64, bool) {
-            let (s1, s2) = (first.abs() as f64, second.abs() as f64);
-            let total = s1 + s2;
-            if total == 0.0 {
+            let (lhs, rhs) = (first as f32, second as f32);
+            if lhs == 0.0 && rhs == 0.0 {
                 return (0, false);
             }
-            let weight = s1 / total;
-            let biased = weight.powf(1.5);
-            let other = (1.0 - weight).powf(1.5);
-            let weight = biased / (biased + other);
-            let blended = weight * first as f64 + (1.0 - weight) * second as f64;
-            (blended.trunc() as i64, is_major(first, second, blended))
+            let lhs_weight = lhs.abs() / (lhs.abs() + rhs.abs());
+            let rhs_weight = 1. - lhs_weight;
+            let lhs_weight_2 = lhs_weight.powf(1.5);
+            let rhs_weight_2 = rhs_weight.powf(1.5);
+            let lhs_weight = lhs_weight_2 / (lhs_weight_2 + rhs_weight_2);
+            let rhs_weight = 1. - lhs_weight;
+            let average = lhs_weight * lhs + rhs_weight * rhs;
+            let minimum = lhs.min(rhs);
+            let proportional_threshold = (0.3 * minimum).max(10.0);
+            let difference = f32::abs(minimum - average);
+            (average as i64, difference >= proportional_threshold.min(64.0))
         }
 
         fn is_major(first: i64, second: i64, blended: f64) -> bool {
@@ -368,6 +375,8 @@ mod tests {
     }
 
     /// GLAM-PLAN's rule: the same arithmetic, the same order - every answer equal to the bit.
+    /// The blend is held to Merged Lands' own (`before::average_delta`); the weighted blend and
+    /// the curvature to this module's old copy.
     #[test]
     fn landcore_gives_the_old_answers_bit_for_bit() {
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;

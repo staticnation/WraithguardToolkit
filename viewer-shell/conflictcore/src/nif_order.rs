@@ -2,7 +2,7 @@
 //! GPU draws fastest, as greatness7's Blender exporter writes them - the vertex cache
 //! and overdraw passes (Gardenfell's `triorder`, Robin Hjelte's port of meshoptimizer),
 //! then the vertex fetch order (`meshopt-port`, ours). The mesh viewer's "Draw order"
-//! report is a dry run of this (`report`); its Optimise is the real one (`optimize`,
+//! report is a dry run of this (`report`); its Optimize is the real one (`optimize`,
 //! the `{"op": "optimize"}` edit).
 //!
 //! What moves with the vertices, through one table: positions, normals, colours, every
@@ -279,12 +279,12 @@ fn run(stream: &mut NiStream, index: &HashMap<NiKey, usize>, apply: bool) -> Vec
     out
 }
 
-/// The mesh viewer's report: what Optimise would do to each shape, nothing changed.
+/// The mesh viewer's report: what Optimize would do to each shape, nothing changed.
 pub fn report(stream: &mut NiStream, index: &HashMap<NiKey, usize>) -> Vec<Value> {
     run(stream, index, false)
 }
 
-/// Optimise: every shape that can be, put in draw order. The same entries as `report`.
+/// Optimize: every shape that can be, put in draw order. The same entries as `report`.
 pub fn optimize(stream: &mut NiStream, index: &HashMap<NiKey, usize>) -> Vec<Value> {
     run(stream, index, true)
 }
@@ -321,7 +321,7 @@ fn corner_bits(d: &NiTriShapeData, i: usize) -> Vec<u32> {
 
 /// What a mesh means, apart from the order it is written in: per geometry data, its
 /// triangles as their corners (sorted), each skin bone's weights as (vertex, weight) and
-/// each morph target as (vertex, target position). Equal before and after Optimise means
+/// each morph target as (vertex, target position). Equal before and after Optimize means
 /// the same mesh (the tests' `meaning`, here so a batch can check what it writes).
 #[allow(clippy::type_complexity)]
 fn meaning_of(s: &NiStream) -> Vec<(Vec<Vec<Vec<u32>>>, Vec<Vec<(Vec<u32>, u32)>>, Vec<Vec<(Vec<u32>, [u32; 3])>>)> {
@@ -427,7 +427,7 @@ pub fn report_bytes(bytes: &[u8]) -> Result<Vec<Value>, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| report(&mut s, &ix))).map_err(|_| "the draw order pass failed on this mesh".to_string())
 }
 
-/// A mesh optimised and saved as bytes, checked: read back, it must mean the same mesh
+/// A mesh optimized and saved as bytes, checked: read back, it must mean the same mesh
 /// (every triangle with the same corners, every skin weight and morph target the same),
 /// and at least one shape must have been worth moving. Otherwise nothing is returned, so
 /// nothing is written. The entries are `optimize`'s.
@@ -534,7 +534,7 @@ mod tests {
         out
     }
 
-    /// Optimise, save, read back: the same mesh, drawn no worse.
+    /// Optimize, save, read back: the same mesh, drawn no worse.
     fn check(path: &str) -> Vec<Value> {
         let bytes = std::fs::read(path).unwrap();
         let mut s = load(&bytes);
@@ -632,7 +632,7 @@ mod tests {
         assert_eq!(meaning(&s), before);
         let mut t = load(&bytes);
         let b = optimize(&mut t, &ix);
-        assert_eq!(a, b, "the report is what Optimise does");
+        assert_eq!(a, b, "the report is what Optimize does");
     }
 
     /// `WG_NIF_CORPUS=<folder>`: every mesh in it (NifCorpus: 768), the same check.

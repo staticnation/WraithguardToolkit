@@ -38,15 +38,54 @@ pub(super) fn sound_of(path: &str, state: &State) -> Result<(std::sync::Arc<view
 /// A sound's facts and waveform: `{path (as found), container, codec, bits, rate, channels,
 /// seconds, peak, rms, from: [provider labels, the winner first], peaks: [[min, max]...]}`,
 /// `peaks` `n` buckets (at most 2000).
+///
+/// Kept in the scans' cache by the file that supplies the sound (its path on disk, or its
+/// archive and name in it) while that file is as it was (Static, 2026-11-17, SOUND.md: a sound
+/// is decoded once, not again each run): what is decoded is kept, and `path` and `from` are
+/// asked of the data folders each time, since a mod added since can supply the same file too.
 #[tauri::command(async)]
 pub(super) fn sound_info(path: String, n: usize, state: State) -> Result<String, String> {
+    let n = n.min(2000);
+    let kept = sound_file(&path, &state).map(|(found, from, key, stamp)| (found, from, format!("{key}\0{n}"), stamp));
+    let cache = scan_cache();
+    // (No `let` chains: check-commands compiles this file as Rust 2021.)
+    let hit = match (&kept, cache) {
+        (Some((_, _, key, stamp)), Some(c)) => c.get_fact("sound_info", key, stamp).and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()),
+        _ => None,
+    };
+    if let (Some(serde_json::Value::Object(mut o)), Some((found, from, _, _))) = (hit, &kept) {
+        o.insert("path".into(), found.clone().into());
+        o.insert("from".into(), from.clone().into());
+        return Ok(serde_json::Value::Object(o).to_string());
+    }
     let (d, found, from) = sound_of(&path, &state)?;
-    let peaks: Vec<[f32; 2]> = viewcore::audio::peaks(&d, n.min(2000)).into_iter().map(|(a, b)| [a, b]).collect();
-    Ok(serde_json::json!({
-        "path": found, "container": d.container, "codec": d.codec, "bits": d.bits, "rate": d.rate,
-        "channels": d.channels, "seconds": d.seconds(), "peak": d.peak(), "rms": d.rms(), "from": from, "peaks": peaks,
-    })
-    .to_string())
+    let peaks: Vec<[f32; 2]> = viewcore::audio::peaks(&d, n).into_iter().map(|(a, b)| [a, b]).collect();
+    let facts = serde_json::json!({
+        "container": d.container, "codec": d.codec, "bits": d.bits, "rate": d.rate,
+        "channels": d.channels, "seconds": d.seconds(), "peak": d.peak(), "rms": d.rms(), "peaks": peaks,
+    });
+    if let (Some((_, _, key, stamp)), Some(c)) = (&kept, cache) {
+        c.put_fact("sound_info", key, stamp, facts.to_string().as_bytes());
+    }
+    let mut o = facts;
+    o["path"] = found.into();
+    o["from"] = from.into();
+    Ok(o.to_string())
+}
+
+/// Where a sound comes from, without reading it: `(path as found, providers, the file's name,
+/// its stamp)`; the stamp is the archive's for a sound packed in one. `None` when it is not
+/// found or the file cannot be stamped (it is then read, and nothing kept).
+fn sound_file(path: &str, state: &State) -> Option<(String, Vec<String>, String, editcore::cache::Stamp)> {
+    let v = vfs_of(state).ok()?;
+    let (found, loc) = viewcore::audio::candidates(path).into_iter().find_map(|c| v.resolve(&c).map(|l| (c, l)))?;
+    let file = match &loc {
+        viewcore::vfs::Loc::Disk(p) => p.clone(),
+        viewcore::vfs::Loc::Packed { archive, .. } => v.archives.get(*archive)?.path.clone(),
+    };
+    let stamp = editcore::cache::stamp(&file)?;
+    let from: Vec<String> = v.providers(&found, &[]).into_iter().map(|(label, _)| label).collect();
+    Some((found, from, loc.ident(&v), stamp))
 }
 
 /// A Sound record as OpenMW plays it (`mwsound/soundbuffer.cpp`, `insertSound`): the gain

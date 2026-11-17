@@ -1240,3 +1240,61 @@ fn an_existing_seam_between_two_borrowed_cells_is_mended() {
     assert!(r.lines.iter().any(|l| l.contains("brought in beside the merge")), "{:#?}", r.lines);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// A cell no master has, added by two plugins (Static, 2026-11-17: "match it as we ported from
+/// it"). Against the masters it is merged as Merged Lands merges it: each plugin's change measured
+/// from zero (`LandscapeDiff::from_difference` with no reference) and the two blended, as any two
+/// changes are. Against the load order the later plugin's heights stand, as the fork's `Auto` has
+/// it: the record that loads already, so no cell is written.
+#[test]
+fn a_cell_no_master_has_is_blended_against_the_masters_and_the_later_ones_against_the_load_order() {
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let flat = |h: i32| json!([h, 0, 0, 1, 0, 0, 0, 0]);
+    let offset_of = |data: &Path| {
+        let out = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+        let land = out.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { Some(l.clone()) } else { None }).unwrap();
+        assert!(land.vertex_heights.data.iter().flatten().skip(1).all(|&d| d == 0), "still flat");
+        land.vertex_heights.offset
+    };
+    let plugins = json!([
+        {"name": "Base.esm", "land": [{"grid": [9, 9], "flags": 1, "heights": flat(100)}]},
+        {"name": "A.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": flat(400)}]},
+        {"name": "B.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": flat(800)}]},
+    ]);
+    let order = ["Base.esm", "A.esp", "B.esp"];
+    // Against the masters: the original's blend of 3,200 and 6,400.
+    let data = setup("new cell masters", plugins.clone());
+    let r = run(&data, &order, masters());
+    assert_eq!(r.cells_written, 1, "{:#?}", r.lines);
+    let (blend, _) = landcore::merge::average_delta(3200, 6400, landcore::merge::ConflictParams::default());
+    assert!(blend > 3200 && blend < 6400, "{blend}");
+    // Every vertex the same height, so the record keeps its phase: the offset is the blend in steps
+    // of eight units, a fraction where the blend is off the grid (5,564 here: 695.5 steps).
+    assert_eq!(offset_of(&data) * 8.0, blend as f32, "the blend");
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+    // Against the load order: B's, which is what loads already, so nothing is written.
+    let data = setup("new cell load order", plugins);
+    let r = run(&data, &order, MergeOptions::default());
+    assert_eq!(r.cells_written, 0, "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}
+
+/// Two plugins that make the same change to a cell are no conflict, as Merged Lands' `average`
+/// has it: the change is taken and no vertex counts as contested.
+#[test]
+fn the_same_change_from_two_plugins_is_no_conflict() {
+    use serde_json::json;
+    let flat = |h: i32| json!([h, 0, 0, 1, 0, 0, 0, 0]);
+    let data = setup(
+        "same change",
+        json!([
+            {"name": "Base.esm", "land": [{"grid": [0, 0], "flags": 1, "heights": flat(100)}]},
+            {"name": "A.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": flat(300)}]},
+            {"name": "B.esp", "masters": ["Base.esm"], "land": [{"grid": [0, 0], "flags": 1, "heights": flat(300)}]},
+        ]),
+    );
+    let r = run(&data, &["Base.esm", "A.esp", "B.esp"], masters());
+    assert_eq!((r.contested, r.major), (0, 0), "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

@@ -1,9 +1,9 @@
 //! A load order's meshes put in draw order in one go, only where it pays.
 //!
-//! The mesh viewer's Optimise (`nif_order`) does one mesh; this runs it over every mesh the
+//! The mesh viewer's Optimize (`nif_order`) does one mesh; this runs it over every mesh the
 //! game would load: the winning copy of each `meshes/` path across the data folders
 //! (the last folder wins, case folded, as OpenMW's VFS), loose files only. Nothing is
-//! written into a mod. The optimised copies go to one output folder, laid out as a data
+//! written into a mod. The optimized copies go to one output folder, laid out as a data
 //! folder, which the person adds last in the load order (or does not).
 //!
 //! "Only what improves" is two checks. Per shape, `nif_order` already leaves a shape
@@ -288,7 +288,7 @@ pub struct Written {
     pub error: String,
 }
 
-/// One mesh optimised, checked and written under `out_dir` at its own path.
+/// One mesh optimized, checked and written under `out_dir` at its own path.
 pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
     let mut w = Written { rel: c.rel.clone(), from: c.path.clone(), before: 0, after: 0, error: String::new() };
     let bytes = match std::fs::read(&c.path) {
@@ -336,7 +336,7 @@ pub fn write_all(cands: &[&Candidate], out_dir: &Path) -> Vec<Written> {
 /// A record of a run, written beside the meshes: what came from where.
 pub fn manifest(written: &[Written], opts: &Options) -> Value {
     json!({
-        "tool": "Wraithguard mesh optimiser",
+        "tool": "Wraithguard mesh optimizer",
         "min_gain_percent": opts.min_gain * 100.0,
         "min_triangles": opts.min_triangles,
         "meshes": written.iter().filter(|w| w.error.is_empty()).map(|w| json!({

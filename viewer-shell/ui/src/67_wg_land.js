@@ -956,20 +956,66 @@ const WgLand={
     return b.mask==='only'? f : 1-f;
   },
 
-  /** How much of the ground at a world vertex is drawn with the textures `ids`, 0 to 1, as the
-      renderer draws it: each texture's coverage map holds 0 or 255 a texture cell and is read
-      with linear filtering, so between two texture cells' centres (512 units apart) one fades
-      into the other. A vertex at a texture cell's centre is that texture's alone; one a quarter
-      of the way to the next is three parts its own to one of the next. Ground with no texture
-      cell to read counts as none of them. */
+  /** How much of the ground at a vertex is drawn with any of `ids`, 0 to 1, as the renderer
+      draws it (Static, 2026-11-17: the shader checked; it adds no curve). Each texture is a layer
+      with an 18x18 coverage map (the cell's 16x16 texture cells and a ring from each
+      neighbor), 0 or 255 a texel, read with linear filtering, so between two texture cells'
+      centers (512 units apart) one fades into the other. The layers are drawn in the engine's
+      order (`viewcore::coverage::layers_with`): the texture most of the cell's own texture cells
+      have is the opaque base, ties going to the first met, and each above it is laid over what
+      is below at its own coverage. Where three meet, what shows of a lower layer is its coverage
+      times what the layers over it leave. A ring texel with no neighbor loaded holds the
+      cell's edge, as the engine's does. */
   drawnShare(cells, vx, vy, ids){
-    const Q=this.TSTEP/this.STEP, TS=this.TS;          // vertices to a texture cell: 4
-    const qx=vx/Q-0.5, qy=vy/Q-0.5, kx=Math.floor(qx), ky=Math.floor(qy), fx=qx-kx, fy=qy-ky;
-    const is=(tx, ty)=>{
-      const gx=Math.floor(tx/TS), gy=Math.floor(ty/TS), c=cells.get(gx+','+gy);
-      return c && ids.includes(this.ids(c)[(ty-gy*TS)*TS+(tx-gx*TS)])? 1 : 0;
+    const h=this.holders(cells, vx, vy)[0];
+    if(!h) return 0;
+    const N=this.N, Q=this.TSTEP/this.STEP, P=this.TS+2;   // vertices to a texture cell: 4
+    const layers=this.drawnLayers(cells, h.c);
+    // The field's texel t is centered on texture cell t-1: a vertex s texture cells in sits at
+    // texel coordinate s+0.5, between texels k and k+1.
+    const qx=(h.k%N)/Q+0.5, qy=Math.floor(h.k/N)/Q+0.5;
+    const kx=Math.min(Math.floor(qx), P-2), ky=Math.min(Math.floor(qy), P-2), fx=qx-kx, fy=qy-ky;
+    const at=(m)=> m[ky*P+kx]*(1-fx)*(1-fy) + m[ky*P+kx+1]*fx*(1-fy) + m[(ky+1)*P+kx]*(1-fx)*fy + m[(ky+1)*P+kx+1]*fx*fy;
+    let rest=1, share=0;
+    for(let n=layers.length-1; n>=0; n--){
+      const a=n===0? 1 : at(layers[n].mask);
+      if(ids.includes(layers[n].id)) share+=a*rest;
+      rest*=1-a;
+    }
+    return share;
+  },
+
+  /** A cell's texture layers as the engine makes them for drawing (`coverage::layers_with`):
+      each texture of the cell and its ring with a 0/1 mask over the 18x18 field, the most
+      painted of the cell's own texture cells first. Kept on the cell until its or a
+      neighbor's texture ids are replaced, or painted (`dabTexture` drops it). */
+  drawnLayers(cells, c){
+    const TS=this.TS, P=TS+2;
+    const near=[];
+    for(let dy=-1; dy<=1; dy++) for(let dx=-1; dx<=1; dx++){
+      const n=(dx||dy)? cells.get((c.gx+dx)+','+(c.gy+dy)) : c;
+      near.push(n? this.ids(n) : null);
+    }
+    const kept=c._drawnLayers;
+    if(kept && kept.near.length===near.length && kept.near.every((v,i)=>v===near[i])) return kept.layers;
+    const own=near[4];
+    const idAt=(gi, gj)=>{
+      const dx=gi<0? -1 : gi>=TS? 1 : 0, dy=gj<0? -1 : gj>=TS? 1 : 0;
+      const n=near[(dy+1)*3+dx+1];
+      if((dx||dy) && n) return n[((gj%TS)+TS)%TS*TS + ((gi%TS)+TS)%TS];
+      return own[Math.min(Math.max(gj,0),TS-1)*TS + Math.min(Math.max(gi,0),TS-1)];
     };
-    return is(kx, ky)*(1-fx)*(1-fy) + is(kx+1, ky)*fx*(1-fy) + is(kx, ky+1)*(1-fx)*fy + is(kx+1, ky+1)*fx*fy;
+    const byId=new Map(), order=[];
+    for(let j=0;j<P;j++) for(let i=0;i<P;i++){
+      const id=idAt(i-1, j-1);
+      let L=byId.get(id);
+      if(!L){ L={id, mask:new Float32Array(P*P), count:0, first:order.length}; byId.set(id,L); order.push(L); }
+      L.mask[j*P+i]=1;
+      if(i>=1 && i<=TS && j>=1 && j<=TS) L.count++;
+    }
+    const layers=order.sort((a,b)=> b.count-a.count || a.first-b.first);
+    c._drawnLayers={near, layers};
+    return layers;
   },
 
   /** A dab's vertices (`vertices`) under the texture mask: each weight scaled by it, and the
@@ -1150,6 +1196,9 @@ const WgLand={
       const ids=this.ids(c), k=(ty-gy*TS)*TS+(tx-gx*TS);
       if(ids[k]===this.texture) continue;
       this.original(c); ids[k]=this.texture; touched.add(key); this.mark(key,'t');
+      // The ids changed in place: the drawn layers kept on it and its neighbors (whose rings
+      // read its edge) are made again when next asked.
+      for(let dy=-1; dy<=1; dy++) for(let dx=-1; dx<=1; dx++){ const n=cells.get((gx+dx)+','+(gy+dy)); if(n) n._drawnLayers=null; }
     }
   },
 

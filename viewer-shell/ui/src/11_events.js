@@ -2024,6 +2024,8 @@ async function start(){
   if(typeof Themes==='object'){
     if(Startup && Startup.theme!=null) App.theme=String(Startup.theme||'').trim();
     Themes.apply();
+    // Nothing remembered: Wraithguard's own theme from its old settings, until a profile says.
+    if(!Themes.code()) Themes.fallback();
   }
   /* Round 18cp: and how the cell picker was last shown — list or map — from the same
      file, for the same reason. Robin: "Remember List/Map between runs." */

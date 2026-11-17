@@ -2516,7 +2516,7 @@ fn mesh_bytes(v: &Vfs, path: &str) -> Result<Vec<u8>, String> {
    reader and the editor are conflictcore's now (`nifedit`, `nif_order`), so the viewer
    answers both itself, for any mesh it shows. */
 
-/// The block tree, every block's fields (the editable ones marked) and what Optimise
+/// The block tree, every block's fields (the editable ones marked) and what Optimize
 /// would do (`conflictcore::nifedit::blocks`), as JSON text; `{"complete": false}` for a
 /// mesh the crate cannot read through.
 #[tauri::command(async)]
