@@ -6,7 +6,11 @@
 # the advisories the forks fix. Each entry below is one of those; both IDs of the glib advisory
 # are listed because OSV groups them as aliases.
 #
-# Drop this file when the [patch.crates-io] section goes (Tauri's webview leaves gtk-rs 0.18).
+# Also here: notices with no fix to take and nothing in them to act on, each with the dependency
+# it comes through (RUSTSEC-2026-0543).
+#
+# Drop the fork entries when the [patch.crates-io] section goes (Tauri's webview leaves gtk-rs
+# 0.18); each other entry says when it goes.
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0429"
@@ -19,3 +23,7 @@ reason = "Alias of RUSTSEC-2024-0429: same glib VariantStrIter fix in the fork."
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0370"
 reason = "proc-macro-error 1.0.4 is the fork: same API re-exported from the maintained proc-macro-error3 (unmaintained advisory)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+reason = "chrono is unmaintained (an informational notice, 2026-09-14: no flaw reported, no fixed version). It comes in through Tauri (tauri-utils -> serde_with) and the command line's dates (cli/src/main.rs, cellmap.rs). Drop this when Tauri drops it and the command line no longer uses it."

@@ -177,6 +177,10 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   `pull_request_target` and `workflow_run`, which no workflow here uses). Check the first CI run.
 - The dependency audit (`audit.yml`) runs weekly: a new advisory fails it on a Monday with nothing
   changed here.
+- chrono is unmaintained (RUSTSEC-2026-0543, informational; ignored in `viewer-shell/osv-scanner.toml`
+  2026-11-17). It comes through Tauri (`tauri-utils` -> `serde_with`) and the command line's dates
+  (`cli`: `now()`, `cellmap::html`). The command line's use can go to `jiff` or `time`; the entry
+  goes when Tauri's does too.
 
 ## Forks: LUAL, Clippy
 
