@@ -1,6 +1,17 @@
 # tes3cmd without Perl (long-term plan)
 
-Status: **not started** (planned 2026-11-09: its own crate, see the end). For now (port step 4.4, slice 8, option a) the Tools page launches the
+Status: **`clean` ported** (2026-11-17), in `subset sort\tes3cmd-rs` (for `staticnation/tes3cmd-rs`):
+a library and a `tes3cmd` command line, held byte for byte to the Perl's own output (standard
+output, standard error and every file left behind) on fourteen cases built by its tests, the
+Perl run beside it there; `T3_REAL_MW`/`T3_REAL_PLUGINS` run the same comparison on real
+plugins. Two decisions made doing it: the port reads and writes subrecords as bytes, as the
+Perl does, not through greatness7's typed `tes3` (whose re-encoding could change bytes the
+comparison requires); and tes3cmd's quirks are kept where its output is the measure (its README
+lists them: `--output-dir` a flag, `NAM0` never updated, path grids with capitals never cleaned
+as duplicates, a rebuilt cell's header flags lost). Not yet: the master cache (Perl `Storable`
+files; the port reads the masters each run). Next: `header`. Wraithguard does not take it as a
+dependency until the Tools page's clean is switched over. (Planned 2026-11-09: its own crate,
+see the end.) For now (port step 4.4, slice 8, option a) the Tools page launches the
 external tes3cmd (`toolscore::tes3cmd`): `clean` and a custom command on a copy staged with the
 plugin's masters, `header` in place, and the master-size sync done in-app. This file is the plan
 for option b: the commands Wraithguard uses rewritten over the tes3 crate, so the app no longer

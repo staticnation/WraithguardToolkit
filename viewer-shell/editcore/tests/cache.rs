@@ -273,14 +273,14 @@ fn a_fact_is_kept_while_its_file_is_unchanged() {
     let wav = d.plugin("a.wav", &[b'x'; 10]);
     let s = stamp(&wav).unwrap();
     let c = cache(&d.db());
-    assert!(c.get_fact("sound_info", "a.wav\0400", &s).is_none());
-    c.put_fact("sound_info", "a.wav\0400", &s, b"{\"rate\":22050}");
+    assert!(c.get_fact("sound_info", "a.wav\x00400", &s).is_none());
+    c.put_fact("sound_info", "a.wav\x00400", &s, b"{\"rate\":22050}");
     drop(c);
     let c = cache(&d.db());
-    assert_eq!(c.get_fact("sound_info", "a.wav\0400", &s).as_deref(), Some(&b"{\"rate\":22050}"[..]), "across runs");
-    assert!(c.get_fact("sound_info", "a.wav\0200", &s).is_none(), "another question about it");
+    assert_eq!(c.get_fact("sound_info", "a.wav\x00400", &s).as_deref(), Some(&b"{\"rate\":22050}"[..]), "across runs");
+    assert!(c.get_fact("sound_info", "a.wav\x00200", &s).is_none(), "another question about it");
     std::fs::write(&wav, [b'x'; 11]).unwrap();
-    assert!(c.get_fact("sound_info", "a.wav\0400", &stamp(&wav).unwrap()).is_none(), "the file changed");
+    assert!(c.get_fact("sound_info", "a.wav\x00400", &stamp(&wav).unwrap()).is_none(), "the file changed");
     for i in 0..FACTS_KEPT + 5 {
         c.put_fact("sound_info", &format!("f{i}"), &s, b"1");
     }

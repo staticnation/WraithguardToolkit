@@ -17,7 +17,9 @@ for `CHANGELOG.md`; a decision stays as one line where open work depends on it. 
   Static's real order (619 plugins, 2026-11-10) spent 4.4 s between "declaring" and "wrote" (13.5
   MB); Verbose now splits the encoding from the disk write. A Verbose run of the real order says
   whether that time is the disk (or a scanner on the new file) or the encoding.
-- tes3cmd in Rust (`viewer-shell/TES3CMD-REWRITE.md`; decided 2026-11-09, not started): its own
+- tes3cmd in Rust (`viewer-shell/TES3CMD-REWRITE.md`; decided 2026-11-09; `clean` ported 2026-11-17 in
+  `subset sort\tes3cmd-rs`, held to the Perl's output; next `header`, then the Tools page's clean
+  switched to it after a run on real plugins against tes3cmd.exe): its own
   repository (`staticnation/tes3cmd-rs`), a library and a `tes3cmd` command line over greatness7's
   `tes3`, with tes3cmd's own commands and flags so the MOMW Tools Pack and existing batch files
   can switch unchanged, and on Linux and macOS without Perl. tes3cmd is MIT (its header: "Copyright
