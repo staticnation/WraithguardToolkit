@@ -444,7 +444,7 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
         fail!("{e}");
     }
     let meta_map: HashMap<String, PluginMeta> = metas.iter().cloned().collect();
-    let (reference, mut loaded) = match build_reference(&masters, &mut known, &meta_map, &opts.ignored_cells, &mut notes) {
+    let (reference, mut loaded) = match build_reference(std::mem::take(&mut masters), &mut known, &meta_map, &opts.ignored_cells, &mut notes) {
         Ok(r) => r,
         Err(e) => fail!("{e}"),
     };
@@ -517,7 +517,8 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
 
     stop!();
     say!("merging ...");
-    let mut outcome = match merge_landmass(&reference, &mods, &mut known, &meta_map, opts.strategy, opts.model, opts.clean_against_load_order.then_some(&mut loaded), mods.iter().take_while(|m| early_names.contains(&m.name.to_lowercase())).count(), &opts.ignored_cells) {
+    let early_mods = mods.iter().take_while(|m| early_names.contains(&m.name.to_lowercase())).count();
+    let mut outcome = match merge_landmass(&reference, std::mem::take(&mut mods), &mut known, &meta_map, opts.strategy, opts.model, opts.clean_against_load_order.then_some(&mut loaded), early_mods, &opts.ignored_cells) {
         Ok(o) => o,
         Err(e) => fail!("{e}"),
     };
@@ -715,6 +716,10 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     // Verbose: the encoding and the disk apart (a real order's write took 4.4 s, 2026-11-10).
     if opts.verbose {
         say!("  encoded in {:.2} s, written to disk in {:.2} s", encoded.as_secs_f64(), writing.elapsed().as_secs_f64());
+        // The most the process held at once (the app's own memory too, when run from the app).
+        if let Some(peak) = crate::memory::peak_bytes() {
+            say!("  peak memory {}", crate::memory::human(peak));
+        }
     }
     say!("wrote {} ({} bytes, {} records)", target.display(), bytes.len(), total + 1);
     match meta::write_merged_marker(&target) {

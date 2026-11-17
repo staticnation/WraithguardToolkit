@@ -247,7 +247,7 @@ fn fold_rolling(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>,
 #[allow(clippy::too_many_arguments)]
 pub fn merge_landmass(
     reference: &Landmass,
-    plugins: &[PluginRecords],
+    mut plugins: Vec<PluginRecords>,
     known: &mut KnownTextures,
     metas: &HashMap<String, PluginMeta>,
     strategy: Strategy,
@@ -270,26 +270,34 @@ pub fn merge_landmass(
        texture's number is the order it was first met), then their records decoded across
        the cores, then gathered in load order - their notes too, so the log reads as it did
        one plugin after another. */
-    let mut work: Vec<(usize, u32, HashMap<Value, Value>)> = Vec::new();
-    for (index, plugin) in plugins.iter().enumerate() {
+    // Each plugin's records go with its work and are freed once it is decoded: only its name is
+    // read after that, and a big order's records held to the end were a copy of all its land.
+    // The plugin's index, the layers it may change, its texture numbering, its records.
+    type Work = (usize, u32, HashMap<Value, Value>, Vec<crate::read::Record>);
+    let mut work: Vec<Work> = Vec::new();
+    for (index, plugin) in plugins.iter_mut().enumerate() {
         let meta = metas.get(&plugin.name);
         if meta.is_some_and(PluginMeta::is_previous_merge) {
             outcome.skipped_plugins.push((plugin.name.clone(), "a previous merge".into()));
+            plugin.records = Vec::new();
             continue;
         }
         let allowed = meta.map(PluginMeta::allowed_layers).unwrap_or(ALL_LAYERS);
         if allowed == 0 {
             outcome.skipped_plugins.push((plugin.name.clone(), "every layer excluded".into()));
             if loaded.is_none() {
+                plugin.records = Vec::new();
                 continue;
             }
         }
-        work.push((index, allowed, known.observe(&plugin.name, &plugin.records)));
+        let mapping = known.observe(&plugin.name, &plugin.records);
+        work.push((index, allowed, mapping, std::mem::take(&mut plugin.records)));
     }
-    let decoded_all = par_each(work, |(index, allowed, mapping)| {
+    let decoded_all = par_each(work, |(index, allowed, mapping, records)| {
         let plugin = &plugins[index];
         let mut notes = Vec::new();
-        let cells = crate::landmass::decoded(&plugin.name, &plugin.records, &mapping, &mut notes);
+        let cells = crate::landmass::decoded(&plugin.name, &records, &mapping, &mut notes);
+        drop(records);
         (index, allowed, cells, notes)
     });
     for (index, allowed, cells, notes) in decoded_all {

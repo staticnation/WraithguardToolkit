@@ -34,8 +34,17 @@
   border's ends, corners other cells hold too, are left.
 
 - **Merge Lands uses less memory**: each cell's working grids are dropped as soon as it is merged,
-  not kept until every cell is done. On the 300-plugin benchmark the peak went from 1.72 GB to
-  1.31 GB (1.42 GB before the normals were merged), with the same plugin written.
+  not kept until every cell is done, and the plugins' records are freed once they are decoded (the
+  masters' once the reference landmass is built, each mod's as its cells are read out), where they
+  were held to the end of the merge. On the 300-plugin benchmark the peak went from 1.72 GB to
+  1.31 GB, then to 0.97 GB (1.42 GB before the normals were merged), with the same plugin written.
+  Heights are also packed in 16 bits where they fit, not 32.
+
+### Added
+
+- **Merge Lands' Verbose log says the peak memory** ("peak memory 992 MB", after the encode and
+  write times): the most the process held at once, read from VmHWM on Linux and the peak working
+  set on Windows. Run from the app it counts the app's own memory too.
 
 - **Merge Lands remakes a world map made for ground that has moved.** A cell whose map no plugin
   changed has the masters' (or the winning record's), made for their heights; where a plugin then

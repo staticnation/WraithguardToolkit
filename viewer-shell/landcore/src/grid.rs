@@ -85,6 +85,7 @@ impl RelativeGrid {
             Packed::I8(v) => fill(&mut grid, v),
             Packed::U8(v) => fill(&mut grid, v),
             Packed::U16(v) => fill(&mut grid, v),
+            Packed::I16(v) => fill(&mut grid, v),
             Packed::I32(v) => fill(&mut grid, v),
         }
         Ok(grid)

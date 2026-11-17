@@ -26,6 +26,7 @@ pub mod heights;
 pub mod landmass;
 pub mod layers;
 pub mod merge;
+pub mod memory;
 pub mod meta;
 pub mod pipeline;
 pub mod preview;

@@ -106,8 +106,14 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
   units apart).
 - Memory, `big_order` (300 plugins, 2,453 cells written), 2026-11-16: 1.42 GB before the normals
   were merged as authored data, 1.72 GB after, 1.31 GB once each cell's working grids were dropped
-  as it was merged rather than at the end (the same plugin, byte for byte). The merged normals are
-  still `i32` (50 KB a cell, 12.7 KB as `i8`): pack them if a bigger order shows it.
+  as it was merged rather than at the end (the same plugin, byte for byte), 0.97 GB once the
+  records were freed after decoding (2026-11-17). Heights pack as `i16` now; on this order that
+  moved the peak by 1 MB (969.6 to 968.6 MB), since the peak is not where they are held. Where it is
+  (VmHWM at each step, 2026-11-17): masters read 300 MB, mods read 456, merged 798, finished 841,
+  encoded 979. The encode holds the merged cells, the tes3 objects made from them and the plugin's
+  bytes at once: turning each cell into its record and dropping it is the next saving, if needed.
+  The merged normals are still `i32` (50 KB a cell, 12.7 KB as `i8`): pack them if a bigger order
+  shows it.
 - The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
   Tools page's "Keep world maps as merged" (`the_world_map_as_merged_or_made_again`).
 - Ignored cells: the command line (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`) and the
@@ -121,7 +127,8 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
   plugins' changes from the masters (`merge::merge_grids`), where the original blends the two
   values: not compared number for number.
 - `Curvature` is only here.
-- Not looked at: the fork's `LTEX` palette order against ours, and its memory work.
+- The fork's `LTEX` palette order: the same as ours but for its end pass over previous merges and
+  deleted `LTEX` records (audited 2026-11-17, left as it is). Its memory work: done here as above.
 - Only here, from the original Merged Lands and the Python, kept as options: the masters model, the
   existing-seams repair, the Python-recorded cases.
 

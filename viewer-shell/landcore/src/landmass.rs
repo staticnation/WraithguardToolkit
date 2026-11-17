@@ -194,7 +194,7 @@ pub fn masked(mut l: LandscapeLayers, allowed: u32) -> LandscapeLayers {
 /// merge is left out, and a master's settings mask what it contributes. Also answers the
 /// masters as the engine loads them, settings ignored (the start of the loaded landmass the
 /// load-order cleaning compares against).
-pub fn build_reference(masters: &[PluginRecords], known: &mut KnownTextures, metas: &HashMap<String, PluginMeta>, ignored: &IgnoredCells, notes: &mut Vec<String>) -> Result<(Landmass, Landmass), String> {
+pub fn build_reference(masters: Vec<PluginRecords>, known: &mut KnownTextures, metas: &HashMap<String, PluginMeta>, ignored: &IgnoredCells, notes: &mut Vec<String>) -> Result<(Landmass, Landmass), String> {
     let mut land = Landmass::default();
     let mut loaded = Landmass::default();
     for master in masters {
@@ -203,11 +203,14 @@ pub fn build_reference(masters: &[PluginRecords], known: &mut KnownTextures, met
             continue;
         }
         let allowed = meta.map(PluginMeta::allowed_layers).unwrap_or(ALL_LAYERS);
-        for l in decode_plugin(master, known, notes)? {
-            replace_onto(&mut loaded, l.clone(), &master.name);
+        // Each master's records freed once it is decoded: nothing reads them after.
+        let cells = decode_plugin(&master, known, notes)?;
+        let name = master.name;
+        for l in cells {
+            replace_onto(&mut loaded, l.clone(), &name);
             // A cell left out for this master is still what loads; it is not the reference.
-            if !ignored.skips(&master.name, l.coords) {
-                layer_onto(&mut land, masked(l, allowed), &master.name);
+            if !ignored.skips(&name, l.coords) {
+                layer_onto(&mut land, masked(l, allowed), &name);
             }
         }
     }

@@ -64,6 +64,8 @@ pub enum Packed {
     I8(Vec<i8>),
     U8(Vec<u8>),
     U16(Vec<u16>),
+    /// Heights, which go below zero and past 255 (half the size of `I32`; Static, 2026-11-17).
+    I16(Vec<i16>),
     I32(Vec<Value>),
 }
 
@@ -77,6 +79,8 @@ impl Packed {
             Packed::U8(values.iter().map(|&v| v as u8).collect())
         } else if lo >= 0 && hi <= u16::MAX as Value {
             Packed::U16(values.iter().map(|&v| v as u16).collect())
+        } else if lo >= i16::MIN as Value && hi <= i16::MAX as Value {
+            Packed::I16(values.iter().map(|&v| v as i16).collect())
         } else {
             Packed::I32(values)
         }
@@ -88,6 +92,7 @@ impl Packed {
             Packed::I8(v) => v.iter().map(|&x| x as Value).collect(),
             Packed::U8(v) => v.iter().map(|&x| x as Value).collect(),
             Packed::U16(v) => v.iter().map(|&x| x as Value).collect(),
+            Packed::I16(v) => v.iter().map(|&x| x as Value).collect(),
             Packed::I32(v) => v.clone(),
         }
     }
@@ -100,6 +105,7 @@ impl Packed {
             (Packed::I8(a), Packed::I8(b)) => a == b,
             (Packed::U8(a), Packed::U8(b)) => a == b,
             (Packed::U16(a), Packed::U16(b)) => a == b,
+            (Packed::I16(a), Packed::I16(b)) => a == b,
             (Packed::I32(a), Packed::I32(b)) => a == b,
             _ => self.len() == other.len() && self.to_vec() == other.to_vec(),
         }
@@ -111,6 +117,7 @@ impl Packed {
             Packed::I8(v) => v.get(i).map(|&x| x as Value),
             Packed::U8(v) => v.get(i).map(|&x| x as Value),
             Packed::U16(v) => v.get(i).map(|&x| x as Value),
+            Packed::I16(v) => v.get(i).map(|&x| x as Value),
             Packed::I32(v) => v.get(i).copied(),
         }
     }
@@ -122,6 +129,7 @@ impl Packed {
             Packed::I8(v) => digest_of(v.iter().map(|&x| x as Value)),
             Packed::U8(v) => digest_of(v.iter().map(|&x| x as Value)),
             Packed::U16(v) => digest_of(v.iter().map(|&x| x as Value)),
+            Packed::I16(v) => digest_of(v.iter().map(|&x| x as Value)),
             Packed::I32(v) => digest_of(v.iter().copied()),
         }
     }
@@ -131,6 +139,7 @@ impl Packed {
             Packed::I8(v) => v.len(),
             Packed::U8(v) => v.len(),
             Packed::U16(v) => v.len(),
+            Packed::I16(v) => v.len(),
             Packed::I32(v) => v.len(),
         }
     }
@@ -353,6 +362,15 @@ mod tests {
         let raw: Vec<u8> = packed.iter().flatten().flat_map(|v| v.to_le_bytes()).collect();
         assert_eq!(decode_texture_indices(&raw), rows);
         assert_eq!(packed[0][4], 16);
+    }
+
+    #[test]
+    fn heights_pack_in_sixteen_bits_where_they_fit() {
+        assert!(matches!(Packed::pack(vec![-2048, 0, 3200]), Packed::I16(_)));
+        assert!(matches!(Packed::pack(vec![-40_000, 0]), Packed::I32(_)));
+        let p = Packed::pack(vec![-2048, 0, 3200]);
+        assert_eq!((p.to_vec(), p.at(0), p.len()), (vec![-2048, 0, 3200], Some(-2048), 3));
+        assert!(p.same_values(&Packed::pack(vec![-2048, 0, 3200])));
     }
 
     #[test]
