@@ -549,17 +549,43 @@ impl Session {
     pub fn warm(&self, tags: &[&str]) {
         let mut todo: Vec<(&str, &str, u64)> = Vec::new();
         {
+            // All read already (the usual case: `records_all` warms first): nothing to ask.
             let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
-            for tag in tags {
-                for name in &self.order {
-                    if !cache.contains_key(&(name.to_lowercase(), tag.to_string())) {
-                        todo.push((name, tag, 0));
-                    }
-                }
+            if tags.iter().all(|t| self.order.iter().all(|n| cache.contains_key(&(n.to_lowercase(), t.to_string())))) {
+                return;
             }
         }
-        for t in &mut todo {
-            t.2 = self.paths.get(&t.0.to_lowercase()).and_then(|(_, p)| std::fs::metadata(p).ok()).map_or(0, |m| m.len());
+        // The plugins' sizes from their stamps (asked once, not again a file each).
+        let stamps = self.stamps();
+        let generation = self.generation.load(Ordering::SeqCst);
+        {
+            let mut cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+            for tag in tags {
+                /* A plugin the key index says has no record of the tag has none to read: an
+                   empty list, no query and no file (Static, 2026-11-17: Verify's game settings
+                   took 0.7 s of a launch's 2.7 s, a query each over 620 plugins most of which
+                   have no GMST). Only where the framing gives the keys and the index is as the
+                   plugins now are. */
+                let holding: Option<HashSet<usize>> = if self.from_files && Session::key_only(tag) {
+                    self.disk.get().and_then(|d| d.holding_stamped(&stamps, tag)).map(|v| v.into_iter().collect())
+                } else {
+                    None
+                };
+                for (i, name) in self.order.iter().enumerate() {
+                    let k = (name.to_lowercase(), tag.to_string());
+                    if cache.contains_key(&k) {
+                        continue;
+                    }
+                    if holding.as_ref().is_some_and(|h| !h.contains(&i)) {
+                        if self.generation.load(Ordering::SeqCst) == generation {
+                            cache.insert(k, Arc::new(IndexMap::new()));
+                        }
+                        continue;
+                    }
+                    let size = stamps.get(i).and_then(Option::as_ref).map_or(0, |s| s.size.max(0) as u64);
+                    todo.push((name, tag, size));
+                }
+            }
         }
         todo.sort_by_key(|t| std::cmp::Reverse(t.2));
         let threads = readers().min(MAX_READERS).min(todo.len());

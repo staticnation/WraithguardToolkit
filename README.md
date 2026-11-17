@@ -59,7 +59,7 @@ Help page shows. Unpack it anywhere and run the program; there is nothing to ins
 | Windows without WebView2 | `wraithguard-windows-x86_64-webview2.zip` | Carries its own runtime in a `webview2` folder beside the program, for PCs where WebView2 was removed (with Edge, LTSC, stripped images). |
 | macOS, Apple Silicon | `wraithguard-macos-arm64.tar.gz` | Unsigned: right-click > Open the first time, or `xattr -dr com.apple.quarantine wraithguard-toolkit`. |
 | macOS, Intel | `wraithguard-macos-x86_64.tar.gz` | As above. |
-| Linux and the Steam Deck | `wraithguard-linux-x86_64.AppImage` | Everything it needs is inside. Make it executable (`chmod +x`, or Properties > Permissions), then run it. On the Deck, use Desktop Mode; add it to Steam as a non-Steam game to start it from Game Mode. Its settings are kept beside the `.AppImage` file. |
+| Linux and the Steam Deck | `Wraithguard_Toolkit-x86_64.AppImage` | Everything it needs is inside. Make it executable (`chmod +x`, or Properties > Permissions), then run it. On the Deck, use Desktop Mode; add it to Steam as a non-Steam game to start it from Game Mode. Its settings are kept beside the `.AppImage` file. |
 | Linux, plain | `wraithguard-linux-x86_64.tar.gz` | Smaller, with the command line. Needs the system's WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`: Ubuntu 22.04+, Debian 12+, Fedora, Arch). |
 
 **Verifying a download.** Each release lists the packages' SHA-256 sums. Compare them with

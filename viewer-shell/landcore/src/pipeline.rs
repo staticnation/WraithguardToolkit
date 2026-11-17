@@ -24,8 +24,11 @@ pub struct MergedCell {
     pub heights: Option<Vec<Value>>,
     pub textures: Option<Vec<Value>>,
     pub world_map: Option<Vec<Value>>,
-    pub colors: Option<Vec<Value>>,
-    pub normals: Option<Vec<Value>>,
+    /// Colors and normals packed (a byte a value where they fit): as `i32` they were most of a
+    /// merged cell (Static, 2026-11-17: 228 of 270 MB on `big_order` at the finish step), and one
+    /// taken whole from the reference or the winning record shares that record's grid.
+    pub colors: Option<crate::layers::Grid>,
+    pub normals: Option<crate::layers::Grid>,
     /// Normals an explicit `Resolve` made, and normal-only patches, each with its geometry.
     pub normal_snapshots: Vec<crate::heights::NormalSnapshot>,
     /// The records of the plugins that touched the cell, in load order: normals and heights.
@@ -81,13 +84,37 @@ const FOLDED: [(Layer, u32); 4] = [
     (Layer::Colors, layer::VERTEX_COLORS),
 ];
 
-fn slot(cell: &mut MergedCell, which: Layer) -> &mut Option<Vec<Value>> {
+fn has_layer(cell: &MergedCell, which: Layer) -> bool {
     match which {
-        Layer::Heights => &mut cell.heights,
-        Layer::Textures => &mut cell.textures,
-        Layer::WorldMap => &mut cell.world_map,
-        Layer::Colors => &mut cell.colors,
-        Layer::Normals => &mut cell.normals,
+        Layer::Heights => cell.heights.is_some(),
+        Layer::Textures => cell.textures.is_some(),
+        Layer::WorldMap => cell.world_map.is_some(),
+        Layer::Colors => cell.colors.is_some(),
+        Layer::Normals => cell.normals.is_some(),
+    }
+}
+
+/// A layer the merge worked out, set: the packed ones packed.
+fn set_values(cell: &mut MergedCell, which: Layer, values: Vec<Value>) {
+    match which {
+        Layer::Heights => cell.heights = Some(values),
+        Layer::Textures => cell.textures = Some(values),
+        Layer::WorldMap => cell.world_map = Some(values),
+        Layer::Colors => cell.colors = Some(crate::layers::pack_grid(values)),
+        Layer::Normals => cell.normals = Some(crate::layers::pack_grid(values)),
+    }
+}
+
+/// A layer taken whole from a record, where the cell has none: the packed ones share its grid.
+fn fill_from(cell: &mut MergedCell, which: Layer, from: Option<&crate::layers::Grid>) {
+    let Some(g) = from else { return };
+    if has_layer(cell, which) {
+        return;
+    }
+    match which {
+        Layer::Colors => cell.colors = Some(g.clone()),
+        Layer::Normals => cell.normals = Some(g.clone()),
+        _ => set_values(cell, which, g.to_vec()),
     }
 }
 
@@ -185,10 +212,7 @@ fn fold_change(cell: &mut MergedCell, grids: &mut HashMap<Layer, RelativeGrid>, 
 pub fn inherit_reference_layers(cell: &mut MergedCell, reference: &Landmass) {
     let Some(l) = reference.get(cell.coords) else { return };
     for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
-        let s = slot(cell, which);
-        if s.is_none() {
-            *s = l.get(which).as_deref().map(crate::layers::Packed::to_vec);
-        }
+        fill_from(cell, which, l.get(which).as_ref());
     }
 }
 
@@ -381,7 +405,7 @@ pub fn merge_landmass(
         let cell = cell.map(|mut c| {
             for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
                 if let Some(g) = grids.remove(&which) {
-                    *slot(&mut c, which) = Some(g.flat());
+                    set_values(&mut c, which, g.flat());
                 }
             }
             (c, map_merged)
@@ -474,9 +498,17 @@ pub fn resolve_normals(outcome: &mut MergeOutcome, reference: &Landmass, loaded:
         // The fork's order: the record the game loads, what `Resolve` made and the patches of
         // normals alone, then the plugins that touched the cell from the last back, the masters last.
         let (winner, base) = (read(loaded.and_then(|l| l.get(*coords))), read(reference.get(*coords)));
-        let sources: Vec<&crate::heights::NormalSnapshot> = winner.iter().chain(&cell.normal_snapshots).chain(cell.normal_predecessors.iter().rev()).chain(base.iter()).collect();
-        let (n, kept) = crate::heights::finalize_normals(h, cell.normals.as_deref(), &sources);
-        cell.normals = Some(n);
+        // The cell's sources are this step's alone: freed with it (the predecessors were 190 MB
+        // of `big_order`'s merge, held to here).
+        let (snapshots, predecessors) = (std::mem::take(&mut cell.normal_snapshots), std::mem::take(&mut cell.normal_predecessors));
+        let sources: Vec<&crate::heights::NormalSnapshot> = winner.iter().chain(&snapshots).chain(predecessors.iter().rev()).chain(base.iter()).collect();
+        let authored = cell.normals.as_deref().map(crate::layers::Packed::to_vec);
+        let (n, kept) = crate::heights::finalize_normals(h, authored.as_deref(), &sources);
+        // Normals that come out as they went in keep their grid, which a record may share.
+        let n = crate::layers::Packed::pack(n);
+        if !cell.normals.as_deref().is_some_and(|old| old.same_values(&n)) {
+            cell.normals = Some(std::sync::Arc::new(n));
+        }
         kept
     })
     .into_iter()
@@ -732,7 +764,9 @@ fn off_grid_borders(outcome: &MergeOutcome, reference: &Landmass, loaded: Option
 fn digest_cell(cell: &MergedCell) -> CellDigest {
     {
         let d = |v: &Option<Vec<Value>>| v.as_deref().map(crate::cleaning::digest);
-        CellDigest { heights: d(&cell.heights), normals: d(&cell.normals), world_map: d(&cell.world_map), colors: d(&cell.colors), textures: d(&cell.textures) }
+        // The same digest as of the values unpacked (`Packed::digest`).
+        let p = |v: &Option<crate::layers::Grid>| v.as_deref().map(crate::layers::Packed::digest);
+        CellDigest { heights: d(&cell.heights), normals: p(&cell.normals), world_map: d(&cell.world_map), colors: p(&cell.colors), textures: d(&cell.textures) }
     }
 }
 
@@ -789,10 +823,7 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
                 cell.world_map_heights = winner.heights.as_deref().map(map_samples);
             }
             for which in [Layer::Heights, Layer::Normals, Layer::Textures, Layer::WorldMap, Layer::Colors] {
-                let slot = slot(cell, which);
-                if slot.is_none() {
-                    *slot = winner.get(which).as_deref().map(crate::layers::Packed::to_vec);
-                }
+                fill_from(cell, which, winner.get(which).as_ref());
             }
         }
     }
@@ -863,10 +894,7 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
             inherit_reference_layers(&mut cell, reference);
             if let Some(winner) = loaded.and_then(|l| l.get(c)) {
                 for which in [Layer::Textures, Layer::WorldMap, Layer::Colors] {
-                    let slot = slot(&mut cell, which);
-                    if slot.is_none() {
-                        *slot = winner.get(which).as_deref().map(crate::layers::Packed::to_vec);
-                    }
+                    fill_from(&mut cell, which, winner.get(which).as_ref());
                 }
             }
             outcome.cells.insert(c, cell);

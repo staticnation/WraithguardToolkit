@@ -621,7 +621,9 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     let mut clamped_cells: Vec<(i64, i64)> = Vec::new();
     for (c, cell) in std::mem::take(&mut outcome.cells) {
         let c = &c;
-        match build_landscape_record_for(*c, cell.heights.as_deref(), cell.normals.as_deref(), cell.world_map.as_deref(), cell.colors.as_deref(), cell.textures.is_some()) {
+        // The packed layers unpacked for this one record only.
+        let (normals, colors) = (cell.normals.as_deref().map(crate::layers::Packed::to_vec), cell.colors.as_deref().map(crate::layers::Packed::to_vec));
+        match build_landscape_record_for(*c, cell.heights.as_deref(), normals.as_deref(), cell.world_map.as_deref(), colors.as_deref(), cell.textures.is_some()) {
             Ok((mut record, clamps)) => {
                 if opts.keep_world_map {
                     // As the merge has it, or none: nothing generated.

@@ -480,6 +480,31 @@ impl Cache {
         stamps.iter().enumerate().filter_map(|(i, s)| s.clone().map(|s| (i, s))).collect()
     }
 
+    /// Which of these plugins (indices, in the order given) have any key of a tag, from the index;
+    /// `None` when the index cannot answer (a plugin not indexed as it now is, or the cache out).
+    /// One query for 400 plugins: the Editor gives the rest no records without reading them
+    /// (Verify's game settings, 2026-11-17: most plugins have none, each was a query of its own).
+    pub fn holding_stamped(&self, stamps: &[Option<Stamp>], tag: &str) -> Option<Vec<usize>> {
+        if !self.stale_of_stamped(stamps, tag)?.is_empty() {
+            return None;
+        }
+        let stamped = Cache::stamped_of(stamps);
+        let names: Vec<&str> = stamped.iter().map(|(_, s)| s.key.as_str()).collect();
+        let found = self.read(|c| {
+            let mut found: HashSet<String> = HashSet::new();
+            for part in names.chunks(CHUNK) {
+                let q = format!("SELECT DISTINCT plugin FROM keys WHERE tag=? AND plugin IN ({})", marks(part.len()));
+                let mut st = c.prepare(&q).ok()?;
+                let args = std::iter::once(tag).chain(part.iter().copied());
+                for row in st.query_map(params_from_iter(args), |r| r.get::<_, String>(0)).ok()? {
+                    found.insert(row.ok()?);
+                }
+            }
+            Some(found)
+        })?;
+        Some(stamped.iter().filter(|(_, s)| found.contains(&s.key)).map(|(i, _)| *i).collect())
+    }
+
     /// Which of these plugins (indices, in the order given) have a key, from the index;
     /// `None` when the index cannot answer (a plugin not indexed as it now is, or the
     /// cache out).

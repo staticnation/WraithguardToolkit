@@ -34,7 +34,7 @@ history left this file; what was left of it is under "After 5.0" (2026-11-03, fr
   cores, the digests are quicker. Verbose now splits digests from cleaning and the encoding
   from the disk write: the next run says whether the 4.4 s is the disk (or a scanner on the
   new file) or the encoding. Benchmark, from `viewer-shell`, on one line; prints the steps' times, VmHWM
-  (Linux only) and the output's SHA-256 (`4d2e6cee...`, unchanged since 2026-11-02):
+  (Linux only) and the output's SHA-256 (`d3c09862...` as of 2026-11-17; it was `4d2e6cee...` before the terrain audit and the alignment with OpenMWMergedLands changed what is written):
 
       cargo test --release -p landcore --test merge_cases -- --ignored --nocapture big_order
 
@@ -111,11 +111,13 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
   moved the peak by 1 MB (969.6 to 968.6 MB), since the peak is not where they are held. VmHWM
   moves by up to 130 MB between runs of the same merge (970 MB to 1.10 GB): compare the merge's
   own figure (`peakmem-alloc`, the log's "added by the merge"), which does not. That figure, after
-  the write was made to free as it goes (2026-11-17): 783 MB to 669 MB. Where it is reached, each
-  step: masters read 182 MB, mods read 379, merged 598, finished 669, then no higher through the
-  records and the encode. The finish step (seam repair, the slope limiter, the step repair) is
-  where a next saving would be looked for. The merged normals are still `i32` (50 KB a cell,
-  12.7 KB as `i8`): pack them if a bigger order shows it.
+  the write was made to free as it goes (2026-11-17): 783 MB to 669 MB; then 479 MB with a merged
+  cell's colors and normals packed, 451 MB with the normals' sources freed in the normals step.
+  Where it is reached, each step: masters read 182 MB, mods read 380, merged 427, seams 451, then
+  no higher. What is left is what is read: the reference and the loaded landmass, the decoded
+  cells, and each cell's normal sources (190 MB, its plugins' heights and normals, held to the
+  normals step). Heights in a merged cell are still `i32` (17 KB a cell): the finish step
+  reshapes them in place.
 - The world map: Wraithguard's way by default, the fork's as `--merge-keep-world-map` and the
   Tools page's "Keep world maps as merged" (`the_world_map_as_merged_or_made_again`).
 - Ignored cells: the command line (`--merge-cell-ignore`, `--merge-cell-ignore-by-plugin`) and the
@@ -125,9 +127,12 @@ done is in `CHANGELOG.md`. Left, and what is different on purpose:
   The default leave-out list is the fork's, `groundcover.omwaddon` included (2026-11-16).
 - `Auto` is each model's own now (2026-11-16; `pipeline::folded_with_normals`). Left of it: a cell
   no master has still takes the later plugin's heights in both models (the Python's rule; the
-  original has no such rule that was found), and against the masters the blend is of the two
-  plugins' changes from the masters (`merge::merge_grids`), where the original blends the two
-  values: not compared number for number.
+  original has no such rule that was found). Against the masters the blend is the original's:
+  it too blends the two plugins' changes from the masters (`ResolveConflictStrategy`, on
+  `get_difference`), and since 2026-11-17 in its arithmetic, number for number
+  (`merge::the_blend_is_merged_lands_own`). The one difference left is in the counts: where both
+  made the same change the original has no conflict, and `merge_grids` counts it contested (a
+  minor one); what is written is the same.
 - `Curvature` is only here.
 - The fork's `LTEX` palette order: the same as ours but for its end pass over previous merges and
   deleted `LTEX` records (audited 2026-11-17, left as it is). Its memory work: done here as above.
@@ -208,8 +213,9 @@ placing reads a cell's spelling from the file framing (0.10 s against 5.03 s of 
 cells of `TR_Mainland.esm`, same key); a topic is read from its own records (48 ms for 1,446
 records, against every plugin's dialogue). What is left is small:
 
-- Verify's game settings (`GMST`, 0.7 s of its 2.7 s) are read each launch; they could be kept
-  on disk with the rest.
+- Verify's game settings (`GMST`, 0.7 s of its 2.7 s): they were on disk already; a launch now
+  skips the plugins the key index says have none (2026-11-17, about 6x less on a synthetic order,
+  `editcore/tests/warm_settings.rs`). Time Verify again on the real order.
 - Not done, on purpose: `read_tag` builds its values through JSON text (a record's `f32`
   fields would come out widened to `f64` from `serde_json::to_value`); `editRevision` is not
   answered without the lock (a stale revision would hide the refresh the poll is for).
@@ -292,15 +298,14 @@ CI and SAST still running then); the five workflows in `.github/workflows` match
 
 ### AppImage catalog PR (`appimage.github.io#11424`, test of 2026-11-10 on v5.0.3)
 
-- Name: the catalog wants no "linux" in it. `wraithguard-linux-x86_64.AppImage` is in
-  `build-app.yml` (copy, chmod, ls, artifact path, release attach) and the README table; the
-  proposal is `Wraithguard_Toolkit-x86_64.AppImage`, from the next release (not on a tag already
-  released), and the catalog PR's data file may name the asset too. Not changed.
-- Theme: the window starts in the dark palette on a light system, which the catalog flags. A
-  light default only when the system is light (`redoran`, the one pale theme, through
-  `prefers-color-scheme` where no theme has been chosen) would also flip light-system users on
-  Windows and macOS; the alternative is to do it only when run as an AppImage (`APPIMAGE`).
-  Undecided; the test passed with this as a warning.
+- Name (decided 2026-11-17): `Wraithguard_Toolkit-x86_64.AppImage` from 5.0.5, the catalog wanting
+  no "linux" in it; the CI artifact is `Wraithguard_Toolkit-x86_64-appimage`. `build-app.yml` is
+  changed in `subset sort\workflows` (to copy into `.github/workflows`), and the README table. Left:
+  the catalog PR's data file, if it names the asset, and the MOMW Tools Pack's `get_wraithguard`
+  (`build.sh`), which fetches the AppImage by name, when it moves to 5.0.5. The plain tarball
+  stays `wraithguard-linux-x86_64.tar.gz`.
+- Theme (decided 2026-11-17): the program's own themes, as they are; the window keeps its dark
+  default on a light system, and the catalog's warning about it stands.
 
 ## Forks: LUAL, Clippy
 

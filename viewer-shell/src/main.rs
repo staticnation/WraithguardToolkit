@@ -63,6 +63,8 @@ fn launch_env() {
 }
 
 // Counts the heap so Merge Lands' Verbose log can say the merge's own peak (landcore::memory).
+// Not in the stub check crate (check/), which has no landcore and merges nothing.
+#[cfg(not(wg_check))]
 #[global_allocator]
 static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;
 

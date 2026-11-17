@@ -43,19 +43,27 @@ fn is_major(first: Value, second: Value, blended: f64, p: ConflictParams) -> boo
 }
 
 /// `average_delta`: the two edits blended toward the larger, and whether the compromise
-/// is major.
+/// is major. In `f32`, step for step as Merged Lands' `classify_conflict` and the OpenMW fork's
+/// (Static, 2026-11-17): in `f64` (the Python's) 9,746 of the 16.8 million pairs of changes
+/// from -2,048 to 2,048 came out a unit apart, and two were judged the other way
+/// (`the_blend_is_merged_lands_own`).
 pub fn average_delta(first: Value, second: Value, p: ConflictParams) -> (Value, bool) {
-    let (s1, s2) = (first.abs() as f64, second.abs() as f64);
-    let total = s1 + s2;
+    let (lhs, rhs) = (first as f32, second as f32);
+    let total = lhs.abs() + rhs.abs();
     if total == 0.0 {
         return (0, false);
     }
-    let weight = s1 / total;
-    let biased = weight.powf(1.5);
-    let other = (1.0 - weight).powf(1.5);
-    let weight = biased / (biased + other);
-    let blended = weight * first as f64 + (1.0 - weight) * second as f64;
-    (blended.trunc() as Value, is_major(first, second, blended, p))
+    let lhs_weight = lhs.abs() / total;
+    let rhs_weight = 1. - lhs_weight;
+    let (l2, r2) = (lhs_weight.powf(1.5), rhs_weight.powf(1.5));
+    let lhs_weight = l2 / (l2 + r2);
+    let rhs_weight = 1. - lhs_weight;
+    let average = lhs_weight * lhs + rhs_weight * rhs;
+    let minimum = lhs.min(rhs);
+    let threshold = (p.minor_threshold_pct as f32 * minimum).max(p.minor_threshold_min as f32);
+    let major = (minimum - average).abs() >= threshold.min(p.minor_threshold_max as f32);
+    // `as` truncates toward zero, as theirs does.
+    (average as Value, major)
 }
 
 /// `weighted_delta`: the two edits blended with the caller's weights.
@@ -411,6 +419,33 @@ mod tests {
                 let ry = overwrite_general(&mut y, &inc);
                 assert_eq!(x, y);
                 assert_eq!(rx, ry);
+            }
+        }
+    }
+
+    /// Merged Lands' `classify_conflict` as it is written (`merged_lands-main`,
+    /// `src/merge/conflict.rs`; the OpenMW fork's is the same), against `average_delta`, over
+    /// every pair of changes from -2,048 to 2,048 (the original's `None` for equal ones aside:
+    /// the same change either way).
+    #[test]
+    fn the_blend_is_merged_lands_own() {
+        fn theirs(lhs: f32, rhs: f32) -> (i32, bool) {
+            let lhs_weight = lhs.abs() / (lhs.abs() + rhs.abs());
+            let rhs_weight = 1. - lhs_weight;
+            let lhs_weight_2 = lhs_weight.powf(1.5);
+            let rhs_weight_2 = rhs_weight.powf(1.5);
+            let lhs_weight = lhs_weight_2 / (lhs_weight_2 + rhs_weight_2);
+            let rhs_weight = 1. - lhs_weight;
+            let average = lhs_weight * lhs + rhs_weight * rhs;
+            let minimum = lhs.min(rhs);
+            let proportional_threshold = (0.3 * minimum).max(10.0);
+            let difference = f32::abs(minimum - average);
+            (average as i32, difference >= proportional_threshold.min(64.0))
+        }
+        let p = ConflictParams::default();
+        for a in (-2048..=2048).filter(|&a| a != 0) {
+            for b in (-2048..=2048).filter(|&b| b != 0 && b != a) {
+                assert_eq!(average_delta(a, b, p), theirs(a as f32, b as f32), "{a} and {b}");
             }
         }
     }

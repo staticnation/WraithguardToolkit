@@ -5,6 +5,17 @@
 
 ### Changed
 
+- **The Linux AppImage is `Wraithguard_Toolkit-x86_64.AppImage`** (it was
+  `wraithguard-linux-x86_64.AppImage`): AppImageHub's catalog wants no "linux" in the name. The
+  plain tarball keeps its name.
+
+- **Merge Lands blends two plugins' changes in Merged Lands' own arithmetic** (32-bit, as its
+  `classify_conflict` and the OpenMW fork's are; it was 64-bit, the Python's). Compared over every
+  pair of changes from -2,048 to 2,048: 9,746 of 16.8 million blends were a unit apart, and two
+  were judged minor where the original judges them major or the other way. Only `Resolve` and
+  `Auto` against the masters blend; against the load order (the default) `Auto` writes the same
+  plugin as before.
+
 - **Merge Lands leaves `groundcover.omwaddon` out by default**, as OpenMWMergedLands does: grass
   placed as references, with no land of its own to merge. A list already saved on the Tools page
   is kept as it is.
@@ -53,11 +64,22 @@
   were held to the end of the merge. The write frees as it goes too: the load order's landmass and
   the reference once the finish step is done, each merged cell once its record is made, each
   record once it is encoded (they were all held beside the file's bytes). On the 300-plugin
-  benchmark the process's peak went from 1.72 GB to 1.31 GB, then to about 0.9-1.0 GB (1.42 GB
+  benchmark the process's peak went from 1.72 GB to 1.31 GB, then to about 0.8 GB (1.42 GB
   before the normals were merged), and what the merge itself adds to the heap from 783 MB to
-  669 MB, with the same plugin written. Heights are also packed in 16 bits where they fit, not 32.
+  451 MB, with the same plugin written. Heights are also packed in 16 bits where they fit, not
+  32; a merged cell's colors and normals in a byte each where they fit, not 32 bits (they were 228
+  of its 270 MB at the finish step), and one taken whole from the masters or the winning record
+  shares that record's copy; the records each cell's normals are kept against (190 MB there) are
+  freed once its normals are final, and normals that come out as they went in are not copied.
 
 ### Added
+
+- **The Editor's Verify asks less of the record cache on a launch.** A plugin the key index says
+  has no records of a type (most plugins have no game settings) is given none without its cached
+  records being fetched, one query for 400 plugins in place of one each, and the plugins' sizes
+  come from the stamps already taken. Game settings over 620 plugins, 31 with any, the cache
+  warm: 12.3-13.5 ms to 2.1-2.2 ms (a synthetic order; the real one's 0.7 s of 2.7 s not yet
+  timed again).
 
 - **Merge Lands' "Leave out" has a Default button**, as "Leave cells out" has. The box is kept as
   last typed, so once emptied the default list never came back and every generated patch was

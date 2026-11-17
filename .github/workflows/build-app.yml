@@ -176,14 +176,14 @@ jobs:
           cargo tauri build --bundles appimage
           f=$(ls target/release/bundle/appimage/*.AppImage | head -1)
           test -f "$f"
-          cp "$f" ../wraithguard-linux-x86_64.AppImage
-          chmod +x ../wraithguard-linux-x86_64.AppImage
-          ls -lh ../wraithguard-linux-x86_64.AppImage
+          cp "$f" ../Wraithguard_Toolkit-x86_64.AppImage
+          chmod +x ../Wraithguard_Toolkit-x86_64.AppImage
+          ls -lh ../Wraithguard_Toolkit-x86_64.AppImage
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: wraithguard-linux-x86_64-appimage
-          path: wraithguard-linux-x86_64.AppImage
+          name: Wraithguard_Toolkit-x86_64-appimage
+          path: Wraithguard_Toolkit-x86_64.AppImage
           if-no-files-found: error
 
       - name: Attach to the release (tag builds only)
@@ -192,7 +192,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          f=wraithguard-linux-x86_64.AppImage
+          f=Wraithguard_Toolkit-x86_64.AppImage
           gh release upload "${GITHUB_REF_NAME}" "$f" --clobber \
             || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes \
             || gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
