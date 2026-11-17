@@ -63,6 +63,8 @@ pub struct MergeOutcome {
     pub borrowed: usize,
     /// Cells brought in to repair a seam the load order already has ([`ExistingSeams`]).
     pub existing_seam_cells: usize,
+    /// Seams between two borrowed cells mended (`mend_between_borrowed`), and the cells they moved.
+    pub existing_seam_borrowed: BTreeSet<Coords>,
     /// Which cells those were: their borders with terrain outside the merge are not checked.
     pub existing_seam_set: BTreeSet<Coords>,
     /// Those cells' heights as the terrain had them, finalized.
@@ -604,6 +606,41 @@ pub fn add_existing_seam_cells(outcome: &mut MergeOutcome, base: &Landmass, rule
     wanted.len()
 }
 
+/// Existing seams between two cells the merge only borrowed (Static, 2026-11-16, the one border
+/// left open on the audit's order at 24 units). A borrowed cell is held where it is, so that the
+/// cells the merge changed meet it ([`add_reference_neighbours`]), and the existing-seam repair
+/// only takes a seam with a side outside the merge ([`add_existing_seam_cells`]): one between two
+/// borrowed cells had no one to mend it. Here, where the two are no more than `rule.max_gap`
+/// apart, each vertex only those two cells hold (the border without its two ends: an end is a
+/// corner other cells hold too) is set to the two heights' mean, so each moves half the gap at
+/// most - 12 units at 24 - along one line of vertices. Answers the cells it moved.
+fn mend_between_borrowed(heights: &mut BTreeMap<Coords, Vec<Value>>, borrowed: &BTreeSet<Coords>, rule: &ExistingSeams, untouchable: &BTreeSet<Coords>) -> BTreeSet<Coords> {
+    let n = crate::grid::LAND_SIZE;
+    let last = n - 1;
+    let mut moved = BTreeSet::new();
+    for &a in borrowed {
+        for (east, b) in [(true, (a.0 + 1, a.1)), (false, (a.0, a.1 + 1))] {
+            if !borrowed.contains(&b) || [a, b].iter().any(|c| rule.except.contains(c) || untouchable.contains(c)) {
+                continue;
+            }
+            let (Some(ha), Some(hb)) = (heights.get(&a), heights.get(&b)) else { continue };
+            let at = |t: usize| if east { (t * n + last, t * n) } else { (last * n + t, t) };
+            let widest = (1..last).map(|t| { let (i, j) = at(t); (ha[i] - hb[j]).abs() }).max().unwrap_or(0);
+            if widest == 0 || widest > rule.max_gap {
+                continue;
+            }
+            let means: Vec<(usize, usize, Value)> = (1..last).map(|t| { let (i, j) = at(t); (i, j, (ha[i] + hb[j]).div_euclid(2)) }).collect();
+            for (i, j, m) in means {
+                heights.get_mut(&a).expect("a")[i] = m;
+                heights.get_mut(&b).expect("b")[j] = m;
+            }
+            moved.insert(a);
+            moved.insert(b);
+        }
+    }
+    moved
+}
+
 /// The untouched reference cells bordering the merge, brought in so their borders can be
 /// reconciled (`add_reference_neighbours`); they are authoritative - never moved.
 pub fn add_reference_neighbours(outcome: &mut MergeOutcome, reference: &Landmass) -> BTreeSet<Coords> {
@@ -778,6 +815,9 @@ pub fn finish_with(outcome: &mut MergeOutcome, reference: &Landmass, loaded: Opt
         // merge, nothing unpacked.
         let anchor = |c: Coords, i: usize| reference.get(c).and_then(|l| l.heights.as_deref()).and_then(|h| h.at(i));
         outcome.seams = repair_seams(&mut heights, DEFAULT_FEATHER, Some(&anchor), &borrowed)?;
+        if let Some(rule) = existing {
+            outcome.existing_seam_borrowed = mend_between_borrowed(&mut heights, &borrowed, rule, &outcome.untouchable);
+        }
         lap("seams");
         // What is saved is heights on VHGT's eight-unit grid, so that is what everything
         // after this reads: the slopes (a step is legal or not as it will be stored), the

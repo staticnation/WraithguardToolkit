@@ -26,6 +26,13 @@
 
 ### Fixed
 
+- **Merge Lands' "repair the seams the terrain already has" mends a seam between two cells it only
+  borrowed** (the untouched neighbours of changed cells, held still so the changed cells meet them).
+  Such a seam fell between the two rules that pick existing seams and stayed open: on the audit's
+  order at 24 units, (-2,-12)/(-1,-12), 16 units apart along five vertices. The vertices only those
+  two cells hold now go to the two heights' mean, half the gap each, within the gap given; the
+  border's ends, corners other cells hold too, are left.
+
 - **Merge Lands uses less memory**: each cell's working grids are dropped as soon as it is merged,
   not kept until every cell is done. On the 300-plugin benchmark the peak went from 1.72 GB to
   1.31 GB (1.42 GB before the normals were merged), with the same plugin written.

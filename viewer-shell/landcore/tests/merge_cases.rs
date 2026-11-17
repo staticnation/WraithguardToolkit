@@ -1187,3 +1187,50 @@ fn the_world_map_as_merged_or_made_again() {
     assert!(!r.lines.iter().any(|l| l.contains("made again")), "{:#?}", r.lines);
     let _ = std::fs::remove_dir_all(data.parent().unwrap());
 }
+
+/// An existing seam between two cells the merge only borrowed (Static, 2026-11-16: the one border
+/// left open on the audit's order at 24 units). `A.esp` changes (0, 0), so the cells round it are
+/// borrowed and held; (1, 1) stands 16 units above its neighbours. Asked to repair existing seams,
+/// the border (1, 0) and (1, 1) share is closed along its length (its ends are corners other cells
+/// hold, and are left); not asked, it is left as the load order has it.
+#[test]
+fn an_existing_seam_between_two_borrowed_cells_is_mended() {
+    use landcore::pipeline::ExistingSeams;
+    use serde_json::json;
+    use tes3::esp::{Plugin, TES3Object};
+    let mut base = Vec::new();
+    for x in -1..=1 {
+        for y in -1..=1 {
+            let stored = if (x, y) == (1, 1) { 402 } else { 400 };
+            base.push(json!({"grid": [x, y], "flags": 1, "heights": [stored, 0, 0, 1, 0, 0, -1, 0]}));
+        }
+    }
+    let data = setup(
+        "borrowed seam",
+        json!([
+            {"name": "Base.esm", "land": base},
+            {"name": "A.esp", "land": [{"grid": [0, 0], "flags": 1, "heights": [400, 1, 1, 9, 20, 20, 6, 60]}]},
+        ]),
+    );
+    let border = |opts: MergeOptions| {
+        let r = run(&data, &["Base.esm", "A.esp"], opts);
+        let plugin = Plugin::from_path(data.parent().unwrap().join("out").join(DEFAULT_NAME)).unwrap();
+        let cell = |g: (i32, i32)| {
+            plugin.objects.iter().find_map(|o| if let TES3Object::Landscape(l) = o { (l.grid == g).then(|| {
+                let raw: Vec<u8> = l.vertex_heights.data.iter().flatten().map(|&d| d as u8).collect();
+                landcore::heights::decode_heights(&raw, l.vertex_heights.offset as f64).unwrap()
+            }) } else { None })
+        };
+        // (1, 0)'s north row against (1, 1)'s south row, as the game would load them.
+        let south = cell((1, 0)).unwrap_or_else(|| vec![3200; SIZE * SIZE]);
+        let north = cell((1, 1)).unwrap_or_else(|| vec![3216; SIZE * SIZE]);
+        let apart = (1..SIZE - 1).filter(|&t| south[(SIZE - 1) * SIZE + t] != north[t]).count();
+        (r, apart)
+    };
+    let (_, apart) = border(MergeOptions::default());
+    assert_eq!(apart, SIZE - 2, "not asked: the load order's seam stays");
+    let (r, apart) = border(MergeOptions { existing_seams: Some(ExistingSeams::default()), ..Default::default() });
+    assert_eq!(apart, 0, "asked: closed along its length {:#?}", r.lines);
+    assert!(r.lines.iter().any(|l| l.contains("brought in beside the merge")), "{:#?}", r.lines);
+    let _ = std::fs::remove_dir_all(data.parent().unwrap());
+}

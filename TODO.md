@@ -82,9 +82,12 @@ are white; layers the merge has nothing to say about come from the winning recor
   already has opt-in** (`--merge-repair-seams [GAP]`, gap 24; `--merge-seam-except X,Y`; the Tools
   page has a box, a gap and a list of cells, which the viewer build has not been run to see). Left:
   no ceiling above 24 has been shown safe (600 on the audit's order made three borders worse and clamped two vertices).
-  Four borders of 24 units or less stay open at 24 (115 records written, 394 vertices improved, none worse): three
-  are one corner vertex where the cells outside the merge disagree with each other or there are none, so no
-  height agrees with them all, and one is between two cells the merge already had (not looked into).
+  Replayed 2026-11-16 at 24 on the audit's 74 inputs: 297 records against the masters, 259 against
+  the load order. Three borders of 24 units or less stay open, each one corner vertex where the cells
+  outside the merge that share it disagree with each other ((13,-30)/(14,-30), its northern
+  neighbours at 1,448 and 1,424; (-116,12)/(-115,12); (-12,-15)/(-11,-15)), so no height agrees with
+  them all. The fourth, between two cells the merge had borrowed, is mended now
+  (`mend_between_borrowed`).
   Fixing those would mean moving terrain outside the merge. The audit's own note
   stands: do not cut record counts by suppressing small mismatches; known intentional discontinuities
   go in as exceptions. Record counts against Merged Lands (303 against 115 at 24) are not a measure.

@@ -541,6 +541,9 @@ pub fn build_merged_lands(dirs: &[PathBuf], load_order: &[String], opts: &MergeO
     say!("  seam repair moved {} vertex/vertices (widest gap {} units)", outcome.seams.total(), outcome.seams.largest_gap);
     if let Some(rule) = &opts.existing_seams {
         say!("  repaired the seams the terrain already had (up to {} units wide) in {} cell(s)", rule.max_gap, outcome.existing_seam_cells);
+        if !outcome.existing_seam_borrowed.is_empty() {
+            say!("  and between {} cell(s) brought in beside the merge", outcome.existing_seam_borrowed.len());
+        }
     }
     if outcome.borrowed > 0 {
         say!("  brought in {} untouched cell(s) to reconcile their borders", outcome.borrowed);
