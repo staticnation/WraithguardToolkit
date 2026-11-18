@@ -52,23 +52,9 @@ pub(super) fn placed_counts(w: &World, rev: u64) -> std::sync::Arc<HashMap<Strin
     n
 }
 
-/// The Object Window's tabs: `[[tag, count]...]`, every tag the load order has records of.
-#[tauri::command(async)]
-pub(super) fn editor_tags(state: State) -> Result<String, String> {
-    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let rows: Vec<String> = tag_counts(&w)
-        .iter()
-        .map(|(t, c)| {
-            let mut s = String::from("[\"");
-            viewcore::json::escape_into(t, &mut s);
-            s.push_str(&format!("\",{c}]"));
-            s
-        })
-        .collect();
-    Ok(format!("[{}]", rows.join(",")))
-}
-
-/// Wraithguard: `editor_tags` as bytes (`WGTB`): one table, `tags` (`su`: tag, count).
+/// The Object Window's tabs, every tag the load order has records of, as bytes (`WGTB`):
+/// one table, `tags` (`su`: tag, count).
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 pub(super) fn editor_tags_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
@@ -233,186 +219,121 @@ pub(super) fn pack_rows(plugins: &[String], rows: &[ObjRow]) -> Vec<u8> {
     o
 }
 
-/* Wraithguard: `WGTB`, the Editor's other lists as bytes - the same reason as `WGOR`
-   (a JSON answer the page cannot read looked like an empty list, Static 2026-10-13), in
-   one shape for every list rather than a format each:
+/* Wraithguard: `WGTB`, the engine's lists as bytes - the same reason as `WGOR` (a JSON
+   answer the page cannot read looked like an empty list, Static 2026-10-13), in one shape
+   for every list rather than a format each. The writer and its reader are viewcore's
+   (`viewcore::wgtb`, Static 2026-11-17), so `viewcore` answers can write it too. */
+pub(super) use viewcore::wgtb::Tables;
 
-   "WGTB" | u32 version 1 | u32 table count | per table: name (string), column types
-   (string, one letter a column: `s` string, `u` u32, `i` i32, `d` f64), u32 row count,
-   then the rows' values in order. A string is u32 byte length + UTF-8; little-endian.
-
-   The page's `unpackTables` (03_core.js) reads it; `ui/tests/editor/wgtb_tables.json` is
-   the one fixture both sides are tested against. The writer does not check a row against
-   its column letters: each list is built in one place and the fixture holds the format. */
-pub(super) struct Tables {
-    o: Vec<u8>,
-    tables: u32,
+/// One actor as the page draws it (`actors` in `WGCD` and `editor_actors`): its kind (npc /
+/// crea / lev), model, the `x` twin the game draws a living creature with (round 18ag), health,
+/// persist flag, whether it is a corpse, and its AI Hello for the greeting-distance overlay.
+pub(super) struct ActorRow {
+    pub(super) key: String,
+    pub(super) kind: &'static str,
+    pub(super) model: String,
+    pub(super) twin: Option<String>,
+    pub(super) health: Option<i32>,
+    pub(super) persistent: bool,
+    pub(super) corpse: bool,
+    pub(super) hello: Option<u8>,
 }
 
-impl Tables {
-    pub(super) fn new() -> Self {
-        let mut o = b"WGTB".to_vec();
-        o.extend_from_slice(&1u32.to_le_bytes());
-        o.extend_from_slice(&0u32.to_le_bytes()); // the table count, set by `done`
-        Tables { o, tables: 0 }
-    }
-    pub(super) fn table(&mut self, name: &str, cols: &str, rows: usize) -> &mut Self {
-        self.tables += 1;
-        self.s(name).s(cols);
-        self.o.extend_from_slice(&(rows.min(u32::MAX as usize) as u32).to_le_bytes());
-        self
-    }
-    pub(super) fn s(&mut self, v: &str) -> &mut Self {
-        self.o.extend_from_slice(&(v.len() as u32).to_le_bytes());
-        self.o.extend_from_slice(v.as_bytes());
-        self
-    }
-    pub(super) fn u(&mut self, v: u64) -> &mut Self {
-        self.o.extend_from_slice(&(v.min(u32::MAX as u64) as u32).to_le_bytes());
-        self
-    }
-    pub(super) fn i(&mut self, v: i64) -> &mut Self {
-        self.o.extend_from_slice(&(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32).to_le_bytes());
-        self
-    }
-    pub(super) fn d(&mut self, v: f64) -> &mut Self {
-        self.o.extend_from_slice(&v.to_le_bytes());
-        self
-    }
-    pub(super) fn done(mut self) -> Vec<u8> {
-        let n = self.tables.to_le_bytes();
-        self.o[8..12].copy_from_slice(&n);
-        self.o
+/// An NPC or a creature, `key` lower case.
+pub(super) fn actor_row(w: &viewcore::world::World, key: &str, a: &viewcore::world::ActorDef) -> ActorRow {
+    ActorRow {
+        key: key.to_string(),
+        kind: if a.creature { "crea" } else { "npc" },
+        model: a.model.clone(),
+        twin: a.twin.clone(),
+        health: a.health,
+        persistent: a.persistent,
+        corpse: a.corpse(),
+        hello: w.hello.get(key).copied(),
     }
 }
 
-/// One actor, `"key":{kind, model, twin, health, persistent, corpse, hello?}`, as the
-/// cell's `actors` map carries it (and `editor_actors`).
-pub(super) fn push_actor(w: &viewcore::world::World, key: &str, a: &viewcore::world::ActorDef, actors: &mut String) {
-    actors.push('"');
-    viewcore::json::escape_into(key, actors);
-    actors.push_str("\":{\"kind\":\"");
-    actors.push_str(if a.creature { "crea" } else { "npc" });
-    actors.push_str("\",\"model\":\"");
-    viewcore::json::escape_into(&a.model, actors);
-    // Round 18ag: and the `x` twin the game draws the living creature with.
-    actors.push_str("\",\"twin\":");
-    match &a.twin {
-        Some(t) => {
-            actors.push('"');
-            viewcore::json::escape_into(t, actors);
-            actors.push('"');
-        }
-        None => actors.push_str("null"),
+/// A leveled creature list placed as a spawn point.
+pub(super) fn lev_row(key: &str, model: &str) -> ActorRow {
+    ActorRow {
+        key: key.to_string(),
+        kind: "lev",
+        model: model.to_string(),
+        twin: None,
+        health: None,
+        persistent: false,
+        corpse: false,
+        hello: None,
     }
-    actors.push_str(",\"health\":");
-    match a.health {
-        Some(h) => actors.push_str(&h.to_string()),
-        None => actors.push_str("null"),
-    }
-    actors.push_str(",\"persistent\":");
-    actors.push_str(if a.persistent { "true" } else { "false" });
-    actors.push_str(",\"corpse\":");
-    actors.push_str(if a.corpse() { "true" } else { "false" });
-    // Wraithguard: AI Hello, for the greeting-distance overlay.
-    if let Some(h) = w.hello.get(key) {
-        actors.push_str(&format!(",\"hello\":{}", h));
-    }
-    actors.push('}');
 }
 
-/// A leveled creature list placed as a spawn point, as the cell's `actors` map carries it.
-pub(super) fn push_lev(key: &str, model: &str, actors: &mut String) {
-    actors.push('"');
-    viewcore::json::escape_into(key, actors);
-    actors.push_str("\":{\"kind\":\"lev\",\"model\":\"");
-    viewcore::json::escape_into(model, actors);
-    actors.push_str("\",\"twin\":null,\"health\":null,\"persistent\":false,\"corpse\":false}");
+/// The `actors` table, `ssssiuu`: id, kind, model, twin, health, bits (1 a twin, 2 a health,
+/// 4 persistent, 8 a corpse, 16 a Hello), AI Hello. Read by `CellWire.refs` (17_cell.js).
+pub(super) fn write_actors(tb: &mut Tables, actors: &[ActorRow]) {
+    tb.table("actors", "ssssiuu", actors.len());
+    for a in actors {
+        let bits = a.twin.is_some() as u64
+            | (a.health.is_some() as u64) << 1
+            | (a.persistent as u64) << 2
+            | (a.corpse as u64) << 3
+            | (a.hello.is_some() as u64) << 4;
+        tb.s(&a.key)
+            .s(a.kind)
+            .s(&a.model)
+            .s(a.twin.as_deref().unwrap_or(""))
+            .i(a.health.unwrap_or(0) as i64)
+            .u(bits)
+            .u(a.hello.unwrap_or(0) as u64);
+    }
 }
 
 /// Wraithguard: what the render window needs to draw objects it has not seen placed (a
-/// reference the editor adds): `{actors:{...}, models:{id: mesh}}`, as a cell carries
-/// them, for the ids asked.
+/// reference the editor adds): the `actors` (`write_actors`) and `models` (`ss`: id, mesh)
+/// tables a cell carries (`WGTB`, Static 2026-11-17: JSON only where it is needed), for the
+/// ids asked. Read with `CellWire.refs` (17_cell.js).
 #[tauri::command(async)]
-pub(super) fn editor_actors(ids: Vec<String>, state: State) -> Result<String, String> {
+pub(super) fn editor_actors(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let mut actors = String::from("{");
-    let mut models = String::from("{");
+    let mut actors: Vec<ActorRow> = Vec::new();
+    let mut models: Vec<(String, &str)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for id in ids.iter().take(4096) {
         let key = id.to_ascii_lowercase();
+        if !seen.insert(key.clone()) {
+            continue;
+        }
         if let Some(a) = w.actors.get(&key) {
-            if actors.len() > 1 {
-                actors.push(',');
-            }
-            push_actor(&w, &key, a, &mut actors);
+            actors.push(actor_row(&w, &key, a));
         } else if let Some(o) = w.objects.get(&key).filter(|o| o.kind == Some(viewcore::objects::ObjKind::LeveledCreature)) {
-            if actors.len() > 1 {
-                actors.push(',');
-            }
-            push_lev(&key, &o.model, &mut actors);
+            actors.push(lev_row(&key, &o.model));
         }
         if let Some(m) = w.models.get(&key) {
-            if models.len() > 1 {
-                models.push(',');
-            }
-            models.push('"');
-            viewcore::json::escape_into(&key, &mut models);
-            models.push_str("\":\"");
-            viewcore::json::escape_into(m, &mut models);
-            models.push('"');
+            models.push((key, m));
         }
     }
-    actors.push('}');
-    models.push('}');
-    let mut o = J::obj();
-    o.raw("actors", &actors).raw("models", &models);
-    Ok(o.done())
-}
-
-/// The Cell View's object list for one cell (`x,y`, or `int:<name>`): `{name, rows:[[key,
-/// id, tag, [x,y,z], plugin]...]}` - every reference not deleted, sorted by id; `key` is
-/// the viewport's reference key, `plugin` the file whose version of it wins.
-#[tauri::command(async)]
-pub(super) fn editor_cell_refs(cell: String, state: State) -> Result<String, String> {
-    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let c = cell_refs_of(&w, &cell)?;
-    let rows: Vec<String> = c
-        .rows
-        .iter()
-        .map(|r| {
-            let mut row = String::from("[\"");
-            viewcore::json::escape_into(&r.key, &mut row);
-            row.push_str("\",\"");
-            viewcore::json::escape_into(&r.id, &mut row);
-            row.push_str("\",\"");
-            viewcore::json::escape_into(&r.tag, &mut row);
-            row.push_str(&format!("\",[{:.1},{:.1},{:.1}],\"", r.pos[0], r.pos[1], r.pos[2]));
-            viewcore::json::escape_into(&r.plugin, &mut row);
-            row.push_str("\",\"");
-            viewcore::json::escape_into(&r.owner, &mut row);
-            row.push_str("\"]");
-            row
-        })
-        .collect();
-    let mut o = J::obj();
-    o.str("name", &c.name).str("refCell", &c.ref_cell).raw("plugins", &string_array(&c.plugins));
-    o.raw("rows", &format!("[{}]", rows.join(",")));
-    Ok(o.done())
+    let mut tb = Tables::new();
+    write_actors(&mut tb, &actors);
+    tb.table("models", "ss", models.len());
+    for (k, m) in &models {
+        tb.s(k).s(m);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: what names each of `keys` (the viewport's reference keys) to the Editor, in
-/// one pass over the loaded world: `[{cell, origin, refr, plugins} | null]`, in the order
+/// one pass over the loaded world: `[{cell, origin, refr, plugins} | null]` (as bytes, below), in the order
 /// asked (`null`: no such reference). `cell` is the cell's key as a plugin's records key it,
 /// `origin` the plugin that created the reference, `plugins` those with a record for the
 /// cell. A box selection asked `ori` for each object, which looks through the world for it
 /// and reads its plugin files for the help text: seconds for an interior's few hundred
 /// (gonzo, 2026-11-09).
 #[tauri::command(async)]
-pub(super) fn editor_ref_names(keys: Vec<String>, state: State) -> Result<String, String> {
+pub(super) fn editor_ref_names(keys: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let want: HashMap<String, usize> = keys.iter().enumerate().map(|(i, k)| (k.to_ascii_lowercase(), i)).collect();
-    let mut out: Vec<Option<String>> = vec![None; keys.len()];
-    let name = |i: u32| w.plugins.get(i as usize).cloned().unwrap_or_default();
+    // (cell, origin, refr, plugins) per key asked; `None`: no such reference.
+    type Named = (String, String, u32, Vec<u32>);
+    let mut out: Vec<Option<Named>> = vec![None; keys.len()];
     let left = std::cell::Cell::new(want.len());
     let mut look = |num: &viewcore::esp::RefNum, ref_cell: &str, cell_by: &[u32]| {
         let Some(k) = viewcore::refkey::RefKey::of(*num, &w.plugins) else { return };
@@ -421,10 +342,7 @@ pub(super) fn editor_ref_names(keys: Vec<String>, state: State) -> Result<String
             return;
         }
         let origin = w.plugins.iter().find(|p| p.eq_ignore_ascii_case(&k.plugin)).cloned().unwrap_or(k.plugin);
-        let mut o = J::obj();
-        o.str("cell", ref_cell).str("origin", &origin).num("refr", num.index as f64);
-        o.raw("plugins", &string_array(&cell_by.iter().map(|&p| name(p)).collect::<Vec<_>>()));
-        out[i] = Some(o.done());
+        out[i] = Some((ref_cell.to_string(), origin, num.index, cell_by.to_vec()));
         left.set(left.get() - 1);
     };
     'cells: {
@@ -446,12 +364,35 @@ pub(super) fn editor_ref_names(keys: Vec<String>, state: State) -> Result<String
             }
         }
     }
-    Ok(format!("[{}]", out.into_iter().map(|o| o.unwrap_or_else(|| "null".into())).collect::<Vec<_>>().join(",")))
+    /* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed): `names`
+       `ussu` (found 0/1, cell, origin, refr), a row per key in the order asked, and `plugins`
+       `us` (its row, a plugin with a record for the cell). Read by 50_wg_editor_move.js. */
+    let name = |i: u32| w.plugins.get(i as usize).map(|s| s.as_str()).unwrap_or("");
+    let mut tb = Tables::new();
+    tb.table("names", "ussu", out.len());
+    for o in &out {
+        match o {
+            Some((cell, origin, refr, _)) => tb.u(1).s(cell).s(origin).u(*refr as u64),
+            None => tb.u(0).s("").s("").u(0),
+        };
+    }
+    tb.table("plugins", "us", out.iter().flatten().map(|o| o.3.len()).sum());
+    for (row, o) in out.iter().enumerate() {
+        if let Some((_, _, _, by)) = o {
+            for &p in by {
+                tb.u(row as u64).s(name(p));
+            }
+        }
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
-/// Wraithguard: `editor_cell_refs` as bytes (`WGTB`): `meta` (`ss`: name, refCell, one
-/// row), `plugins` (`s`) and `rows` (`sssdddss`: key, id, tag, x, y, z, plugin, owner;
-/// the position to a tenth, as the JSON gives it).
+/// The Cell View's object list for one cell (`x,y`, or `int:<name>`) - every reference not
+/// deleted, sorted by id - as bytes (`WGTB`): `meta` (`ss`: name, refCell, one row),
+/// `plugins` (`s`) and `rows` (`sssdddss`: key, id, tag, x, y, z, plugin, owner; the position
+/// to a tenth). `key` is the viewport's reference key, `plugin` the file whose version of it
+/// wins.
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 pub(super) fn editor_cell_refs_bytes(cell: String, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
@@ -596,12 +537,13 @@ pub(super) fn editor_record_tag(id: String, state: State) -> Result<String, Stri
 /// handlers}], findings:[{path, severity, code, line, message}], report}`. The Editor's
 /// Lua panel. A Morrowind.ini setup has none, and says so in `note`.
 #[tauri::command(async)]
-pub(super) fn lua_scan(state: State) -> Result<String, String> {
+pub(super) fn lua_scan(state: State) -> Result<tauri::ipc::Response, String> {
     let (vfs, order) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
     };
-    viewcore::luascan::scan_json(&vfs, order.as_deref())
+    // As bytes (`luascan::scan_tables`, Static 2026-11-17: JSON only where it is needed).
+    Ok(tauri::ipc::Response::new(viewcore::luascan::scan_tables(&viewcore::luascan::scan(&vfs, order.as_deref())?)))
 }
 
 /// The Editor's script flowchart (`editFlowchart` was Wraithguard's, opening its chart

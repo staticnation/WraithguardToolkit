@@ -556,7 +556,7 @@ async function placing(w, E, R, fail, sleep){
   const row=E.rows.find(r=>r[0]==='lamp_lit');
   if(!row){ fail('no lamp_lit row to place'); return; }
   // What draws an object not yet placed: the engine's actors and models for the ids asked.
-  const ea=await w.eval('Engine').call('editor_actors',{ids:['lamp_lit','no_such_thing']});
+  const ea={}; w.eval('CellWire').refs(ea, w.eval('unpackTables')(await w.eval('Engine').bytes('editor_actors',{ids:['lamp_lit','no_such_thing']})));
   if(!ea || !ea.models || !ea.models.lamp_lit || ea.models.no_such_thing || typeof ea.actors!=='object') fail('editor_actors answered '+JSON.stringify(ea));
   const n0=fakeWg.posts.length;
   const v=await E.placeAt({tag:'LIGH', id:'lamp_lit', model:row[2], defined:['Lamp.esm']}, null, null);
@@ -1119,7 +1119,7 @@ setTimeout(async ()=>{
     if(!/"meshPre":\d+,"threads":\d+,"msGeomRead":\d+,"geomClock":\[\d+,\d+,\d+,\d+\],"meshKept":\[\d+,\d+,\d+,\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no geometry read numbers');
     if(!/"msTwinsAhead":\d+,"twinsAhead":\[\d+,\d+\]/.test(replies.open_install||'')) errors.push('open_install sends no twins-ahead counts');
     if(!/"indexReused":\d+,"indexWalked":\d+/.test(replies.open_install||'')) errors.push('open_install sends no saved-index counts');
-    const wr=await engineCall('world_map',{}), wm=typeof wr==='string'? JSON.parse(wr) : wr;
+    const wm=w.eval('CellMap').readHead(w.eval('unpackTables')(await engineCall('world_map',{})));
     if(!/^rgb\(\d+, \d+, \d+\)$/.test(wm.sea||'')) errors.push('world_map sends no sea colour: '+wm.sea);
     const m=w.eval("(App.R&&App.R.statics||[]).map(b=>b.relPath||b.path).filter(Boolean)[0]||''")||'meshes/x/lamp.nif';
     const a=await engineCall('mesh_data',{path:m}), b=await engineCall('mesh_data',{path:m, still:true});
@@ -1127,29 +1127,29 @@ setTimeout(async ()=>{
     const ab=await engineCall('assets_bundle',{meshes:[m], have:[], still:[true]});
     if(!(ab.byteLength>8)) errors.push('assets_bundle with still answered nothing');
   }catch(e){ errors.push('R2 checks: '+short(e)); }
-  /* Wraithguard: the lists as bytes (WGTB) answer exactly what their JSON commands do, on a
-     real world: the tags, the cells, and one cell's references. */
+  /* Wraithguard: the lists as bytes (WGTB) on a real world - their JSON twins retired
+     2026-11-17 - checked against each other: the tags and their counts, every cell's
+     reference count against its own reference list, the scopes' named cells among the
+     cells, a texture's uses among the land textures. */
   try{
-    const viaJson=async(cmd,args)=>{ const r=await engineCall(cmd,args); return typeof r==='string'? JSON.parse(r) : r; };
-    const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-    const order=c=>({...c, grid:c.grid.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1])});
-    const tags=await w.listTags(), tagsJ=await viaJson('editor_tags',{});
-    if(!same(tags,tagsJ)) errors.push('editor_tags_bytes differs from editor_tags: '+JSON.stringify(tags).slice(0,200)+' vs '+JSON.stringify(tagsJ).slice(0,200));
-    const cells=await w.listCells(), cellsJ=await viaJson('cells',{});
-    if(!same(order(cells),order(cellsJ))) errors.push('cells_bytes differs from cells');
-    const sortKeys=o=>Object.fromEntries(Object.entries(o).sort(([a],[b])=>a<b?-1:a>b?1:0));
-    for(const [fn, cmd, norm] of [['listLandTextures','textures',x=>x], ['listScopes','scopes',x=>x],
-        ['listTextureUsage','texture_usage',sortKeys], ['listAssets','assets',x=>x]]){
-      const a=norm(await w[fn]()), b=norm(await viaJson(cmd,{}));
-      if(!same(a,b)) errors.push(fn+' differs from '+cmd+': '+JSON.stringify(a).slice(0,160)+' vs '+JSON.stringify(b).slice(0,160));
+    const tags=await w.listTags(), cells=await w.listCells(), scopes=await w.listScopes();
+    const tex=await w.listLandTextures(), use=await w.listTextureUsage(), assets=await w.listAssets();
+    if(!tags.length || tags.some(([tag,n])=>!/^[A-Z_]{4}$/.test(tag) || !(n>=0))) errors.push('listTags: '+JSON.stringify(tags).slice(0,200));
+    if(!cells.grid.length || cells.count!==cells.grid.length || cells.interiorCount!==cells.interiors.length) errors.push('listCells: '+JSON.stringify(cells).slice(0,200));
+    const named=new Set(cells.grid.map(g=>g[2]).filter(Boolean).concat(cells.interiors.map(r=>r[0])).map(s=>s.toLowerCase()));
+    const stray=scopes.cells.filter(c=>!named.has(c.toLowerCase()));
+    if(stray.length) errors.push('listScopes names cells the cell list has not: '+stray.slice(0,5).join(', '));
+    const files=new Set(tex.map(x=>String(x.file).toLowerCase()).concat(tex.map(x=>String(x.id).toLowerCase())));
+    if(!tex.length || !Object.keys(use).length) errors.push('the land textures or their uses are empty');
+    if(!assets.meshes.length || !assets.textures.length) errors.push('listAssets: '+assets.meshes.length+' meshes, '+assets.textures.length+' textures');
+    let checked=0, refs=0;
+    for(const g of cells.grid.filter(g=>g[4]>0).slice(0,6)){
+      const at=g[0]+','+g[1], r=await w.listCellRefs(at);
+      if(r.rows.length!==g[4]) errors.push('listCellRefs '+at+': '+r.rows.length+' references, the cell list says '+g[4]);
+      checked++; refs+=r.rows.length;
     }
-    const one=cellsJ.grid.find(g=>g[4]>0) || cellsJ.grid[0];
-    if(one){
-      const at=one[0]+','+one[1];
-      const refs=await w.listCellRefs(at), refsJ=await viaJson('editor_cell_refs',{cell:at});
-      if(!same(refs,refsJ)) errors.push('editor_cell_refs_bytes differs from editor_cell_refs at '+at+': '+JSON.stringify(refs).slice(0,200)+' vs '+JSON.stringify(refsJ).slice(0,200));
-      console.log('lists as bytes:', tags.length+' tags,', cells.grid.length+' cells,', refs.rows.length+' references at '+at+', the same as JSON');
-    }
+    if(!checked) errors.push('no cell with references to list');
+    console.log('lists as bytes:', tags.length+' tags,', cells.grid.length+' cells,', tex.length+' land textures ('+files.size+' names),', assets.meshes.length+' meshes,', refs+' references in '+checked+' cells, each as the cell list counts');
   }catch(e){ errors.push('lists as bytes: '+short(e)); }
   // Wraithguard: the connect's step, cleared once a connect has ended (`ConnectDone`).
   try{
@@ -1199,7 +1199,7 @@ setTimeout(async ()=>{
     if(!req) errors.push('physics: no small object in the cell to drop');
     else{
       const z0=req.bodies[0].m[11];
-      const got=await engineCall('phys_drop',{request:JSON.stringify(req)});
+      const got=w.eval('WgPhysics').readDrop(w.eval('unpackTables')(await engineCall('phys_drop',{request:JSON.stringify(req)})));
       const last=got.frames && got.frames[got.frames.length-1];
       console.log('physics:', req.bodies[0].model, req.statics.length+' statics,', got.frames.length+' frames,', (+got.seconds).toFixed(2)+' s, settled '+got.settled+', skipped '+got.skipped.length+', z', z0.toFixed(1), '->', last && (last[0][2]).toFixed(1));
       if(!got.skipped.length && !(last && last[0][2]<z0-50)) errors.push('physics: the object did not fall: '+JSON.stringify(last));

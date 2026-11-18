@@ -19,6 +19,41 @@
    Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 
+
+/* Wraithguard: the sort, the scan and the export as bytes (WGTB; `loadorder_compute`,
+   `loadorder_scan`, `loadorder_export` in commands) back into the objects their JSON was,
+   for this page and the Tools page (61_wg_tools.js). Static 2026-11-17: JSON only where it
+   is needed. */
+function loReadReport(tb){
+  const report=(tb.report||[]).map(([kind,text,isWarning,warning])=>({kind, text, warning:isWarning? warning : null, names:[]}));
+  for(const [row,n] of tb.report_names||[]) report[row].names.push(n);
+  return report;
+}
+/** `loadorder_compute` -> {refused, report, plan: {finalOrder, baseOrder, subset, dataOrder,
+ *  dataResult, curated, newGroundcover, orphanData, origins, masterProblems, scanDirs} | null}. */
+function loReadPlan(tb){
+  const [refused,why,sorted,hasData]=(tb.head||[])[0]||[0,'',0,0];
+  const report=loReadReport(tb);
+  if(refused) return {refused:why, report, plan:null};
+  const L={finalOrder:[], baseOrder:[], subset:[], dataOrder:[], curated:[], newGroundcover:[], orphanData:[], masterProblems:[], scanDirs:[]};
+  for(const [k,v] of tb.lists||[]) (L[k]=L[k]||[]).push(v);
+  const plan=Object.assign(L, {
+    finalOrder: sorted? L.finalOrder : null,
+    dataResult: hasData? (tb.data_result||[]).map(([l,n,has,v])=>[l, !!n, has? v : null]) : null,
+    origins: Object.fromEntries((tb.origins||[]).map(([k,v])=>[k,v]))});
+  return {refused:null, report, plan};
+}
+/** `loadorder_scan` -> {lines, folders, plugins, start}. */
+function loReadScan(tb){
+  const [folders,plugins,start]=(tb.scan||[])[0]||[0,0,''];
+  return {lines:(tb.lines||[]).map(r=>r[0]), folders, plugins, start};
+}
+/** `loadorder_export` -> {report, wroteCfg, wroteToml, toml}. */
+function loReadExport(tb){
+  const [cfg,toml,hasToml,text]=(tb.export||[])[0]||[0,0,0,''];
+  return {report:loReadReport(tb), wroteCfg:!!cfg, wroteToml:!!toml, toml:hasToml? text : null};
+}
+
 const WgLoadOrder={
   on:false,
   plan:null,
@@ -382,11 +417,11 @@ const WgLoadOrder={
       const a=this.args();
       const dir=this.val('scanDir');
       if(dir){
-        const scan=await Engine.call('loadorder_scan',{dir});
+        const scan=loReadScan(unpackTables(await Engine.bytes('loadorder_scan',{dir})));
         a.subsetLines=scan.lines;
         toast('Scanned '+scan.start+': '+scan.folders+' mod folder(s), '+scan.plugins+' plugin(s)','ok',3000);
       }
-      const got=await Engine.call('loadorder_compute',{args:JSON.stringify(a)});
+      const got=loReadPlan(unpackTables(await Engine.bytes('loadorder_compute',{args:JSON.stringify(a)})));
       this.report=got.report||[];
       if(got.refused){
         this.plan=null; toast(got.refused,'err',6000);
@@ -726,7 +761,7 @@ const WgLoadOrder={
         disabledPlugins:this.content.filter(r=>!r.on).map(r=>r.name),
         disabledData:this.data.filter(r=>!r.on).map(r=>r.line),
         planFile:extra.loadorderPlan||''};
-      const got=await Engine.call('loadorder_export',{args:JSON.stringify(a)});
+      const got=loReadExport(unpackTables(await Engine.bytes('loadorder_export',{args:JSON.stringify(a)})));
       this.report=this.report.concat(got.report||[]);
       this.drawWarnings();
       const what=[got.wroteCfg&&'openmw.cfg', got.wroteToml&&'customizations.toml'].filter(Boolean);

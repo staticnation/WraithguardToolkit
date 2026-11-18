@@ -262,7 +262,13 @@ Object.assign(WgEditor, {
     });
     if(!ask.length) return out;
     let named=null;
-    try{ named=await Engine.call('editor_ref_names', {keys:ask.map(i=>String(hits[i].refKey))}); }catch(_){ }
+    /* WGTB (`editor_ref_names`): `names` [found, cell, origin, refr] a row per key asked,
+       `plugins` [row, plugin] - back into [{cell, origin, refr, plugins} | null]. */
+    try{
+      const tb=unpackTables(await Engine.bytes('editor_ref_names', {keys:ask.map(i=>String(hits[i].refKey))}));
+      named=(tb.names||[]).map(([found,cell,origin,refr])=>found? {cell, origin, refr, plugins:[]} : null);
+      for(const [row,p] of tb.plugins||[]) if(named[row]) named[row].plugins.push(p);
+    }catch(_){ }
     if(Array.isArray(named) && named.length===ask.length){
       ask.forEach((i, j)=>{ const r=named[j]; if(r && r.cell && r.origin && r.refr!=null) out[i]={cell:r.cell, origin:r.origin, refr:r.refr|0, plugins:r.plugins||null}; });
       return out;

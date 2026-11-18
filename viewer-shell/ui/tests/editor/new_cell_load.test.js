@@ -40,8 +40,9 @@ module.exports = async (t) => {
   // An empty square opened from the Cell map: the engine has nothing, so it is drawn empty - in the Editor only.
   w.WgEditor.cells = [{ kind: 'ext', x: 1, y: 1, name: '', label: 'x', refs: 0, path: false }];
   asked.length = 0;
-  const failing = w.Engine.call;
-  w.Engine.call = async (n, ...r) => { if (n === 'cell_data') { asked.push(n); throw new Error('no such cell'); } return failing.call(w.Engine, n, ...r); };
+  // cell_data is bytes (WGCD, CellWire.read).
+  const failing = w.Engine.bytes;
+  w.Engine.bytes = async (n, ...r) => { if (n === 'cell_data') { asked.push(n); throw new Error('no such cell'); } return failing.call(w.Engine, n, ...r); };
   const open = await w.CellData.loadCell({ kind: 'ext', x: 77, y: 5 });
   t.ok(open.refs.length === 0 && open.heights === null, 'an empty square opens empty in the editor');
   let known = null;

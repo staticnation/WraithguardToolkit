@@ -95,7 +95,8 @@ Object.assign(WgEditor, {
     const want=[...new Set(ids.map(i=>String(i).toLowerCase()))].filter(k=>!CellData.actors.has(k));
     if(!want.length) return false;
     try{
-      const r=await Engine.call('editor_actors',{ids:want});
+      // The cell's `actors` and `models` tables (`editor_actors`), read as a cell's are.
+      const r={}; CellWire.refs(r, unpackTables(await Engine.bytes('editor_actors',{ids:want})));
       let got=false;
       for(const [k,a] of Object.entries(r.actors||{})){ CellData.actors.set(k,a); got=true; }
       for(const [k,m] of Object.entries(r.models||{})) if(!CellData.models.has(k)) CellData.models.set(k,m);

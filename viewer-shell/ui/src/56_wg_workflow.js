@@ -119,7 +119,7 @@ const WgFlow={
     const body={cell};
     if((WgEditor.cells||[]).length){
       let d=null;
-      try{ d=await Engine.call('cell_data',{gx, gy, review:'', without:false, land:''}); }catch(_){ d=null; }   // no such square: no land
+      try{ d=CellWire.read(await Engine.bytes('cell_data',{gx, gy, review:'', without:false, land:''})); }catch(_){ d=null; }   // no such square: no land
       if(d && d.hasLand) return toast('The load order has land at '+cell+' already','warn',3500);
       body.noLand=true;
       body.hasCell=WgEditor.cells.some(c=>c.kind==='ext' && c.x===gx && c.y===gy);

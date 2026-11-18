@@ -5,6 +5,110 @@
 
 ### Changed
 
+- **A cell reaches the page as bytes** (`cell_data` and `interior_data` answer `WGCD`, `pack_cell`
+  in `viewer-shell/src/cellviewer/commands.rs`). After the cell's few other fields as JSON come
+  its ground and its references:
+  - the heights as f32, the engine's normal per vertex as i16 components, VCLR's RGB bytes and the
+    texture indices as u16 (empty for a room). These were JSON number lists and hex strings, about
+    100 KB of text a cell that the engine wrote and the page parsed back.
+  - the references, and the models, lights and actors they draw, as WGTB tables
+    (`refs_tables_marked`): one row a reference, its review history in a table of its own, each
+    object's model, light and actor once however many references place it. These were a JSON
+    object per reference.
+
+  The page reads it with `CellWire.read` (`ui/src/17_cell.js`) into the same objects and typed
+  arrays the JSON gave: positions still to the hundredth and rotations to 1e-5, heights to a tenth,
+  normals divided by 32767. Checked against the engine before the change on every cell and room of
+  the boot fixture, plain and reviewed (with a plugin's NPCs, groundcover and `.kf` meshes added):
+  the same answers. The headless engine (`wg-view-serve`) answers both as bytes too.
+
+- **Distant objects, path grids and Where used reach the page as bytes** (WGTB tables, read
+  with `unpackTables` into the shapes the JSON had):
+  - `distant_objects`: up to 30,000 references of seven numbers each, as `meta`, `models` (mesh,
+    radius, tier) and `refs` (model row, position, rotation, scale), rounded as before.
+  - `pathgrid`: `grids` (cell, plugin), `points` and `edges`, each row naming its grid.
+  - `where_used`: `ids`, `meshes` and `places` (cell, label, count, position, rotation, ground).
+
+  Checked against the engine before the change on the boot fixture (and with a hand-made plugin
+  of two path grids): every answer the same.
+
+- **The cell map, its heat and the Conflicts scan reach the page as bytes** (WGTB, read into the
+  shapes the JSON had):
+  - `world_map`: `map` (tile size, sea color), `bounds` and `cells`, a row a cell.
+  - `cell_coverage`: `plugins`, then `ext` and `int` with a row per plugin a cell has, and `extc`.
+  - `conflicts_scan`: every plugin named once, in `plugins`, and `list` (type, id, winner, involves
+    your plugins) with its plugins and deleters in tables of their own; the per-cell summary the
+    same way (`cells`, `cell_types`, `cell_plugins`, `cell_by`, `cell_winners`).
+  - `conflicts_verdicts`: one byte a record, its code.
+
+  Checked against the engine before the change, in each scan mode with and without your own
+  plugins and exclusions, including hand-made plugins that conflict on statics, cells and a
+  deleted record: every answer the same.
+
+- **The Load order sort and the rest of the Conflicts page reach the page as bytes** (WGTB, read
+  into the shapes the JSON had):
+  - `loadorder_compute`: the report (`report`, `report_names`), the plan's lists in one `lists`
+    table, `data_result` and `origins`; a refused sort says so in `head`. `loadorder_scan` and
+    `loadorder_export` likewise. The Load order page and the Tools page read them with the same
+    `loReadPlan` / `loReadScan` / `loReadExport` (`59_wg_loadorder.js`).
+  - `conflicts_resources`: every data folder named once, then a row a conflicting file, its
+    providers, and what its mesh loses where the mesh was read.
+  - `conflicts_by_plugin` and `conflicts_plugin_group`: the Plugins tab's tree and a plugin
+    judged.
+
+  Checked against the engine before the change (sorts plain, with a subset, data paths,
+  groundcover, scanned lines and refused; the file scan with and without compare and meshes, on
+  identical, changed and broken copies of a mesh): every answer the same.
+
+- **The Editor's object lookups and the scene's sounds reach the page as bytes** (WGTB):
+  `editor_actors` answers the same `actors` and `models` tables as a cell, read with the cell's
+  own reader (`CellWire.refs`), and a cell and the Editor now write an actor in one place
+  (`write_actors`, `commands/editor.rs`); `editor_ref_names` (a box selection's names) a row a
+  key asked, its plugins beside; `sound_emitters` a row an object whose light or script loops a
+  sound. The one-id and few-row answers - `sound_records`, `region_sounds`, `regions_list`,
+  `music_list` - stay JSON. Checked against the engine before the change: every answer the same.
+
+- **Script sources and the Lua scene's record types reach the page as bytes** (WGTB):
+  `script_texts` a row a script (name, id, its whole text, no longer escaped into JSON) and
+  `lua_scene` a row an object of the scene with its type, beside the registered scripts. The
+  editor tests' own stand-in engines answer them as the engine does (`wgtb` and `addTables` in
+  `ui/tests/editor/harness.js`). Checked against the engine before the change: every answer the
+  same, 102 scripts among them.
+
+- **The scene's scripts reach the page as bytes** (`scene_scripts`, WGTB): the scripted objects,
+  their scripts' whole texts and the start scripts, the globals, and the actors and containers
+  with what they carry and their stats (`WgScripts.readScene`, `73_wg_scripts.js`). The editor
+  tests' stand-ins answer it through `sceneTables` (harness.js). Checked against the engine
+  before the change: every answer the same.
+
+- **Lint and a save's game state reach the page as bytes** (WGTB): `tools_lint` its counts and a
+  row a warning; `dialogue_state_from_save` the character, then factions, globals, journal and
+  inventory a row each (`WgScripts.readSave`). Checked against the engine before the change:
+  every answer the same.
+
+- **The Physics drop's fall reaches the page as bytes** (`phys_drop`, WGTB): a row per body per
+  frame, its position and rotation, beside the time taken and whether it settled
+  (`WgPhysics.readDrop`). What the page sends to drop (the bodies, statics and ground) is still
+  JSON. Checked against the engine before the change on falls of one and two bodies, a mesh
+  with only drawn triangles, a missing mesh, drop-only, an interior and malformed requests:
+  every answer the same.
+
+- **WGTB's writer and a reader are `viewcore`'s** (`viewcore::wgtb`): the command layer uses
+  it as before, and a `viewcore` answer can write bytes itself. The reader reads every table
+  back, refusing anything malformed (the requests to come carry bulk numbers that way), and an
+  `F` column carries a list of f32. **The Lua panel's scan reaches the page as bytes**
+  (`lua_scan`): `luascan::scan` returns the scan as rows, `scan_tables` writes them, and the
+  module's tests check the rows. Checked against the engine before the change, on an install
+  with no Lua and one with three registered scripts: every answer the same.
+
+- **Seven JSON lists retired**: `editor_tags`, `cells`, `textures`, `scopes`, `texture_usage`,
+  `assets` and `editor_cell_refs` are gone from the engine; their byte commands are the one way.
+  The page reads them with `listBytes` (`50_wg_editor.js`, was `listTwoWays`), and a list still
+  never comes back empty: the engine refusing is said as it is, and bytes that do not read are an
+  error naming the list. `editor_records` stays as the Object Window's second way. Boot now checks
+  the lists against each other on the fixture (each cell's reference count against its own
+  reference list, the scopes' cells among the cells) instead of against the JSON.
+
 - **American spelling for the mesh tools**: the mesh viewer's button reads "Optimize draw order"
   (it was "Optimise"), and the Tools page's Mesh optimiser is the Mesh optimizer, its messages
   "optimized". The manifest it writes keeps its name, `wraithguard-mesh-optimiser.json`, so an
@@ -14,6 +118,15 @@
 - **Tauri 2.12.6** (it was 2.12.0), with tauri-build 2.7.5, wry 0.57.2, tao 0.37.2, the dialog
   plugin 2.8.4 and the fs plugin 2.7.1: the patch releases since, nothing in the app changed for
   them.
+
+- **Every dependency at its newest version**, majors included: toml 1 (landcore, ordercore,
+  toolscore), rusqlite 0.43, sha2 0.11, base64 0.23, libloading 0.9, htl-core 0.19, symphonia 0.6
+  (its new decoding API, `viewcore/src/audio.rs`) and glam 0.34 (with the tes3 fork), and about
+  ninety compatible updates (`cargo update`). zstd 0.14.4 writes the content size into its frame
+  headers, so the record bodies tes3's serde stores read `KLUv/SAR...` where they read
+  `KLUv/QBY...`; the case fixtures are recorded from the Rust for that. The gtk-0.18-patches fork
+  now carries glib-macros and gtk3-macros on proc-macro-crate 3, so proc-macro-crate 1.x/2.0 and
+  their pinned `toml_edit` 0.19/0.20 leave the build.
 
 - **The command line's clock is the `time` crate** (it was chrono, which is no longer maintained,
   RUSTSEC-2026-0543). Tauri already brings `time` in, so nothing new is built; the `.bak` and

@@ -14,30 +14,40 @@ use super::*;
 
 pub(super) static LOADORDER: Mutex<Option<viewcore::ordercore::plan::Computed>> = Mutex::new(None);
 
-pub(super) fn lo_items(report: &viewcore::ordercore::plan::Report) -> serde_json::Value {
+/// The report's items into `report` `ssus` (kind, text, whether it is a warning, what about)
+/// and `report_names` `us` (its row, a plugin or folder it names).
+pub(super) fn lo_items(tb: &mut Tables, report: &viewcore::ordercore::plan::Report) {
     use viewcore::ordercore::plan::ItemKind;
-    report
-        .items
-        .iter()
-        .map(|i| {
-            let kind = match i.kind {
-                ItemKind::Section => "section",
-                ItemKind::Subsection => "subsection",
-                ItemKind::Line => "line",
-                ItemKind::Log => "log",
-                ItemKind::Scans => "scans",
-                ItemKind::Preview => "preview",
-            };
-            serde_json::json!({"kind": kind, "text": i.text, "warning": i.warning, "names": i.names})
-        })
-        .collect()
+    tb.table("report", "ssus", report.items.len());
+    for i in &report.items {
+        let kind = match i.kind {
+            ItemKind::Section => "section",
+            ItemKind::Subsection => "subsection",
+            ItemKind::Line => "line",
+            ItemKind::Log => "log",
+            ItemKind::Scans => "scans",
+            ItemKind::Preview => "preview",
+        };
+        tb.s(kind).s(&i.text).u(i.warning.is_some() as u64).s(i.warning.unwrap_or(""));
+    }
+    tb.table("report_names", "us", report.items.iter().map(|i| i.names.len()).sum());
+    for (row, i) in report.items.iter().enumerate() {
+        for n in &i.names {
+            tb.u(row as u64).s(n);
+        }
+    }
 }
 
 /// Wraithguard: a whole sort (`ordercore::plan::compute_plan`). `args`: JSON with the fields of
-/// `PlanArgs` in camelCase. Answers `{refused, report: [{kind, text, warning, names}], plan}`;
-/// the plan is kept for `loadorder_export`.
+/// `PlanArgs` in camelCase. Answers `{refused, report: [{kind, text, warning, names}], plan}` as
+/// bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; a plan is a dozen lists of
+/// every plugin and folder): `head` `usuu` (refused 0/1, why, sorted 0/1, a data result 0/1),
+/// the report (`lo_items`), `lists` `ss` (which list - finalOrder, baseOrder, subset,
+/// dataOrder, curated, newGroundcover, orphanData, masterProblems, scanDirs - and an entry, in
+/// order), `data_result` `suus` (line, new 0/1, a third value 0/1, it) and `origins` `ss`.
+/// Read by `loReadPlan` (59_wg_loadorder.js). The plan is kept for `loadorder_export`.
 #[tauri::command(async)]
-pub(super) fn loadorder_compute(args: String) -> Result<String, String> {
+pub(super) fn loadorder_compute(args: String) -> Result<tauri::ipc::Response, String> {
     use viewcore::ordercore::plan::{compute_plan, PlanArgs, PlanError};
     let a: serde_json::Value = serde_json::from_str(&args).map_err(|e| format!("the sort's arguments did not read: {e}"))?;
     let s = |k: &str| a.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).map(str::to_string);
@@ -69,26 +79,49 @@ pub(super) fn loadorder_compute(args: String) -> Result<String, String> {
             Err("this setup holds something the load order reader does not read (a file that is not UTF-8, or one that could not be opened)".into())
         }
         Err(PlanError::Refused { message, report }) => {
-            Ok(serde_json::json!({"refused": message, "report": lo_items(&report), "plan": null}).to_string())
+            let mut tb = Tables::new();
+            tb.table("head", "usuu", 1);
+            tb.u(1).s(&message).u(0).u(0);
+            lo_items(&mut tb, &report);
+            Ok(tauri::ipc::Response::new(tb.done()))
         }
         Ok(got) => {
             let p = &got.plan;
-            let plan = serde_json::json!({
-                "finalOrder": if got.sorted { serde_json::json!(p.final_order) } else { serde_json::Value::Null },
-                "baseOrder": p.base_order_names,
-                "subset": p.subset,
-                "dataOrder": p.data_order,
-                "dataResult": p.data_result.as_ref().map(|r| r.iter().map(|(l, n, v)| serde_json::json!([l, n, v])).collect::<Vec<_>>()),
-                "curated": p.curated_set,
-                "newGroundcover": p.new_groundcover,
-                "orphanData": p.orphan_data_paths,
-                "origins": got.subset_origins,
-                "masterProblems": got.master_problem_plugins,
-                "scanDirs": got.scan_dirs,
-            });
-            let out = serde_json::json!({"refused": null, "report": lo_items(&got.report), "plan": plan}).to_string();
+            let mut tb = Tables::new();
+            tb.table("head", "usuu", 1);
+            tb.u(0).s("").u(got.sorted as u64).u(p.data_result.is_some() as u64);
+            lo_items(&mut tb, &got.report);
+            // `finalOrder` only when the run sorted (the page falls back to `baseOrder`).
+            let empty: Vec<String> = Vec::new();
+            let lists: [(&str, &Vec<String>); 9] = [
+                ("finalOrder", if got.sorted { &p.final_order } else { &empty }),
+                ("baseOrder", &p.base_order_names),
+                ("subset", &p.subset),
+                ("dataOrder", &p.data_order),
+                ("curated", &p.curated_set),
+                ("newGroundcover", &p.new_groundcover),
+                ("orphanData", &p.orphan_data_paths),
+                ("masterProblems", &got.master_problem_plugins),
+                ("scanDirs", &got.scan_dirs),
+            ];
+            tb.table("lists", "ss", lists.iter().map(|(_, v)| v.len()).sum());
+            for (name, v) in &lists {
+                for x in v.iter() {
+                    tb.s(name).s(x);
+                }
+            }
+            let dr: &[viewcore::ordercore::export::DataLine] = p.data_result.as_deref().unwrap_or(&[]);
+            tb.table("data_result", "suus", dr.len());
+            for (l, n, v) in dr {
+                tb.s(l).u(*n as u64).u(v.is_some() as u64).s(v.as_deref().unwrap_or(""));
+            }
+            tb.table("origins", "ss", got.subset_origins.len());
+            for (k, v) in &got.subset_origins {
+                tb.s(k).s(v);
+            }
+            let out = tb.done();
             *LOADORDER.lock().unwrap_or_else(|p| p.into_inner()) = Some(got);
-            Ok(out)
+            Ok(tauri::ipc::Response::new(out))
         }
     }
 }
@@ -97,9 +130,11 @@ pub(super) fn loadorder_compute(args: String) -> Result<String, String> {
 /// `writeCfg`, `emitToml`, `dryRun`, `noBackup`, `sortDataPaths`, `listName`, `stamp`,
 /// `finalOrder` / `dataOrder` (the panels' enabled entries; null: the plan's),
 /// `disabledPlugins`, `disabledData`, and `planFile` (where the Tk tools read the order from;
-/// empty: not written). Answers `{report, wroteCfg, wroteToml, toml}`.
+/// empty: not written). Answers `{report, wroteCfg, wroteToml, toml}` as bytes (`WGTB`):
+/// `export` `uuus` (wrote the cfg 0/1, wrote the toml 0/1, a toml 0/1, its text) and the
+/// report (`lo_items`). Read by `loReadExport` (59_wg_loadorder.js).
 #[tauri::command(async)]
-pub(super) fn loadorder_export(args: String) -> Result<String, String> {
+pub(super) fn loadorder_export(args: String) -> Result<tauri::ipc::Response, String> {
     use viewcore::ordercore::plan::{export, Counts, ExportArgs};
     let a: serde_json::Value = serde_json::from_str(&args).map_err(|e| format!("the export's arguments did not read: {e}"))?;
     let s = |k: &str| a.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()).map(str::to_string);
@@ -156,13 +191,14 @@ pub(super) fn loadorder_export(args: String) -> Result<String, String> {
         });
         write_path_whole(&path, file.to_string().as_bytes())?;
     }
-    Ok(serde_json::json!({
-        "report": lo_items(&done.report),
-        "wroteCfg": done.written.wrote_cfg,
-        "wroteToml": done.written.wrote_toml,
-        "toml": done.written.toml_text,
-    })
-    .to_string())
+    let mut tb = Tables::new();
+    tb.table("export", "uuus", 1);
+    tb.u(done.written.wrote_cfg as u64)
+        .u(done.written.wrote_toml as u64)
+        .u(done.written.toml_text.is_some() as u64)
+        .s(done.written.toml_text.as_deref().unwrap_or(""));
+    lo_items(&mut tb, &done.report);
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /* ---- the Load order page: Update rules, Sources and the rule maker ------------------

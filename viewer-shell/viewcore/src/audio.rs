@@ -10,13 +10,13 @@
 
 use std::io::Cursor;
 
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::CodecParameters;
+use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 
 /// A decoded sound: interleaved 16-bit samples.
 #[derive(Debug, Clone, PartialEq)]
@@ -114,37 +114,39 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded, String> {
         hint.with_extension(kind);
     }
     let mss = MediaSourceStream::new(Box::new(Cursor::new(bytes.to_vec())), Default::default());
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+    let mut format = symphonia::default::get_probe()
+        .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
         .map_err(|e| format!("not a sound this reads ({e})"))?;
-    let mut format = probed.format;
-    let track = format.tracks().iter().find(|t| t.codec_params.codec != CODEC_TYPE_NULL).ok_or("no audio in the file")?;
-    let (id, params) = (track.id, track.codec_params.clone());
-    let codec = symphonia::default::get_codecs().get_codec(params.codec).map(|d| d.short_name.to_string()).unwrap_or_default();
+    let track = format.default_track(TrackType::Audio).ok_or("no audio in the file")?;
+    let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else { return Err("no audio in the file".into()) };
+    let id = track.id;
+    let codecs = symphonia::default::get_codecs();
+    let codec = codecs.get_audio_decoder(params.codec).map(|d| d.codec.info.short_name.to_string()).unwrap_or_default();
     let mut decoder =
-        symphonia::default::get_codecs().make(&params, &DecoderOptions::default()).map_err(|e| format!("{codec}: cannot be decoded ({e})"))?;
+        codecs.make_audio_decoder(&params, &AudioDecoderOptions::default()).map_err(|e| format!("{codec}: cannot be decoded ({e})"))?;
     let mut rate = params.sample_rate.unwrap_or(0);
-    let mut channels = params.channels.map(|c| c.count() as u16).unwrap_or(0);
+    let mut channels = params.channels.as_ref().map(|c| c.count() as u16).unwrap_or(0);
     let mut samples: Vec<i16> = Vec::new();
+    let mut frame: Vec<i16> = Vec::new();
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(Some(p)) => p,
+            Ok(None) => break,
             Err(Error::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(Error::ResetRequired) => break,
             Err(e) if samples.is_empty() => return Err(format!("the file is broken ({e})")),
             Err(_) => break, // keep what played before the damage, as a player would
         };
-        if packet.track_id() != id {
+        if packet.track_id != id {
             continue;
         }
         match decoder.decode(&packet) {
             Ok(buf) => {
-                let spec = *buf.spec();
-                rate = spec.rate;
-                channels = spec.channels.count() as u16;
-                let mut sb = SampleBuffer::<i16>::new(buf.capacity() as u64, spec);
-                sb.copy_interleaved_ref(buf);
-                samples.extend_from_slice(sb.samples());
+                let spec = buf.spec();
+                rate = spec.rate();
+                channels = spec.channels().count() as u16;
+                buf.copy_to_vec_interleaved(&mut frame);
+                samples.extend_from_slice(&frame);
             }
             Err(Error::DecodeError(_)) => continue, // a bad frame is skipped
             Err(e) => return Err(format!("{codec}: {e}")),

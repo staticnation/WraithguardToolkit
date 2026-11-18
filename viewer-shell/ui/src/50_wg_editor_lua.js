@@ -11,6 +11,20 @@ Object.assign(WgEditor, {
   /** The load order's OpenMW Lua scripts, scanned by the engine (`lua_scan`: luacore over
       the overlay, so packed scripts count). Findings first, most serious first; a click on
       one shows its script's line in the list below. */
+  /** `lua_scan`'s tables (`luascan::scan_tables`, viewcore) as the object its JSON was:
+   *  {openmw, revision, resources, note, scripts:[{path, flags, file, providers, interface,
+   *  handlers}], findings:[{path, severity, code, line, message}], report} - the first three
+   *  only for an OpenMW setup. */
+  readLuaScan(tb){
+    const [setup,openmw,revision,hasRes,res,note,report]=(tb.head||[])[0]||[0,'',0,0,'','',''];
+    const scripts=(tb.scripts||[]).map(([path,file,hasFile,providers,iface,hasIface])=>
+      ({path, flags:[], file:hasFile? file : null, providers, interface:hasIface? iface : null, handlers:[]}));
+    for(const [row,f] of tb.script_flags||[]) scripts[row].flags.push(f);
+    for(const [row,h] of tb.script_handlers||[]) scripts[row].handlers.push(h);
+    const findings=(tb.findings||[]).map(([path,severity,code,line,message])=>({path, severity, code, line, message}));
+    return setup? {openmw, revision, resources:hasRes? res : null, note, scripts, findings, report} : {note, scripts, findings, report};
+  },
+
   async showLua(){
     if(!this.lua){
       const d=document.createElement('div');
@@ -39,9 +53,8 @@ Object.assign(WgEditor, {
     }
     body.innerHTML='<div class="hint">Reading the load order\'s Lua scripts…</div>';
     let r;
-    try{ r=await Engine.call('lua_scan',{}); }
+    try{ r=this.readLuaScan(unpackTables(await Engine.bytes('lua_scan',{}))); }
     catch(e){ body.innerHTML='<div class="hint">'+escHtml(String(e.message||e))+'</div>'; return null; }
-    if(typeof r==='string') r=JSON.parse(r);
     this._lua=r;
     this.drawLua(r);
     return r;

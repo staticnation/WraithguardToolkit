@@ -142,15 +142,24 @@ function page(opts = {}) {
           for(const b of out){ all.set(b,at); at+=b.length; }
           return all.buffer;
         }
-        /* And the other lists as WGTB (Tables in commands.rs), from the test's own answer to
-           the JSON command of the same list - so a test's stand-in answers once, under the
-           name it always had, and the page reads it the way it reads the engine's bytes. An
-           answer that is not the list makes the bytes fail too, as the engine's would. */
+        /* And the other lists as WGTB (\`viewcore::wgtb\`), from the test's own answer under
+           the list's JSON name (\`cells\`, \`editor_tags\`...: the engine's JSON commands were
+           retired 2026-11-17, the names live on here as the stand-ins' vocabulary), so a test's
+           stand-in answers in the shape the page uses and the page reads it the way it reads
+           the engine's bytes. An answer that is not the list makes the bytes fail too, as the
+           engine's would. */
         const lists={
           editor_tags_bytes:['editor_tags', r=>Array.isArray(r) && [['tags','su',r.map(x=>[x[0], x[1]|0])]]],
           cells_bytes:['cells', r=>r && Array.isArray(r.grid) && [
             ['grid','iissuu',r.grid.map(x=>[x[0]|0, x[1]|0, x[2]||'', x[3]||'', x[4]|0, x[5]|0])],
             ['interiors','suu',(r.interiors||[]).map(x=>[x[0]||'', x[1]|0, x[2]|0])]]],
+          // A stand-in's phys_drop answer {frames, seconds, settled, skipped}, as the engine's tables.
+          phys_drop:['phys_drop', r=>r && Array.isArray(r.frames) && [['head','duu',[[+r.seconds||0, r.settled? 1 : 0, r.frames.length]]],
+            ['poses','udddddd',r.frames.flatMap((f,i)=>f.map(p=>[i, ...p]))], ['skipped','s',(r.skipped||[]).map(k=>[k])]]],
+          // A stand-in's {name: {id, text}} and {types: {id: tag}}, as the engine's tables.
+          script_texts:['script_texts', r=>r && typeof r==='object' && [['scripts','sss',Object.entries(r).map(([k,s])=>[k, s.id||k, s.text||''])]]],
+          lua_scene:['lua_scene', r=>r && typeof r==='object' && [['head','s',[[r.note||'']]], ['scripts','s',(r.scripts||[]).map(s=>[s.path||''])],
+            ['script_flags','us',[]], ['types','ss',Object.entries(r.types||{})]]],
           editor_cell_refs_bytes:['editor_cell_refs', r=>r && Array.isArray(r.rows) && [
             ['meta','ss',[[r.name||'', r.refCell||'']]],
             ['plugins','s',(r.plugins||[]).map(p=>[p])],
@@ -213,4 +222,44 @@ function ev(w, type, x, y, more) {
 const EDITOR_PARTS = ['objects', 'cells', 'record', 'ref', 'move', 'qmenu', 'place', 'dialogue', 'script', 'lua', 'uses', 'build', 'keys'];
 const EDITOR = ['src/38_wg_cellkey.js', 'src/24_ori.js', 'src/50_wg_editor.js', ...EDITOR_PARTS.map(p => 'src/50_wg_editor_' + p + '.js'), 'src/51_wg_editor_ui.js', 'src/53_wg_record_forms.js', 'src/56_wg_workflow.js', 'src/69_wg_keys.js'];
 
-module.exports = { tainted, page, ev, EDITOR, source, CONTRACT, violations };
+/** Wraithguard: WGTB bytes (`Tables` in commands.rs) from [[name, columns, rows]...], for a
+ *  test's own stand-in engine to answer a command that is bytes - the format the page's
+ *  `unpackTables` reads (wgtb_tables.test.js holds it to the fixture). */
+function wgtb(tables) {
+  const te = new TextEncoder(), out = [];
+  const put = (n, set) => { const b = new Uint8Array(n); set(new DataView(b.buffer)); out.push(b); };
+  const u = v => put(4, dv => dv.setUint32(0, v, true)), i = v => put(4, dv => dv.setInt32(0, v, true)), d = v => put(8, dv => dv.setFloat64(0, v, true));
+  const s = t => { const b = te.encode(String(t)); u(b.length); out.push(b); };
+  out.push(te.encode('WGTB')); u(1); u(tables.length);
+  for (const [name, cols, rows] of tables) {
+    s(name); s(cols); u(rows.length);
+    for (const row of rows) [...cols].forEach((k, j) => ({ s, u, i, d })[k](row[j]));
+  }
+  const all = new Uint8Array(out.reduce((n, b) => n + b.length, 0)); let at = 0;
+  for (const b of out) { all.set(b, at); at += b.length; }
+  return all.buffer;
+}
+
+/** The page's own `unpackTables` (50_wg_editor.js), into a test's vm context. */
+function addTables(ctx) {
+  const ed = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'src', '50_wg_editor.js'), 'utf8');
+  const at = ed.indexOf('function unpackTables(buf){');
+  ctx.TextDecoder = ctx.TextDecoder || TextDecoder;
+  require('vm').runInContext(ed.slice(at, ed.indexOf('\n}\n', at) + 3), ctx);
+}
+
+/** A stand-in's `scene_scripts` answer in its JSON shape, as the engine's tables. */
+function sceneTables(r) {
+  const actors = Object.entries(r.actors || {});
+  return wgtb([
+    ['objects', 'ss', Object.entries(r.objects || {})],
+    ['scripts', 'sss', Object.entries(r.scripts || {}).map(([k, s]) => [k, s.id || k, s.text || ''])],
+    ['start', 's', (r.start || []).map(s => [s])],
+    ['globals', 'ssd', (r.globals || []).map(g => [g.name, g.kind, +g.value || 0])],
+    ['actors', 'ssu', actors.map(([id, a]) => [id, a.tag || '', a.stats ? 1 : 0])],
+    ['actor_items', 'usi', actors.flatMap(([, a], row) => (a.items || []).map(([item, n]) => [row, item, n | 0]))],
+    ['actor_stats', 'ui', actors.flatMap(([, a], row) => (a.stats || []).map(v => [row, v | 0]))],
+  ]);
+}
+
+module.exports = { tainted, page, ev, EDITOR, source, CONTRACT, violations, wgtb, addTables, sceneTables };

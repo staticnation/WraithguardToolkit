@@ -2,6 +2,7 @@
    swapped for another, a music script, a light that turns, a door moved with SetPos, the
    weather changed, a global set, a script started, and what the cell then holds. */
 'use strict';
+const { wgtb, addTables, sceneTables } = require('./harness');
 const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
@@ -100,12 +101,18 @@ module.exports = async (t) => {
           const scripts = {}; for (const k of [...Object.values(o), 'startup']) scripts[k] = { id: k, text: SCRIPTS[k] };
           return { objects: o, scripts, start: ['Startup'], globals: [{ name: 'TownBurned', kind: 's', value: 0 }] };
         }
-        if (c === 'script_texts') { const o = {}; for (const n of a.names) if (SCRIPTS[n]) o[n] = { id: n, text: SCRIPTS[n] }; return o; }
         return {};
+      },
+      // script_texts is bytes (WGTB `scripts`: name, id, text).
+      async bytes(c, a) {
+        if (c === 'scene_scripts') return sceneTables(await this.call(c, a));
+        if (c === 'script_texts') return wgtb([['scripts', 'sss', a.names.filter(n => SCRIPTS[n]).map(n => [n, n, SCRIPTS[n]])]]);
+        throw new Error('no ' + c);
       },
     },
   };
   vm.createContext(ctx);
+  addTables(ctx);
   vm.runInContext(src('73_wg_scripts.js'), ctx);
   const S = ctx.WgScripts;
   t.ok(S, 'WgScripts is there');

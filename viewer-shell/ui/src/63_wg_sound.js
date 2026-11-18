@@ -280,7 +280,9 @@ const WgSound={
     for(const c of scene.cells||[]) for(const r of c.refs||[]) if(r && r.id && !r.gc) ids.add(String(r.id).toLowerCase());
     let rows=[];
     if(ids.size){
-      try{ rows=await Engine.call('sound_emitters',{ids:[...ids]}); }
+      // WGTB (`sound_emitters`): `emitters` [id, sound, file, gain, min, max, via].
+      try{ rows=(unpackTables(await Engine.bytes('sound_emitters',{ids:[...ids]})).emitters||[])
+             .map(([id,sound,file,gain,min,max,via])=>({id, sound, file, gain, min, max, via})); }
       catch(e){ if(typeof WgLog==='object') WgLog.add('The scene\'s sounds did not load: '+String(e && e.message || e), 'warn'); rows=[]; }
     }
     if(ask!==P.asked || P.scene!==scene) return;   // another scene since

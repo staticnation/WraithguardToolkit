@@ -3,12 +3,14 @@
 From the audit (`WraithguardToolkit_glam_audit.md`, 2026-10-28), agreed to do. The rules that
 come with it:
 
-- **Stay on glam 0.30** until the `tes3` fork's own `^0.30` moves (a second glam is a second,
-  incompatible `Vec3`). 0.34 needs Rust 1.85; Gardenfell's workspace says 1.74.
+- **glam 0.34, with the `tes3` fork** (moved together 2026-11-17: a second glam is a second,
+  incompatible `Vec3`). Gardenfell's vendored crates keep their own 0.30 (they are Robin's,
+  unmodified; `gardenfell-g7` hands values across as arrays), and rapier3d brings 0.33 through
+  `glamx`, its own.
 - **Arrays stay the stored and wire types**; glam is for arithmetic inside a function.
 - **Same operations, same order**: the first changes are checked *bit for bit* against the lines
   they replace, not with a tolerance (a tolerance would let a changed order through).
-- **No blanket feature enabling.** `approx` (tests of math only) and `bytemuck` are already on
+- **No blanket feature enabling.** `approx-05` (`approx` before 0.34; tests of math only) and `bytemuck` are already on
   through the TES3 fork. Nothing else without a use and a test.
 
 ## Done (Gardenfell patch 0019)

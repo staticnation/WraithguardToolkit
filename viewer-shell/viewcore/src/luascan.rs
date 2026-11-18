@@ -17,7 +17,6 @@ use std::path::{Path, PathBuf};
 use luacore::report::{self, Header, Row, ScriptLine};
 use luacore::scan::{self, ScriptFiles};
 
-use crate::json::{escape_into, string_array, J};
 use crate::vfs::{Loc, Vfs};
 
 /// The overlay as `luacore` asks for files: a loose file by its path, a packed one by
@@ -76,21 +75,47 @@ pub fn content(order_file: Option<&Path>) -> Vec<String> {
     ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg)).map(|c| c.content).unwrap_or_default()
 }
 
-/// The scan as the page reads it: `{openmw, revision, resources, note, scripts,
-/// findings, report}`. `order_file` is what the install's load order came from; a setup
-/// that is not OpenMW's (a Morrowind.ini) has no Lua and gets an empty answer and a note.
-pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String> {
+/// One registered script, as the Lua panel lists it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Script {
+    pub path: String,
+    pub flags: Vec<String>,
+    /// The winning copy (a loose file, or `archive.bsa::key`); `None` when nothing has it.
+    pub file: Option<String>,
+    pub providers: usize,
+    pub interface: Option<String>,
+    pub handlers: Vec<String>,
+}
+
+/// The install's OpenMW, when the setup is OpenMW's: its version, Lua API revision and the
+/// `resources` folder the API rules came from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Api {
+    pub openmw: String,
+    pub revision: u64,
+    pub resources: Option<String>,
+}
+
+/// The scan: the API (`None` for a setup that is not OpenMW's), a note, the scripts, the
+/// findings (path, severity, code, line, message) and the text report.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Scan {
+    pub api: Option<Api>,
+    pub note: String,
+    pub scripts: Vec<Script>,
+    pub findings: Vec<(String, String, String, u64, String)>,
+    pub report: String,
+}
+
+/// The scan. `order_file` is what the install's load order came from; a setup that is not
+/// OpenMW's (a Morrowind.ini) has no Lua and gets an empty scan and a note.
+pub fn scan(vfs: &Vfs, order_file: Option<&Path>) -> Result<Scan, String> {
     // OpenMW's by what it is, not by its name: Wraithguard hands the viewer its setup as
     // `wraithguard_cellviewer_setup.cfg`, and any cfg with `data=`/`content=` lines is one.
     // A Morrowind.ini (an .ini, `GameFileN=` lines) is the only other kind.
     let cfg = order_file.filter(|p| is_openmw_cfg(p));
     let Some(cfg) = cfg else {
-        let mut o = J::obj();
-        o.str("note", "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts.")
-            .raw("scripts", "[]")
-            .raw("findings", "[]")
-            .str("report", "");
-        return Ok(o.done());
+        return Ok(Scan { note: "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts.".into(), ..Default::default() });
     };
     // The cfg and every cfg it chains, as the load order is read (`ordercore::cfg`).
     let content = ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg))
@@ -124,8 +149,8 @@ pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String>
         }
     }
     let mut lines: Vec<ScriptLine> = Vec::new();
-    let mut scripts = String::from("[");
-    for (i, rec) in got.scripts.iter().enumerate() {
+    let mut scripts = Vec::new();
+    for rec in got.scripts.iter() {
         let info = rec.info.as_ref().map(|(info, _)| info);
         if let Some(info) = info {
             rows.extend(info.findings.iter().map(|(s, c, l, m)| (rec.path.clone(), s.to_string(), c.to_string(), *l, m.clone())));
@@ -135,21 +160,16 @@ pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String>
         }
         let handlers: Vec<String> = info.map(|i| i.engine_handlers.items.iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default();
         let interface = info.and_then(|i| i.interface_name.clone());
-        let file = rec.providers.last().map(|p| p.to_string_lossy().to_string());
-        let mut o = J::obj();
-        o.str("path", &rec.path)
-            .raw("flags", &string_array(&rec.flags))
-            .raw("file", &file.as_deref().map(quoted).unwrap_or_else(|| "null".into()))
-            .int("providers", rec.providers.len() as u64)
-            .raw("interface", &interface.as_deref().map(quoted).unwrap_or_else(|| "null".into()))
-            .raw("handlers", &string_array(&handlers));
-        if i > 0 {
-            scripts.push(',');
-        }
-        scripts.push_str(&o.done());
+        scripts.push(Script {
+            path: rec.path.clone(),
+            flags: rec.flags.clone(),
+            file: rec.providers.last().map(|p| p.to_string_lossy().to_string()),
+            providers: rec.providers.len(),
+            interface: interface.clone(),
+            handlers: handlers.clone(),
+        });
         lines.push((rec.path.clone(), rec.flags.clone(), interface, handlers, rec.providers.is_empty()));
     }
-    scripts.push(']');
 
     let header = Header {
         openmw: api.openmw.clone(),
@@ -165,27 +185,69 @@ pub fn scan_json(vfs: &Vfs, order_file: Option<&Path>) -> Result<String, String>
         lual_files: got.lual_files.len(),
     };
     report::sort_findings(&mut rows);
-    let mut found = String::from("[");
-    for (i, (path, sev, code, line, message)) in rows.iter().enumerate() {
-        if i > 0 {
-            found.push(',');
-        }
-        let mut o = J::obj();
-        o.str("path", path).str("severity", sev).str("code", code).int("line", *line as u64).str("message", message);
-        found.push_str(&o.done());
-    }
-    found.push(']');
+    let findings = rows.iter().map(|(p, s, c, l, m)| (p.clone(), s.clone(), c.clone(), *l as u64, m.clone())).collect();
     let text = report::render(&header, rows, &lines, true);
+    Ok(Scan {
+        api: Some(Api {
+            openmw: api.openmw.clone(),
+            revision: api.revision.max(0) as u64,
+            resources: resources.as_deref().map(|r| r.to_string_lossy().into_owned()),
+        }),
+        note: header.api_source,
+        scripts,
+        findings,
+        report: text,
+    })
+}
 
-    let mut out = J::obj();
-    out.str("openmw", &api.openmw)
-        .int("revision", api.revision.max(0) as u64)
-        .raw("resources", &resources.as_deref().map(|r| quoted(&r.to_string_lossy())).unwrap_or_else(|| "null".into()))
-        .str("note", &header.api_source)
-        .raw("scripts", &scripts)
-        .raw("findings", &found)
-        .str("report", &text);
-    Ok(out.done())
+/// The scan as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed), read by the
+/// Editor's Lua panel (`WgEditor.readLuaScan`, ui/src/50_wg_editor_lua.js):
+///
+/// - `head` `usuusss`: OpenMW's setup 0/1, its version, Lua API revision, a resources folder
+///   0/1, that folder, the note, the text report
+/// - `scripts` `ssuusu`: path, the winning file, a file 0/1, providers, interface, one 0/1;
+///   with `script_flags` `us` and `script_handlers` `us` (its row, a flag or a handler)
+/// - `findings` `sssus`: path, severity, code, line, message
+pub fn scan_tables(s: &Scan) -> Vec<u8> {
+    use crate::wgtb::Tables;
+    let mut tb = Tables::new();
+    tb.table("head", "usuusss", 1);
+    match &s.api {
+        Some(a) => tb
+            .u(1)
+            .s(&a.openmw)
+            .u(a.revision)
+            .u(a.resources.is_some() as u64)
+            .s(a.resources.as_deref().unwrap_or("")),
+        None => tb.u(0).s("").u(0).u(0).s(""),
+    };
+    tb.s(&s.note).s(&s.report);
+    tb.table("scripts", "ssuusu", s.scripts.len());
+    for x in &s.scripts {
+        tb.s(&x.path)
+            .s(x.file.as_deref().unwrap_or(""))
+            .u(x.file.is_some() as u64)
+            .u(x.providers as u64)
+            .s(x.interface.as_deref().unwrap_or(""))
+            .u(x.interface.is_some() as u64);
+    }
+    tb.table("script_flags", "us", s.scripts.iter().map(|x| x.flags.len()).sum());
+    for (row, x) in s.scripts.iter().enumerate() {
+        for f in &x.flags {
+            tb.u(row as u64).s(f);
+        }
+    }
+    tb.table("script_handlers", "us", s.scripts.iter().map(|x| x.handlers.len()).sum());
+    for (row, x) in s.scripts.iter().enumerate() {
+        for h in &x.handlers {
+            tb.u(row as u64).s(h);
+        }
+    }
+    tb.table("findings", "sssus", s.findings.len());
+    for (p, sev, code, line, msg) in &s.findings {
+        tb.s(p).s(sev).s(code).u(*line).s(msg);
+    }
+    tb.done()
 }
 
 /// Whether a load-order file is an OpenMW cfg: a `.cfg`, or any file with a `content=`
@@ -200,13 +262,6 @@ pub fn is_openmw_cfg(p: &Path) -> bool {
             k == "content" || k == "data"
         })
     })
-}
-
-fn quoted(s: &str) -> String {
-    let mut out = String::from("\"");
-    escape_into(s, &mut out);
-    out.push('"');
-    out
 }
 
 /// The load order's registered scripts, for running them (the Preview's scripts,
@@ -290,15 +345,22 @@ mod tests {
         std::fs::write(&cfg, "content=m.omwscripts\n").unwrap();
         // Highest priority first, as the overlay holds its roots: b wins.
         let vfs = Vfs::with_roots(&[("b".into(), b), ("a".into(), a)]);
-        let got = scan_json(&vfs, Some(&cfg)).unwrap();
+        let got = scan(&vfs, Some(&cfg)).unwrap();
         std::fs::remove_dir_all(&root).ok();
-        assert!(got.contains("\"OVERRIDDEN_FILE\""), "{got}");
-        assert!(got.contains("\"PER_ACTOR_FRAME\""), "{got}");
-        assert!(got.contains("\"providers\":2"), "{got}");
-        let mw = scan_json(&Vfs::default(), Some(Path::new("Morrowind.ini"))).unwrap();
+        let codes: Vec<&str> = got.findings.iter().map(|f| f.2.as_str()).collect();
+        assert!(codes.contains(&"OVERRIDDEN_FILE"), "{codes:?}");
+        assert!(codes.contains(&"PER_ACTOR_FRAME"), "{codes:?}");
+        assert_eq!(got.scripts.iter().map(|s| s.providers).collect::<Vec<_>>(), [2], "{:?}", got.scripts);
+        assert!(got.api.is_some());
+        let mw = scan(&Vfs::default(), Some(Path::new("Morrowind.ini"))).unwrap();
         assert!(is_openmw_cfg(Path::new("wraithguard_cellviewer_setup.cfg")));
         assert!(!is_openmw_cfg(Path::new("Morrowind.ini")));
-        assert!(mw.contains("\"scripts\":[]"));
+        assert!(mw.scripts.is_empty() && mw.api.is_none() && mw.note.contains("Not an OpenMW setup"));
+        // And as bytes: the tables read back to the same scan.
+        let t = crate::wgtb::read(&scan_tables(&got)).unwrap();
+        assert_eq!(crate::wgtb::rows(&t, "scripts").len(), 1);
+        assert_eq!(crate::wgtb::rows(&t, "findings").len(), got.findings.len());
+        assert_eq!(crate::wgtb::rows(&t, "head")[0][0], crate::wgtb::Val::U(1));
     }
 
     #[test]

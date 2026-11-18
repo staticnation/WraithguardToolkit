@@ -41,6 +41,7 @@ pub mod usage;
 pub mod vfs;
 pub mod vfsindex;
 pub mod weather;
+pub mod wgtb;
 pub mod world;
 pub mod worldmap;
 

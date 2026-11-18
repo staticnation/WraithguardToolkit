@@ -119,9 +119,11 @@ pub(super) fn sound_json(w: &viewcore::world::World, id: &str) -> Option<J> {
 /// The sounds placed objects loop (SOUND.md step 2): for each object id asked about that
 /// is a light with a sound, or an activator, door or container whose script loops one on
 /// itself (`PlayLoopSound3D`; `...VP`'s volume times the record's), `{id, sound, file, gain,
-/// min, max, via: "light"|"script"}` as OpenMW plays it.
+/// min, max, via: "light"|"script"}` as OpenMW plays it - as bytes (`WGTB`, Static
+/// 2026-11-17: JSON only where it is needed; every object of the scene is asked about):
+/// `emitters` `sssddds`, those fields in that order. Read by 63_wg_sound.js.
 #[tauri::command(async)]
-pub(super) fn sound_emitters(ids: Vec<String>, state: State) -> Result<String, String> {
+pub(super) fn sound_emitters(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let mut rows = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -139,12 +141,14 @@ pub(super) fn sound_emitters(ids: Vec<String>, state: State) -> Result<String, S
         };
         let Some(d) = w.sounds.get(snd).filter(|d| !d.file.is_empty()) else { continue };
         let (gain, min, max) = sound_played(&w, d);
-        let mut o = J::obj();
-        o.str("id", &k).str("sound", snd).str("file", &d.file).num("gain", gain * vol.clamp(0.0, 1.0) as f64);
-        o.num("min", min).num("max", max).str("via", via);
-        rows.push(o.done());
+        rows.push((k, snd, &d.file, gain * vol.clamp(0.0, 1.0) as f64, min, max, via));
     }
-    Ok(format!("[{}]", rows.join(",")))
+    let mut tb = Tables::new();
+    tb.table("emitters", "sssddds", rows.len());
+    for (id, snd, file, gain, min, max, via) in &rows {
+        tb.s(id).s(snd).s(file).d(*gain).d(*min).d(*max).s(via);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// The load order's settings the world's sound follows (SOUND.md step 3): every fallback

@@ -224,18 +224,18 @@ pub(super) fn meshopt_progress() -> [usize; 2] {
     [conflictcore::nif_batch::DONE.load(Ordering::Relaxed), conflictcore::nif_batch::TOTAL.load(Ordering::Relaxed)]
 }
 
-pub(super) fn cf_conflict_json(c: &conflictcore::records::Conflict) -> serde_json::Value {
-    serde_json::json!({"type": c.rtype, "id": c.id, "plugins": c.plugins, "winner": c.winner,
-                       "involvesSubset": c.involves_subset, "deletedBy": c.deleted_by})
-}
-
 /// Wraithguard: the record scan (`detect_conflicts` / `list_subset_singles` /
 /// `list_other_singles`). `mode`: `conflicts`, `mine` or `other`; `subset`: the user's own
 /// plugins; `exclude`: patterns of plugins left out (`filter_plugins`). Answers `{list,
 /// stats: {scanned, unreadable, records, found, excluded}, cells: [{x, y, total, mine, types,
-/// plugins, byPlugin, winners}]}`.
+/// plugins, byPlugin, winners}]}` as bytes (`cf_scan_tables`).
 #[tauri::command(async)]
-pub(super) fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exclude: Vec<String>) -> Result<String, String> {
+pub(super) fn conflicts_scan(
+    cfg: String,
+    subset: Vec<String>,
+    mode: String,
+    exclude: Vec<String>,
+) -> Result<tauri::ipc::Response, String> {
     use conflictcore::records;
     let setup = cf_setup(&cfg)?;
     let (order, excluded) = records::filter_plugins(&setup.plugins(), &exclude);
@@ -251,25 +251,111 @@ pub(super) fn conflicts_scan(cfg: String, subset: Vec<String>, mode: String, exc
         "other" => records::singles(&scan, &subset, false),
         _ => return Err(format!("no scan {mode:?}")),
     };
-    let cells: Vec<serde_json::Value> = if mode == "conflicts" {
-        conflictcore::map::group_by_cell(&list)
-            .values()
-            .map(|c| {
-                serde_json::json!({"x": c.x, "y": c.y, "total": c.total, "mine": c.mine, "types": c.types,
-                                   "plugins": c.plugins, "byPlugin": c.by_plugin, "winners": c.winners})
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let out = serde_json::json!({
-        "list": list.iter().map(cf_conflict_json).collect::<Vec<_>>(),
-        "stats": {"scanned": stats.scanned, "unreadable": stats.unreadable, "records": stats.records,
-                  "found": stats.found, "excluded": excluded},
-        "cells": cells,
-    });
+    let cells = if mode == "conflicts" { conflictcore::map::group_by_cell(&list) } else { Default::default() };
+    let out = cf_scan_tables(&list, &stats, &excluded, &cells);
     *CONFLICTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(ConflictScan { paths, list, stats, mode });
-    Ok(out.to_string())
+    Ok(tauri::ipc::Response::new(out))
+}
+
+/* Wraithguard: `conflicts_scan`'s answer as bytes (`WGTB`, Static 2026-11-17: JSON only where
+   it is needed; a row a conflicting record, tens of thousands on a large load order). Every
+   plugin is named once, in `plugins`, and the other tables give its index there:
+
+   - `stats` `uuu` (scanned, records, found); `unreadable` `s`; `excluded` `s`.
+   - `list` `ssuu` (type, id, winner, involves the user's own plugins 0/1), with `list_plugins`
+     `uu` and `list_deleted` `uu` (its row, a plugin), in order.
+   - `cells` `iiuu` (x, y, total, mine), with `cell_types` `usu` (its row, type, count),
+     `cell_plugins` `uu`, `cell_by` `uusu` (its row, plugin, type, count) and `cell_winners`
+     `uuu` (its row, plugin, count).
+
+   Read by `WgConflicts.readScan` (60_wg_conflicts.js), back into the JSON's object. */
+fn cf_scan_tables(
+    list: &[conflictcore::records::Conflict],
+    stats: &conflictcore::records::Stats,
+    excluded: &[String],
+    cells: &std::collections::BTreeMap<(i64, i64), conflictcore::map::CellConflicts>,
+) -> Vec<u8> {
+    let mut names: Vec<&str> = Vec::new();
+    let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for c in list {
+        for n in c.plugins.iter().chain(c.deleted_by.iter()).chain(std::iter::once(&c.winner)) {
+            if !at.contains_key(n.as_str()) {
+                at.insert(n.as_str(), names.len());
+                names.push(n.as_str());
+            }
+        }
+    }
+    for c in cells.values() {
+        for n in c.plugins.iter().chain(c.by_plugin.keys()).chain(c.winners.keys()) {
+            if !at.contains_key(n.as_str()) {
+                at.insert(n.as_str(), names.len());
+                names.push(n.as_str());
+            }
+        }
+    }
+    let p = |n: &str| at[n] as u64;
+    let mut tb = Tables::new();
+    tb.table("stats", "uuu", 1);
+    tb.u(stats.scanned as u64).u(stats.records as u64).u(stats.found as u64);
+    tb.table("unreadable", "s", stats.unreadable.len());
+    for n in &stats.unreadable {
+        tb.s(n);
+    }
+    tb.table("excluded", "s", excluded.len());
+    for n in excluded {
+        tb.s(n);
+    }
+    tb.table("plugins", "s", names.len());
+    for n in &names {
+        tb.s(n);
+    }
+    tb.table("list", "ssuu", list.len());
+    for c in list {
+        tb.s(&c.rtype).s(&c.id).u(p(&c.winner)).u(c.involves_subset as u64);
+    }
+    tb.table("list_plugins", "uu", list.iter().map(|c| c.plugins.len()).sum());
+    for (row, c) in list.iter().enumerate() {
+        for n in &c.plugins {
+            tb.u(row as u64).u(p(n));
+        }
+    }
+    tb.table("list_deleted", "uu", list.iter().map(|c| c.deleted_by.len()).sum());
+    for (row, c) in list.iter().enumerate() {
+        for n in &c.deleted_by {
+            tb.u(row as u64).u(p(n));
+        }
+    }
+    tb.table("cells", "iiuu", cells.len());
+    for c in cells.values() {
+        tb.i(c.x).i(c.y).u(c.total as u64).u(c.mine as u64);
+    }
+    tb.table("cell_types", "usu", cells.values().map(|c| c.types.len()).sum());
+    for (row, c) in cells.values().enumerate() {
+        for (k, n) in &c.types {
+            tb.u(row as u64).s(k).u(*n as u64);
+        }
+    }
+    tb.table("cell_plugins", "uu", cells.values().map(|c| c.plugins.len()).sum());
+    for (row, c) in cells.values().enumerate() {
+        for n in &c.plugins {
+            tb.u(row as u64).u(p(n));
+        }
+    }
+    tb.table("cell_by", "uusu", cells.values().map(|c| c.by_plugin.values().map(|m| m.len()).sum::<usize>()).sum());
+    for (row, c) in cells.values().enumerate() {
+        for (n, types) in &c.by_plugin {
+            for (k, count) in types {
+                tb.u(row as u64).u(p(n)).s(k).u(*count as u64);
+            }
+        }
+    }
+    tb.table("cell_winners", "uuu", cells.values().map(|c| c.winners.len()).sum());
+    for (row, c) in cells.values().enumerate() {
+        for (n, count) in &c.winners {
+            tb.u(row as u64).u(p(n)).u(*count as u64);
+        }
+    }
+    tb.done()
 }
 
 /// Wraithguard: one record of the last scan across its plugins (`diff_record_fields`, with
@@ -400,7 +486,7 @@ pub(super) fn conflicts_land_surfaces(cfg: String, id: String) -> Result<String,
 /// meshStats}`.
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
-pub(super) fn conflicts_resources(cfg: String, subset_dirs: Vec<String>, exclude_exts: Vec<String>, compare: bool, meshes: bool, mesh_limit: usize, plan_file: String) -> Result<String, String> {
+pub(super) fn conflicts_resources(cfg: String, subset_dirs: Vec<String>, exclude_exts: Vec<String>, compare: bool, meshes: bool, mesh_limit: usize, plan_file: String) -> Result<tauri::ipc::Response, String> {
     let _gate = scan_gate();
     let mut subset_dirs = subset_dirs;
     let plan: Option<serde_json::Value> =
@@ -412,22 +498,70 @@ pub(super) fn conflicts_resources(cfg: String, subset_dirs: Vec<String>, exclude
     let dirs: Vec<String> = setup.data.iter().map(|d| d.to_string_lossy().into_owned()).collect();
     let (list, stats) = conflictcore::resources::detect(&dirs, &subset_dirs, &exclude_exts, compare);
     let (mesh, mstats) = if meshes { conflictcore::mesh::analyse(&list, mesh_limit) } else { (vec![None; list.len()], conflictcore::mesh::MeshStats::default()) };
-    let rows: Vec<serde_json::Value> = list
-        .iter()
-        .zip(&mesh)
-        .map(|(c, m)| {
-            serde_json::json!({"path": c.path, "providers": c.providers, "winner": c.winner, "involvesSubset": c.involves_subset,
-                               "identical": c.identical, "mesh": m.as_ref().map(conflictcore::mesh::Finding::describe),
-                               "meshColumns": m.as_ref().map(|f| { let (a, b, c, d) = f.columns(); [a, b, c, d] })})
-        })
-        .collect();
-    let out = serde_json::json!({
-        "list": rows,
-        "stats": {"dirs": stats.dirs, "files": stats.files, "conflicts": stats.conflicts, "identical": stats.identical, "differing": stats.differing},
-        "meshStats": {"analysed": mstats.analysed, "findings": mstats.findings, "unreadable": mstats.unreadable},
-    });
+    let out = cf_files_tables(&list, &stats, &mesh, &mstats);
     *RESOURCES.lock().unwrap_or_else(|p| p.into_inner()) = Some(ResourceScan { list, stats, mesh });
-    Ok(out.to_string())
+    Ok(tauri::ipc::Response::new(out))
+}
+
+/* Wraithguard: `conflicts_resources`'s answer as bytes (`WGTB`, Static 2026-11-17: JSON only
+   where it is needed; a row a file that more than one folder supplies). Each data folder is
+   named once, in `dirs`:
+
+   - `stats` `uuuuu` (folders, files, conflicts, identical, differing); `mesh_stats` `uuu`
+     (analysed, findings, unreadable).
+   - `list` `suuu` (path, winner, involves the user's own folders 0/1, identical: 0 no, 1 yes,
+     2 not compared), with `list_providers` `uu` (its row, a folder), in order.
+   - `mesh` `usssss` (its row, what the mesh loses, and the four columns) for a file whose
+     mesh was read.
+
+   Read by `WgConflicts.readFiles` (60_wg_conflicts.js), back into the JSON's object. */
+fn cf_files_tables(
+    list: &[conflictcore::resources::Resource],
+    stats: &conflictcore::resources::ResourceStats,
+    mesh: &[Option<conflictcore::mesh::Finding>],
+    mstats: &conflictcore::mesh::MeshStats,
+) -> Vec<u8> {
+    let mut names: Vec<&str> = Vec::new();
+    let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for c in list {
+        for n in c.providers.iter().chain(std::iter::once(&c.winner)) {
+            if !at.contains_key(n.as_str()) {
+                at.insert(n.as_str(), names.len());
+                names.push(n.as_str());
+            }
+        }
+    }
+    let mut tb = Tables::new();
+    tb.table("stats", "uuuuu", 1);
+    tb.u(stats.dirs as u64).u(stats.files as u64).u(stats.conflicts as u64).u(stats.identical as u64).u(stats.differing as u64);
+    tb.table("mesh_stats", "uuu", 1);
+    tb.u(mstats.analysed as u64).u(mstats.findings as u64).u(mstats.unreadable as u64);
+    tb.table("dirs", "s", names.len());
+    for n in &names {
+        tb.s(n);
+    }
+    tb.table("list", "suuu", list.len());
+    for c in list {
+        tb.s(&c.path).u(at[c.winner.as_str()] as u64).u(c.involves_subset as u64).u(match c.identical {
+            Some(false) => 0,
+            Some(true) => 1,
+            None => 2,
+        });
+    }
+    tb.table("list_providers", "uu", list.iter().map(|c| c.providers.len()).sum());
+    for (row, c) in list.iter().enumerate() {
+        for n in &c.providers {
+            tb.u(row as u64).u(at[n.as_str()] as u64);
+        }
+    }
+    tb.table("mesh", "usssss", mesh.iter().flatten().count());
+    for (row, m) in mesh.iter().enumerate() {
+        if let Some(f) = m {
+            let (a, b, c, d) = f.columns();
+            tb.u(row as u64).s(&f.describe()).s(&a).s(&b).s(&c).s(&d);
+        }
+    }
+    tb.done()
 }
 
 /// Bytes as standard base64, for the page's `atob`.
@@ -616,21 +750,27 @@ pub(super) fn cf_read_many(
 /// Wraithguard: the last record scan as plugin -> type (`group_by_plugin`), plugins in the
 /// cfg's load order. Answers `[{plugin, records, mine, groups: [{type, count}]}]`.
 #[tauri::command(async)]
-pub(super) fn conflicts_by_plugin(cfg: String, subset: Vec<String>) -> Result<String, String> {
+pub(super) fn conflicts_by_plugin(cfg: String, subset: Vec<String>) -> Result<tauri::ipc::Response, String> {
     let setup = cf_setup(&cfg)?;
     let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
     let scan = slot.as_ref().ok_or("scan first")?;
     let mine: std::collections::HashSet<String> = subset.iter().map(|s| s.to_lowercase()).collect();
-    let out: Vec<serde_json::Value> = conflictcore::summary::group_by_plugin(&scan.list, &setup.plugins())
-        .iter()
-        .map(|b| {
-            serde_json::json!({
-                "plugin": b.plugin, "records": b.records(), "mine": mine.contains(&b.plugin.to_lowercase()),
-                "groups": b.groups.iter().map(|(t, m)| serde_json::json!({"type": t, "count": m.len()})).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-    Ok(serde_json::Value::Array(out).to_string())
+    /* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed):
+       `branches` `suu` (plugin, records, one of the user's own 0/1) and `groups` `usu` (its
+       row, record type, count). Read by `WgConflicts.readBranches` (60_wg_conflicts.js). */
+    let branches = conflictcore::summary::group_by_plugin(&scan.list, &setup.plugins());
+    let mut tb = Tables::new();
+    tb.table("branches", "suu", branches.len());
+    for b in &branches {
+        tb.s(&b.plugin).u(b.records() as u64).u(mine.contains(&b.plugin.to_lowercase()) as u64);
+    }
+    tb.table("groups", "usu", branches.iter().map(|b| b.groups.len()).sum());
+    for (row, b) in branches.iter().enumerate() {
+        for (t, m) in &b.groups {
+            tb.u(row as u64).s(t).u(m.len() as u64);
+        }
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: one plugin's records of one type in the last scan (`rtype` `""`: every
@@ -639,7 +779,7 @@ pub(super) fn conflicts_by_plugin(cfg: String, subset: Vec<String>) -> Result<St
 /// tally: {status: count}, worst}` - `all` the record's `ConflictAll` (0-4), `this` and
 /// `worst` the plugin's `ConflictThis` names.
 #[tauri::command(async)]
-pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String) -> Result<String, String> {
+pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String) -> Result<tauri::ipc::Response, String> {
     use conflictcore::summary::{judge, tally};
     let setup = cf_setup(&cfg)?;
     let list: Vec<conflictcore::records::Conflict> = {
@@ -650,29 +790,62 @@ pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String)
     let refs: Vec<&conflictcore::records::Conflict> = list.iter().collect();
     let read = cf_read_many(&setup, &refs);
     let mut statuses = Vec::new();
-    let records: Vec<serde_json::Value> = list
-        .iter()
-        .map(|c| {
-            let versions: Vec<(String, Option<&serde_json::Value>)> =
-                c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
-            let (all, this) = judge(&versions);
-            let mine = c.plugins.iter().position(|p| *p == plugin).map(|i| this[i]).unwrap_or(conflictcore::fields::ConflictThis::Unknown);
-            statuses.push(mine);
-            serde_json::json!({"type": c.rtype, "id": c.id, "plugins": c.plugins, "winner": c.winner, "all": all.code(), "this": mine.name()})
-        })
-        .collect();
+    let mut judged = Vec::new();
+    for c in &list {
+        let versions: Vec<(String, Option<&serde_json::Value>)> =
+            c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
+        let (all, this) = judge(&versions);
+        let mine = c.plugins.iter().position(|p| *p == plugin).map(|i| this[i]).unwrap_or(conflictcore::fields::ConflictThis::Unknown);
+        statuses.push(mine);
+        judged.push((all.code(), mine.name()));
+    }
     let mut counts = Vec::new();
     tally(statuses.iter().copied(), &mut counts);
     let worst = conflictcore::fields::worst_this(statuses.iter().copied());
-    let tally: serde_json::Map<String, serde_json::Value> = counts.into_iter().map(|(s, n)| (s.name().to_string(), n.into())).collect();
-    Ok(serde_json::json!({"records": records, "tally": tally, "worst": worst.name()}).to_string())
+    /* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed): `head`
+       `s` (the worst), `plugins` `s` (each named once), `records` `ssuus` (type, id, winner,
+       all's code, this plugin's status), `record_plugins` `uu` (its row, a plugin) and `tally`
+       `su` (status, count, in order). Read by `WgConflicts.readGroup` (60_wg_conflicts.js). */
+    let mut names: Vec<&str> = Vec::new();
+    let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for c in &list {
+        for n in c.plugins.iter().chain(std::iter::once(&c.winner)) {
+            if !at.contains_key(n.as_str()) {
+                at.insert(n.as_str(), names.len());
+                names.push(n.as_str());
+            }
+        }
+    }
+    let mut tb = Tables::new();
+    tb.table("head", "s", 1);
+    tb.s(worst.name());
+    tb.table("plugins", "s", names.len());
+    for n in &names {
+        tb.s(n);
+    }
+    tb.table("records", "ssuus", list.len());
+    for (c, (all, this)) in list.iter().zip(&judged) {
+        tb.s(&c.rtype).s(&c.id).u(at[c.winner.as_str()] as u64).u(*all as u64).s(this);
+    }
+    tb.table("record_plugins", "uu", list.iter().map(|c| c.plugins.len()).sum());
+    for (row, c) in list.iter().enumerate() {
+        for n in &c.plugins {
+            tb.u(row as u64).u(at[n.as_str()] as u64);
+        }
+    }
+    tb.table("tally", "su", counts.len());
+    for (s, n) in &counts {
+        tb.s(s.name()).u(*n as u64);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: every record of the last conflict scan judged (`judge`, as the Tk record list's
-/// plugin summary coloured it): `[all]`, the `ConflictAll` code of each record in the scan's
-/// order (0 unknown, 1 only one, 2 no conflict, 3 override, 4 conflict).
+/// plugin summary coloured it): the `ConflictAll` code of each record in the scan's order
+/// (0 unknown, 1 only one, 2 no conflict, 3 override, 4 conflict), one byte each - the answer
+/// is the codes themselves (Static 2026-11-17: JSON only where it is needed).
 #[tauri::command(async)]
-pub(super) fn conflicts_verdicts(cfg: String) -> Result<String, String> {
+pub(super) fn conflicts_verdicts(cfg: String) -> Result<tauri::ipc::Response, String> {
     use conflictcore::summary::judge;
     let _gate = scan_gate();
     let setup = cf_setup(&cfg)?;
@@ -691,7 +864,7 @@ pub(super) fn conflicts_verdicts(cfg: String) -> Result<String, String> {
             judge(&versions).0.code()
         })
         .collect();
-    Ok(serde_json::json!(codes).to_string())
+    Ok(tauri::ipc::Response::new(codes))
 }
 
 /// The records `conflicts_plugin_bulk` read, kept for `_apply`: the plugin and its records.

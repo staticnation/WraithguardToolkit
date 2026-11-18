@@ -3,6 +3,7 @@
    OnDeath, a MessageBox's buttons answered, GetSoundPlaying, a line of sight blocked by a
    wall, and PlaceAtMe in a room landing in that room only. */
 'use strict';
+const { addTables, sceneTables } = require('./harness');
 const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
@@ -111,6 +112,8 @@ module.exports = async (t) => {
       playable: async d => { plays.push(d.id || d.file); return { duration: 2 }; },
     },
     Engine: {
+      // scene_scripts is bytes: its JSON-shaped stand-in below, as the engine's tables.
+      async bytes(c, a) { if (c === 'scene_scripts') return sceneTables(await this.call(c, a)); throw new Error('no ' + c); },
       async call(c, a) {
         if (c === 'scene_scripts') {
           const objects = { chest_a: 'chestcount', guard_a: 'guardwalk', rat_a: 'ratdies', brazier_a: 'asker', dropper: 'roomdrop', mage_a: 'magecast' };
@@ -133,6 +136,7 @@ module.exports = async (t) => {
     },
   };
   vm.createContext(ctx);
+  addTables(ctx);
   vm.runInContext(src('73_wg_scripts.js'), ctx);
   const S = ctx.WgScripts;
   S.on = true;

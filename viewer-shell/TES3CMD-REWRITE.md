@@ -1,15 +1,20 @@
 # tes3cmd without Perl (long-term plan)
 
-Status: **`clean` ported** (2026-11-17), in `subset sort\tes3cmd-rs` (for `staticnation/tes3cmd-rs`):
-a library and a `tes3cmd` command line, held byte for byte to the Perl's own output (standard
-output, standard error and every file left behind) on fourteen cases built by its tests, the
-Perl run beside it there; `T3_REAL_MW`/`T3_REAL_PLUGINS` run the same comparison on real
+Status: **every command a modder or player uses ported** (2026-11-17): `clean`, `header`,
+`esp`, `esm`, `common`, `active`, `resetdates`, `overdial`, `recover`, `dump`, `delete`, `diff`,
+`modify --replace`, `multipatch`, `fixit`, in `staticnation/tes3cmd-rs`: a library and a
+`tes3cmd` command line, held byte for byte to the Perl's own output (standard output, standard
+error and every file left behind) on thirty-three cases built by its tests, the released Perl run
+beside it there (vendored in `tests/tes3cmd`, run by its CI in two time zones); `T3_REAL_MW`/`T3_REAL_PLUGINS` run the same comparison on real
 plugins. Two decisions made doing it: the port reads and writes subrecords as bytes, as the
 Perl does, not through greatness7's typed `tes3` (whose re-encoding could change bytes the
 comparison requires); and tes3cmd's quirks are kept where its output is the measure (its README
 lists them: `--output-dir` a flag, `NAM0` never updated, path grids with capitals never cleaned
 as duplicates, a rebuilt cell's header flags lost). Not yet: the master cache (Perl `Storable`
-files; the port reads the masters each run). Next: `header`. Wraithguard does not take it as a
+files; the port reads the masters each run). Every option of those commands is ported too (`dump --format`, `--raw`, `--wrap`, savegame
+records), but `modify --run` and `--program-file`, which run Perl and stay the Perl's. Activating a patch (`active --on/--off`,
+`multipatch`, `fixit`) is where the port does what the Perl means rather than what it does (the
+released script dies there). Wraithguard does not take it as a
 dependency until the Tools page's clean is switched over. (Planned 2026-11-09: its own crate,
 see the end.) For now (port step 4.4, slice 8, option a) the Tools page launches the
 external tes3cmd (`toolscore::tes3cmd`): `clean` and a custom command on a copy staged with the

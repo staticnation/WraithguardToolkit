@@ -170,6 +170,12 @@ const CellMap={
       new read and an unchanged one is not. `open` still calls this and finds it done. The
       batches are pipelined: the next one is asked for before this one is unpacked, so the
       engine packs while the page paints. */
+  /** `world_map`'s tables as the object its JSON was: {tile, sea, min, max, cells}. */
+  readHead(tb){
+    const map=(tb.map||[])[0]||[0,''], b=(tb.bounds||[])[0];
+    return {tile:map[0], sea:map[1], cells:tb.cells||[], min:b? [b[0],b[1]] : null, max:b? [b[2],b[3]] : null};
+  },
+
   async load(progress){
     const sig=(typeof GameData==='object' && GameData.sig)||'';
     if(this.world && this.world.sig===sig && this.world.done) return;
@@ -178,7 +184,9 @@ const CellMap={
        that and stops at its next batch. */
     if(this.loading && this.world && this.world.sig===sig) return this.loading;
     const job=(async()=>{
-      const head=await Engine.call('world_map');
+      // WGTB (`world_map`, commands.rs): `map` [tile, sea], `bounds` [x0, y0, x1, y1] (none
+      // when there are no cells), `cells` [x, y] - back into {tile, sea, min, max, cells}.
+      const head=CellMap.readHead(unpackTables(await Engine.bytes('world_map',{})));
       const cells=(head&&head.cells)||[];
       if(head&&typeof head.sea==='string') this.SEA=head.sea;   // 18hp: one source, the engine's
       const w={sig, min:head.min, max:head.max, cells, tiles:new Map(), land:new Set(cells.map(c=>c[0]+','+c[1])),

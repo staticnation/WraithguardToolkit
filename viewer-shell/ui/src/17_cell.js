@@ -40,6 +40,75 @@ const LAND_SUBDIV=16;
     Signed 16-bit rather than bytes because these also drive the red slope overlay, which
     is compared against `fMaximumAngle` — a coarser encoding would leave a visible margin
     of error along the exact edge the overlay exists to show. */
+/** Wraithguard: `WGCD`, a cell or a room as the engine sends it (`pack_cell`, commands.rs):
+ *  the cell's other fields as JSON, then its ground's grids as bytes - heights (f32), the
+ *  engine's normal per vertex (i16 components), VCLR (u8) and the texture indices (u16),
+ *  all empty for a room - then its references, models, lights and actors as WGTB
+ *  (`refs_tables_marked`). Static 2026-11-17: JSON only where it is needed; the grids were
+ *  100 KB of text a cell, and the references the most after them. Answers the same object
+ *  the JSON did, the grids as typed arrays (normals already over 32767, as unpackNormals
+ *  made them). */
+/** A height grid as a Float32Array: CellWire's own, or a list (an empty cell the page makes). */
+function toF32(h){ return h instanceof Float32Array? h : Float32Array.from(h||[]); }
+
+const CellWire={
+  read(ab){
+    const dv=new DataView(ab), u8=new Uint8Array(ab);
+    const magic=String.fromCharCode(u8[0],u8[1],u8[2],u8[3]);
+    if(magic!=='WGCD') throw new Error('the engine\'s cell is not WGCD (starts '+JSON.stringify(magic)+')');
+    if(dv.getUint32(4,true)!==2) throw new Error('the engine\'s cell is WGCD version '+dv.getUint32(4,true)+', this page reads 2');
+    let p=8;
+    const n=()=>{ const v=dv.getUint32(p,true); p+=4; return v; };
+    const jl=n();
+    const d=JSON.parse(new TextDecoder().decode(u8.subarray(p,p+jl))); p+=jl;
+    // Copied out (slice) so each grid starts aligned in an ArrayBuffer of its own.
+    const take=(count,size)=>{ const b=ab.slice(p,p+count*size); p+=count*size; return b; };
+    const nh=n(); const heights=new Float32Array(take(nh,4));
+    const nn=n(); const ni=new Int16Array(take(nn,2));
+    const nc=n(); const colors=new Uint8Array(take(nc,1));
+    const nv=n(); const vtex=new Uint16Array(take(nv,2));
+    const nt=n(); const tb=unpackTables(take(nt,1));
+    if(p!==ab.byteLength) throw new Error('the engine\'s cell has '+(ab.byteLength-p)+' bytes after its references');
+    const normals=new Float32Array(ni.length);
+    for(let i=0;i<ni.length;i++) normals[i]=ni[i]/32767;
+    d.heights=nh? heights : null;
+    d.normals=nn? normals : null;
+    d.colours=nc? colors : null;   // the cell's field keeps its name (renderer)
+    d.vtex=nv? vtex : null;
+    CellWire.refs(d, tb);
+    return d;
+  },
+  /** The tables back into the JSON's shapes: `refs` a list of {id, pos, rot, scale, from,
+   *  key, door?, still?, gc?, mark?, hist?, moved?}, `models` / `lights` / `actors` maps by
+   *  object id. Optional keys are left out as the JSON left them out. */
+  refs(d, tb){
+    const hist=new Map();
+    for(const [row,pl] of tb.hist||[]){ let h=hist.get(row); if(!h) hist.set(row, h=[]); h.push(pl); }
+    d.refs=(tb.refs||[]).map((x,row)=>{
+      const r={id:x[0], pos:[x[1],x[2],x[3]], rot:[x[4],x[5],x[6]], scale:x[7], from:x[8], key:x[9]};
+      if(x[10]) r.mark=x[10];
+      if(hist.has(row)) r.hist=hist.get(row);
+      if(x[11]) r.moved=x[11];
+      const f=x[12];
+      if(f&1) r.still=true;
+      if(f&2) r.gc=1;
+      if(f&4) r.door={pos:[x[13],x[14],x[15]], rot:[x[16],x[17],x[18]], cell:x[19]};
+      return r;
+    });
+    d.models={};
+    for(const [id,mesh] of tb.models||[]) d.models[id]=mesh;
+    d.lights={};
+    for(const [id,radius,cr,cg,cb,neg,flags] of tb.lights||[]) d.lights[id]={radius, colour:[cr,cg,cb], negative:!!neg, flags};
+    d.actors={};
+    for(const [id,kind,model,twin,health,bits,hello] of tb.actors||[]){
+      const a={kind, model, twin:(bits&1)? twin : null, health:(bits&2)? health : null,
+               persistent:!!(bits&4), corpse:!!(bits&8)};
+      if(bits&16) a.hello=hello;
+      d.actors[id]=a;
+    }
+  },
+};
+
 function unpackNormals(hex){
   if(!hex) return null;
   const n=hex.length/4|0;
@@ -124,8 +193,8 @@ const CellData={
     if(own) d=WgEditor.emptyCell(target);
     else try{
       d = interior
-        ? await Engine.call('interior_data',{name:String(target.name||''), review:rv.review||'', without:!!rv.without})
-        : await Engine.call('cell_data',{gx:target.x|0, gy:target.y|0, review:rv.review||'', without:!!rv.without, land:rv.land||''});
+        ? CellWire.read(await Engine.bytes('interior_data',{name:String(target.name||''), review:rv.review||'', without:!!rv.without}))
+        : CellWire.read(await Engine.bytes('cell_data',{gx:target.x|0, gy:target.y|0, review:rv.review||'', without:!!rv.without, land:rv.land||''}));
     }catch(err){
       /* An exterior square nothing in the load order has (opened from the Cell map to be
          built in): in the editor it is an empty square - placing an object makes its cell. */
@@ -159,12 +228,12 @@ const CellData={
       kind: interior? 'int' : 'ext', name:d.name||'', gx:target.x, gy:target.y,
       // The region, for the sky: Weather Adjuster's presets are per region (round 13).
       region: d.region||'',
-      heights: d.hasLand? Float32Array.from(d.heights) : null,
-      // The engine's own ground normal per vertex, signed 16-bit in hex. Unpacked here
-      // rather than derived: see the note in `cellTerrain`.
-      normals: d.hasLand? unpackNormals(d.normals) : null,
-      colours: d.hasLand? unpackColours(d.colours) : null,
-      vtex:    d.hasLand? Uint16Array.from(d.vtex) : null,
+      /* The grids: typed arrays as they came (CellWire) for an exterior; an interior has no
+         land. The normals are the engine's own per vertex, not derived: see `cellTerrain`. */
+      heights: d.hasLand? toF32(d.heights) : null,
+      normals: d.hasLand? (d.normals instanceof Float32Array? d.normals : unpackNormals(d.normals)) : null,
+      colours: d.hasLand? (d.colours instanceof Uint8Array? (d.colours.length? d.colours : null) : unpackColours(d.colours)) : null,
+      vtex:    d.hasLand? (d.vtex instanceof Uint16Array? d.vtex : Uint16Array.from(d.vtex)) : null,
       landPlugin,
       /* A room has no place in the world, so its own coordinates are the world: its
          references are already written about its own origin, and shifting them by half a

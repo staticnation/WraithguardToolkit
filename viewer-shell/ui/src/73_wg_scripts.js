@@ -889,7 +889,8 @@ const WgScripts={
     if(!want.length) return;
     for(const n of want) this.parsed.set(n, {error:'loading', locals:[], body:[]});
     let got={};
-    try{ got=await Engine.call('script_texts',{names:want}); if(typeof got==='string') got=JSON.parse(got); }catch(_){ }
+    // WGTB (`script_texts`): `scripts` [name, id, text] - back into {name: {id, text}}.
+    try{ for(const [k,id,text] of unpackTables(await Engine.bytes('script_texts',{names:want})).scripts||[]) got[k]={id, text}; }catch(_){ }
     for(const n of want) this.learn(n, got && got[n]);
   },
   learn(k, s){
@@ -907,7 +908,7 @@ const WgScripts={
     try{ p=await Engine.pick('open',{filters:[{name:'OpenMW saves', extensions:['omwsave']}]}); }catch(_){ return null; }
     if(!p) return null;
     let g;
-    try{ g=await Engine.call('dialogue_state_from_save',{path:String(p)}); if(typeof g==='string') g=JSON.parse(g); }
+    try{ g=this.readSave(unpackTables(await Engine.bytes('dialogue_state_from_save',{path:String(p)}))); }
     catch(e){ toast(String(e.message||e),'err',6000); return null; }
     const S=this.state;
     for(const x of g.globals||[]) S.globals.set(x.name.toLowerCase(), {name:x.name, kind:x.kind, v:x.value});
@@ -922,8 +923,25 @@ const WgScripts={
   async loadGlobals(){
     if(this.state.globals.size) return;
     let got;
-    try{ got=await Engine.call('scene_scripts',{ids:[]}); if(typeof got==='string') got=JSON.parse(got); }catch(_){ return; }
+    try{ got=this.readScene(unpackTables(await Engine.bytes('scene_scripts',{ids:[]}))); }catch(_){ return; }
     for(const g of (got && got.globals)||[]){ const k=g.name.toLowerCase(); if(!this.state.globals.has(k)) this.state.globals.set(k, {name:g.name, kind:g.kind, v:g.value}); }
+  },
+  /** `dialogue_state_from_save`'s tables (WGTB, commands) as the object its JSON was: {name,
+   *  sex, race, class, level, factions, globals:[{name, kind, value}], journal, inventory}. */
+  readSave(tb){
+    const [name,sex,race,cls,level]=(tb.save||[])[0]||['','','','',0];
+    return {name, sex, race, class:cls, level, factions:tb.factions||[],
+            globals:(tb.globals||[]).map(([name,kind,value])=>({name, kind, value})), journal:tb.journal||[], inventory:tb.inventory||[]};
+  },
+  /** `scene_scripts`' tables (WGTB, commands) as the object its JSON was: {objects:{id:
+   *  script}, scripts:{name:{id, text}}, start, globals:[{name, kind, value}], actors:{id:
+   *  {tag, items:[[item, count]], stats:[...] | null}}}. */
+  readScene(tb){
+    const actors={}, rows=(tb.actors||[]).map(([id,tag,has])=>(actors[id]={tag, items:[], stats:has? [] : null}));
+    for(const [row,item,n] of tb.actor_items||[]) rows[row].items.push([item,n]);
+    for(const [row,v] of tb.actor_stats||[]) rows[row].stats.push(v);
+    return {objects:Object.fromEntries(tb.objects||[]), scripts:Object.fromEntries((tb.scripts||[]).map(([k,id,text])=>[k,{id,text}])),
+            start:(tb.start||[]).map(r=>r[0]), globals:(tb.globals||[]).map(([name,kind,value])=>({name, kind, value})), actors};
   },
   /** The scene's scripted objects, read again when the scene changes (state kept by key). */
   async gather(){
@@ -937,7 +955,7 @@ const WgScripts={
     const ids=[...new Set(refs.map(([,r])=>String(r.id).toLowerCase()))].filter(id=>!this._asked.has(id));
     for(const id of ids) this._asked.add(id);
     let got={objects:{}, scripts:{}, start:[], globals:[]};
-    if(ids.length || !this._globalsRead) try{ got=await Engine.call('scene_scripts',{ids}); if(typeof got==='string') got=JSON.parse(got); }catch(e){ this.say('', 'error', 'the scene\'s scripts did not load: '+String(e && e.message || e)); return; }
+    if(ids.length || !this._globalsRead) try{ got=this.readScene(unpackTables(await Engine.bytes('scene_scripts',{ids}))); }catch(e){ this.say('', 'error', 'the scene\'s scripts did not load: '+String(e && e.message || e)); return; }
     if(this._sceneSeen!==sc) return;
     for(const [k, s] of Object.entries(got.scripts||{})) if(!this.parsed.has(k) || this.parsed.get(k).error==='loading') this.learn(k, s);
     for(const [id, s] of Object.entries(got.objects||{})) this.objScript.set(id, s);

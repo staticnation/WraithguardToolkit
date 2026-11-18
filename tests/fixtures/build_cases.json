@@ -12104,7 +12104,7 @@
       "scripts": [
        {
         "path": "scripts/a.lua",
-        "init_data": "KLUv/QBYIQAAAAAAAA==",
+        "init_data": "KLUv/SAEIQAAAAAAAA==",
         "flags": "",
         "types": [
          "NPC_"
@@ -12115,13 +12115,13 @@
           "attach": true,
           "mast_idx": 3,
           "ref_idx": 7,
-          "data": "KLUv/QBYIQAAAAAAAA=="
+          "data": "KLUv/SAEIQAAAAAAAA=="
          },
          {
           "attach": true,
           "mast_idx": 1,
           "ref_idx": 8,
-          "data": "KLUv/QBYIQAAAAAAAA=="
+          "data": "KLUv/SAEIQAAAAAAAA=="
          }
         ]
        }

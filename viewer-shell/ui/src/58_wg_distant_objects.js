@@ -67,8 +67,14 @@ const WgDistantObjects={
     const t0=performance.now();
     let data;
     try{
-      const r=await Engine.call('distant_objects',{x:centre.gx, y:centre.gy, inner:rings, radius});
-      data=typeof r==='string'? JSON.parse(r) : r;
+      /* WGTB (`distant_objects`, commands.rs): `meta` [kept, beyond, over], `models` [mesh,
+         radius, tier], `refs` [model row, x, y, z, rx, ry, rz, scale]. Back into the shape
+         the JSON was: {models:[{m, r, t, refs:[[x,y,z,rx,ry,rz,scale]...]}], refs, beyond, over}. */
+      const tb=unpackTables(await Engine.bytes('distant_objects',{x:centre.gx, y:centre.gy, inner:rings, radius}));
+      const meta=(tb.meta||[])[0]||[0,0,0];
+      const models=(tb.models||[]).map(([m,r,t])=>({m, r, t, refs:[]}));
+      for(const x of tb.refs||[]) models[x[0]].refs.push(x.slice(1));
+      data={models, refs:meta[0], beyond:meta[1], over:meta[2]};
     }catch(e){ if(gen===this._gen) this.err=String(e&&e.message||e); return; }
     if(gen!==this._gen) return;
     // One mesh per model and level.

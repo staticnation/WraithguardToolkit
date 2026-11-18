@@ -562,10 +562,10 @@ const WgToolsPage={
         sortDataPaths:!!f.sortDataPaths, subsetFromCfg:!!f.subsetFromCfg, noPredicateWarnings:true, verbose:false,
         writeCfg:false, dryRun:true, noBackup:true};
       if(f.scanDir){
-        let scan=await Engine.call('loadorder_scan',{dir:f.scanDir}); if(typeof scan==='string') scan=JSON.parse(scan);
+        const scan=loReadScan(unpackTables(await Engine.bytes('loadorder_scan',{dir:f.scanDir})));
         a.subsetLines=scan.lines;
       }
-      let got=await Engine.call('loadorder_compute',{args:JSON.stringify(a)}); if(typeof got==='string') got=JSON.parse(got);
+      const got=loReadPlan(unpackTables(await Engine.bytes('loadorder_compute',{args:JSON.stringify(a)})));
       if(got.refused) throw new Error('The sort refused: '+got.refused);
       plan=got.plan;
       this._plan=null; // never kept: the fields may be filled in a moment later
@@ -846,8 +846,10 @@ const WgToolsPage={
     const btn=$('#tlLintRun'); btn.disabled=true;
     $('#tlLintStats').textContent='Reading every plugin...';
     try{
-      let r=await Engine.call('tools_lint',{cfg:this.cfg(), subset:await this.mods('mine').catch(()=>[])});
-      if(typeof r==='string') r=JSON.parse(r);
+      // WGTB (`tools_lint`): `stats` [scanned, unreadable, warnings, interiorCells, pathgrids], `warnings`.
+      const tb=unpackTables(await Engine.bytes('tools_lint',{cfg:this.cfg(), subset:await this.mods('mine').catch(()=>[])}));
+      const st=(tb.stats||[])[0]||[0,0,0,0,0];
+      const r={warnings:(tb.warnings||[]).map(x=>x[0]), stats:{scanned:st[0], unreadable:st[1], warnings:st[2], interiorCells:st[3], pathgrids:st[4]}};
       this.lint.warnings=r.warnings; this.lint.stats=r.stats; this.lint.filter='all';
       const s=r.stats;
       $('#tlLintStats').textContent=`${s.scanned} plugin(s), ${s.interiorCells} new interior(s), ${s.pathgrids} interior path grid(s)`+(s.unreadable? `, ${s.unreadable} unreadable` : '');

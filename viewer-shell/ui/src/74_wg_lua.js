@@ -90,7 +90,8 @@ const WgLua={
     for(const p of WgScripts.placed) ids.add(String(p.id).toLowerCase());
     const ask=[...ids].filter(id=>!this.types.has(id));
     if(ask.length){
-      try{ const got=await Engine.call('lua_scene',{ids:ask}); for(const [id, tg] of Object.entries(got.types||{})) this.types.set(id, tg); }catch(_){ }
+      // WGTB (`lua_scene`): `types` [id, record type].
+      try{ for(const [id, tg] of unpackTables(await Engine.bytes('lua_scene',{ids:ask})).types||[]) this.types.set(id, tg); }catch(_){ }
       for(const id of ask) if(!this.types.has(id)) this.types.set(id, '');
     }
     this._all=true;

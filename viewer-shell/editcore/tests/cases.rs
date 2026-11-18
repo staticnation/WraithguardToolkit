@@ -1014,6 +1014,7 @@ fn script_cases_read_scripts_as_the_python_editor_does() {
         std::fs::create_dir_all(&folder).unwrap();
         let got = run_script(case, &folder);
         let _ = std::fs::remove_dir_all(&folder);
+        keep_got("script_cases.json", case, &got);
         assert_eq!(got["results"].as_array().map(Vec::len), case["ops"].as_array().map(Vec::len));
         if got != case["expect"] {
             let d = first_difference(&got, &case["expect"], "").unwrap_or_else(|| "a key missing on one side".into());
@@ -1232,6 +1233,7 @@ fn build_cases_build_as_the_python_patch_builder_does() {
     let mut failed = Vec::new();
     for case in cases("build_cases.json") {
         let got = run_build(&case);
+        keep_got("build_cases.json", &case, &got);
         if got != case["expect"] {
             let d = first_difference(&got, &case["expect"], "").unwrap_or_else(|| "a key missing on one side".into());
             failed.push(format!("{}: {d}", case["name"]));

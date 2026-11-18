@@ -23,7 +23,7 @@ ordercore = { path = "../ordercore" }
 # The Teal checks (src/check.rs, the `teal` feature; from native/ in 4.6): the Teal compiler
 # (tl 0.24.8, MIT) in an embedded Lua 5.4 (mlua, vendored), ynishi/htl, MIT OR Apache-2.0.
 # Without its `pkg` feature: no project manifests here, only files and folders of declarations.
-htl-core = { version = "0.12.0", default-features = false, optional = true }
+htl-core = { version = "0.19", default-features = false, optional = true }
 anyhow = { version = "1", optional = true }
 
 [features]

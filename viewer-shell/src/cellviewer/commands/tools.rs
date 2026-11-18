@@ -16,7 +16,7 @@ use super::*;
 /// header and script checks, and the `[your mod]` tag). Answers `{warnings, stats: {scanned,
 /// unreadable, warnings, interiorCells, pathgrids}}`.
 #[tauri::command(async)]
-pub(super) fn tools_lint(cfg: String, subset: Vec<String>) -> Result<String, String> {
+pub(super) fn tools_lint(cfg: String, subset: Vec<String>) -> Result<tauri::ipc::Response, String> {
     let _gate = scan_gate();
     let setup = cf_setup(&cfg)?;
     let order = setup.plugins();
@@ -30,11 +30,17 @@ pub(super) fn tools_lint(cfg: String, subset: Vec<String>) -> Result<String, Str
     if !viewcore::ordercore::install::runs_openmw(&cfg) {
         warnings.retain(|w| !w.starts_with("[TWIN]"));
     }
-    Ok(serde_json::json!({
-        "warnings": warnings,
-        "stats": {"scanned": st.scanned, "unreadable": st.unreadable, "warnings": st.warnings, "interiorCells": st.interior_cells, "pathgrids": st.pathgrids},
-    })
-    .to_string())
+    /* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; a line
+       per finding across the load order): `stats` `uuuuu` (scanned, unreadable, warnings,
+       interior cells, path grids) and `warnings` `s`. Read by 61_wg_tools.js. */
+    let mut tb = Tables::new();
+    tb.table("stats", "uuuuu", 1);
+    tb.u(st.scanned as u64).u(st.unreadable as u64).u(st.warnings as u64).u(st.interior_cells as u64).u(st.pathgrids as u64);
+    tb.table("warnings", "s", warnings.len());
+    for w in &warnings {
+        tb.s(w);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: the backups the tools leave (`scan_backups`, `toolscore::backups`) in the

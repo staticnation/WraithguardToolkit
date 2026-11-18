@@ -106,90 +106,63 @@ function unpackTables(buf){
   return out;
 }
 
-/** Wraithguard: a list as bytes first (`bytesCmd`, read by `unpackTables` and turned into
- *  the JSON command's shape by `shape`), and the JSON command (`jsonCmd`) only when the
- *  bytes did not read or the engine has no such command (an older build) - said in
- *  Messages, as `WgEditor.recordRows` does. The engine refusing (no such cell, say) is its
- *  answer, said as it is: asking again the other way would only ask it twice. `ok` says
- *  whether the JSON answer is the list; throws when both ways fail. */
-async function listTwoWays(what, bytesCmd, jsonCmd, args, shape, ok){
-  let first, buf;
-  try{ buf=await Engine.bytes(bytesCmd,args||{}); }
-  catch(e){
-    const m=String(e && e.message || e);
-    if(!(m.includes(bytesCmd) && /not found|unknown/i.test(m))) throw e;
-    first=m;
-  }
-  if(buf!==undefined){
-    try{ return shape(unpackTables(buf)); }
-    catch(e){ first=String(e && e.message || e); }
-  }
-  let problem;
-  try{
-    const r=await Engine.call(jsonCmd,args||{});
-    if(ok(r)){
-      if(typeof WgLog==='object' && WgLog.add) WgLog.add('The '+what+' came the second way: '+first, 'warn');
-      return r;
-    }
-    const txt=typeof r==='string'? r : JSON.stringify(r);
-    problem='the engine\'s answer was not the '+what+' ('+(txt==null? 'nothing' : txt.length+' characters, starting '+JSON.stringify(String(txt).slice(0,120)))+')';
-  }catch(e){ problem=String(e && e.message || e); }
-  throw new Error(first+'; then '+problem);
+/** Wraithguard: a list as bytes (`bytesCmd`, read by `unpackTables` and turned into the
+ *  shape the page uses by `shape`). The JSON command of the same list was retired
+ *  2026-11-17 (Static): the bytes are the one way. Never a silent empty list (Static,
+ *  2026-10-13): the engine refusing is its answer, said as it is; bytes that do not read are
+ *  an error naming the list. */
+async function listBytes(what, bytesCmd, args, shape){
+  const buf=await Engine.bytes(bytesCmd,args||{});
+  try{ return shape(unpackTables(buf)); }
+  catch(e){ throw new Error('the '+what+' did not read: '+String(e && e.message || e)); }
 }
 
-/** The Object Window's tabs, `[[tag, count]...]` (`editor_tags`). */
+/** The Object Window's tabs, `[[tag, count]...]` (`editor_tags_bytes`). */
 function listTags(){
-  return listTwoWays('record types', 'editor_tags_bytes', 'editor_tags', {},
-    t=>t.tags, r=>Array.isArray(r));
+  return listBytes('record types', 'editor_tags_bytes', {}, t=>t.tags);
 }
 
 /** Every cell, `{grid:[[x, y, name, region, refs, pathgrid]...], count, interiors:[[name,
- *  refs, pathgrid]...], interiorCount}` (`cells`). */
+ *  refs, pathgrid]...], interiorCount}` (`cells_bytes`). */
 function listCells(){
-  return listTwoWays('cell list', 'cells_bytes', 'cells', {},
-    t=>({grid:t.grid, count:t.grid.length, interiors:t.interiors, interiorCount:t.interiors.length}),
-    r=>!!(r && typeof r==='object' && Array.isArray(r.grid)));
+  return listBytes('cell list', 'cells_bytes', {},
+    t=>({grid:t.grid, count:t.grid.length, interiors:t.interiors, interiorCount:t.interiors.length}));
 }
 
-/** The land textures, `[{id, file}...]` (`textures`). */
+/** The land textures, `[{id, file}...]` (`textures_bytes`). */
 function listLandTextures(){
-  return listTwoWays('land textures', 'textures_bytes', 'textures', {},
-    t=>t.textures.map(r=>({id:r[0], file:r[1]})), r=>Array.isArray(r));
+  return listBytes('land textures', 'textures_bytes', {}, t=>t.textures.map(r=>({id:r[0], file:r[1]})));
 }
 
-/** The named cells and the regions, `{cells, regions}` (`scopes`). */
+/** The named cells and the regions, `{cells, regions}` (`scopes_bytes`). */
 function listScopes(){
-  return listTwoWays('cell and region names', 'scopes_bytes', 'scopes', {},
-    t=>({cells:t.cells.map(r=>r[0]), regions:t.regions.map(r=>r[0])}),
-    r=>!!(r && Array.isArray(r.cells) && Array.isArray(r.regions)));
+  return listBytes('cell and region names', 'scopes_bytes', {},
+    t=>({cells:t.cells.map(r=>r[0]), regions:t.regions.map(r=>r[0])}));
 }
 
-/** Where each land texture is painted, `{texture: {cells, regions}}` (`texture_usage`). */
+/** Where each land texture is painted, `{texture: {cells, regions}}` (`texture_usage_bytes`). */
 function listTextureUsage(){
-  return listTwoWays('texture use', 'texture_usage_bytes', 'texture_usage', {},
+  return listBytes('texture use', 'texture_usage_bytes', {},
     t=>{
       const out={};
       for(const [tex] of t.textures) out[tex]={cells:[], regions:[]};
       for(const [tex, kind, name] of t.uses) (out[tex]||(out[tex]={cells:[], regions:[]}))[kind? 'regions' : 'cells'].push(name);
       return out;
-    },
-    r=>!!(r && typeof r==='object' && !Array.isArray(r)));
+    });
 }
 
-/** The mesh and texture files of the overlay, `{meshes, textures}` (`assets`). */
+/** The mesh and texture files of the overlay, `{meshes, textures}` (`assets_bytes`). */
 function listAssets(){
-  return listTwoWays('asset list', 'assets_bytes', 'assets', {},
-    t=>({meshes:t.meshes.map(r=>r[0]), textures:t.textures.map(r=>r[0])}),
-    r=>!!(r && Array.isArray(r.meshes) && Array.isArray(r.textures)));
+  return listBytes('asset list', 'assets_bytes', {},
+    t=>({meshes:t.meshes.map(r=>r[0]), textures:t.textures.map(r=>r[0])}));
 }
 
 /** One cell's references for the Cell View, `{name, refCell, plugins, rows:[[key, id, tag,
- *  [x, y, z], plugin, owner]...]}` (`editor_cell_refs`). */
+ *  [x, y, z], plugin, owner]...]}` (`editor_cell_refs_bytes`). */
 function listCellRefs(cell){
-  return listTwoWays('references of '+cell, 'editor_cell_refs_bytes', 'editor_cell_refs', {cell},
+  return listBytes('references of '+cell, 'editor_cell_refs_bytes', {cell},
     t=>({name:t.meta[0][0], refCell:t.meta[0][1], plugins:t.plugins.map(p=>p[0]),
-         rows:t.rows.map(r=>[r[0], r[1], r[2], [r[3], r[4], r[5]], r[6], r[7]])}),
-    r=>!!(r && typeof r==='object' && Array.isArray(r.rows)));
+         rows:t.rows.map(r=>[r[0], r[1], r[2], [r[3], r[4], r[5]], r[6], r[7]])}));
 }
 
 /** Rotations as the game stores them (the Euler angles `refMatrix` reads), turned the

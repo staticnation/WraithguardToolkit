@@ -5,6 +5,7 @@
    package, the weather and the music changed, a message shown; an activation reaches the
    engine; one frame is in flight at a time. */
 'use strict';
+const { wgtb, addTables, sceneTables } = require('./harness');
 const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
@@ -26,9 +27,14 @@ module.exports = async (t) => {
     App: { _scene: { origin: [0, 0], cells: [cell] }, R: { cam: { tx: 0, ty: 0, tz: 116, dist: 0.0001, az: 0, el: 0 }, groundZ: () => 0, pickables: [{ refKey: 's1', model: 'x\\ex_wall.nif', m: [1, 0, 0, 0, 0, 1, 0, 900, 0, 0, 1, 0] }] } },
     WgSound: { place: { on: true }, audio: () => ({}), placeGraph() {}, musicStop() {}, buffer: async st => { music.push(st.path); throw new Error('no audio'); } },
     Engine: {
+      // lua_scene is bytes (WGTB `types`: id, record type).
+      async bytes(c, a) {
+        if (c === 'scene_scripts') return sceneTables(await this.call(c, a));
+        if (c === 'lua_scene') { const T = { light_a: 'LIGH', guard_b: 'NPC_', ex_wall: 'STAT' }; return wgtb([['head', 's', [['']]], ['scripts', 's', []], ['script_flags', 'us', []], ['types', 'ss', a.ids.filter(id => T[id]).map(id => [id, T[id]])]]); }
+        throw new Error('no ' + c);
+      },
       async call(c, a) {
         if (c === 'scene_scripts') return { objects: {}, scripts: {}, start: [], globals: [{ name: 'TownLit', kind: 's', value: 0 }], actors: { guard_b: { tag: 'NPC_', items: [], stats: [100, 50, 80] } } };
-        if (c === 'lua_scene') { const T = { light_a: 'LIGH', guard_b: 'NPC_', ex_wall: 'STAT' }; const types = {}; for (const id of a.ids) if (T[id]) types[id] = T[id]; return { types }; }
         if (c === 'lua_run_start') return { backend: 'LuaJIT (E:/OpenMW/lua51.dll)', resources: 'E:/OpenMW/resources', note: '', answer: { effects: [], log: [], status: { global: 5, player: 2, local: 4, failing: [], timers: 0 } } };
         if (c === 'lua_run_step') {
           frames.push(JSON.parse(a.frame));
@@ -43,6 +49,7 @@ module.exports = async (t) => {
     },
   };
   vm.createContext(ctx);
+  addTables(ctx);
   vm.runInContext(src('73_wg_scripts.js') + '\n' + src('74_wg_lua.js'), ctx);
   const S = ctx.WgScripts, L = ctx.WgLua;
   S.on = true;

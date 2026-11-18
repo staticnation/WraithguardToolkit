@@ -651,7 +651,14 @@ const WgTools={
     const L=new OvlLines();
     if(k==='pathgrid'){
       let r=[];
-      try{ r=await Engine.call('pathgrid',{cells:this.specs()}); }catch(e){ toast(String(e.message||e),'err',4000); }
+      /* WGTB (`pathgrid`, commands.rs): `grids` [spec, from], `points` [grid, x, y, z],
+         `edges` [grid, a, b] - back into [{spec, from, points:[[x,y,z]...], edges:[[a,b]...]}]. */
+      try{
+        const tb=unpackTables(await Engine.bytes('pathgrid',{cells:this.specs()}));
+        r=(tb.grids||[]).map(([spec,from])=>({spec, from, points:[], edges:[]}));
+        for(const [g,x,y,z] of tb.points||[]) r[g].points.push([x,y,z]);
+        for(const [g,a,b] of tb.edges||[]) r[g].edges.push([a,b]);
+      }catch(e){ r=[]; toast(String(e.message||e),'err',4000); }
       for(const g of r){
         const P=g.points.map(p=>[p[0]-o[0], p[1]-o[1], p[2]+12]);
         for(const [a,b] of g.edges) if(P[a]&&P[b]) L.seg(P[a],P[b],[0.3,0.9,1]);
@@ -891,7 +898,14 @@ const WgTools={
     const st=$('#wgUseStats'), list=$('#wgUseList');
     if(st) st.textContent='Looking…';
     let r;
-    try{ r=await Engine.call('where_used',{kind, name}); }
+    /* WGTB (`where_used`, commands.rs): `ids` and `meshes` lists, `places` [spec, label,
+       count, x, y, z, rot, ground] - back into {ids, meshes, places:[{spec, label, count,
+       pos, rot, ground}]}. */
+    try{
+      const tb=unpackTables(await Engine.bytes('where_used',{kind, name}));
+      r={ids:(tb.ids||[]).map(x=>x[0]), meshes:(tb.meshes||[]).map(x=>x[0]),
+         places:(tb.places||[]).map(([spec,label,count,x,y,z,rot,g])=>({spec, label, count, pos:[x,y,z], rot, ground:!!g}))};
+    }
     catch(e){ if(st) st.textContent=String(e.message||e); return; }
     const places=r.places||[];
     const total=places.reduce((a,p)=>a+p.count,0);

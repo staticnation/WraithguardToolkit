@@ -1,9 +1,9 @@
 /* The Editor's other lists as bytes (WGTB): the page's unpackTables reads each of the
    fixture's hex strings (what pack_tags, pack_cells and pack_cell_refs in commands.rs
    make - their Rust test checks that side) back to its tables, and listTags, listCells and
-   listCellRefs turn them into the shape the JSON commands answer with. A cut-short answer
-   is an error; the engine refusing is said once, not asked again; an engine without the
-   command falls back to the JSON one, and says so in Messages. */
+   listCellRefs turn them into the shape the page uses (the JSON commands' shape: those
+   commands were retired 2026-11-17). A cut-short answer is an error; the engine refusing is
+   said once, not asked again; bytes that do not read are an error naming the list. */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -46,18 +46,10 @@ module.exports = async (t) => {
   try { await w.listCellRefs('7,-3'); } catch (e) { refused = e; }
   t.ok(refused && refused.message === 'no exterior cell 7,-3' && asked.length === 0, 'a refusal is said as it is, and not asked again: ' + (refused && refused.message));
 
-  // An engine without the command (an older build): the JSON one, said in Messages.
-  const said = [];
-  w.WgLog = { add: (m, k) => said.push([k, m]) };
-  w.Engine.bytes = async (c) => { throw new Error('command ' + c + ' not found'); };
-  w.Engine.call = async (c) => { asked.push(c); return fx.tags.json; };
-  t.ok(same(await w.listTags(), fx.tags.json), 'an older engine: the JSON list');
-  t.ok(same(asked, ['editor_tags']) && said.length === 1 && said[0][0] === 'warn' && /second way/.test(said[0][1]),
-    'and Messages says it came the second way: ' + JSON.stringify(said));
-
-  // Both ways failing is an error naming both.
-  w.Engine.call = async () => 'not a list';
-  let both = null;
-  try { await w.listTags(); } catch (e) { both = e; }
-  t.ok(both && /not found; then the engine's answer was not the record types/.test(both.message), 'both ways failing says both: ' + (both && both.message));
+  // The JSON commands are retired (2026-11-17): bytes that do not read are an error naming
+  // the list - never an empty one, and never asked a second way.
+  w.Engine.bytes = async () => Uint8Array.from([1, 2, 3]).buffer;
+  let bad = null;
+  try { await w.listTags(); } catch (e) { bad = e; }
+  t.ok(bad && /^the record types did not read: /.test(bad.message) && asked.length === 0, 'bytes that do not read are an error: ' + (bad && bad.message));
 };

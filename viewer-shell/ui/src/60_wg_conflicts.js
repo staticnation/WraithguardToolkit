@@ -272,12 +272,59 @@ const WgConflicts={
 
   subset(){ return (this.extra().subset||[]).map(String); },
 
+  /** `conflicts_scan`'s tables (`cf_scan_tables`, conflicts.rs) as the object its JSON was:
+   *  {list:[{type, id, plugins, winner, involvesSubset, deletedBy}], stats:{scanned,
+   *  unreadable, records, found, excluded}, cells:[{x, y, total, mine, types, plugins,
+   *  byPlugin, winners}]}. */
+  readScan(tb){
+    const P=(tb.plugins||[]).map(r=>r[0]), st=(tb.stats||[])[0]||[0,0,0];
+    const list=(tb.list||[]).map(([type,id,winner,sub])=>({type, id, plugins:[], winner:P[winner], involvesSubset:!!sub, deletedBy:[]}));
+    for(const [row,p] of tb.list_plugins||[]) list[row].plugins.push(P[p]);
+    for(const [row,p] of tb.list_deleted||[]) list[row].deletedBy.push(P[p]);
+    const cells=(tb.cells||[]).map(([x,y,total,mine])=>({x, y, total, mine, types:{}, plugins:[], byPlugin:{}, winners:{}}));
+    for(const [row,k,n] of tb.cell_types||[]) cells[row].types[k]=n;
+    for(const [row,p] of tb.cell_plugins||[]) cells[row].plugins.push(P[p]);
+    for(const [row,p,k,n] of tb.cell_by||[]) (cells[row].byPlugin[P[p]]=cells[row].byPlugin[P[p]]||{})[k]=n;
+    for(const [row,p,n] of tb.cell_winners||[]) cells[row].winners[P[p]]=n;
+    return {list, cells, stats:{scanned:st[0], unreadable:(tb.unreadable||[]).map(r=>r[0]), records:st[1], found:st[2],
+                                excluded:(tb.excluded||[]).map(r=>r[0])}};
+  },
+
+  /** `conflicts_resources`'s tables (`cf_files_tables`, conflicts.rs) as the object its JSON
+   *  was: {list:[{path, providers, winner, involvesSubset, identical, mesh, meshColumns}],
+   *  stats:{dirs, files, conflicts, identical, differing}, meshStats:{analysed, findings,
+   *  unreadable}}. */
+  readFiles(tb){
+    const D=(tb.dirs||[]).map(r=>r[0]), s=(tb.stats||[])[0]||[0,0,0,0,0], m=(tb.mesh_stats||[])[0]||[0,0,0];
+    const list=(tb.list||[]).map(([path,winner,sub,same])=>({path, providers:[], winner:D[winner], involvesSubset:!!sub,
+      identical:same===2? null : !!same, mesh:null, meshColumns:null}));
+    for(const [row,d] of tb.list_providers||[]) list[row].providers.push(D[d]);
+    for(const [row,note,a,b,c,d] of tb.mesh||[]){ list[row].mesh=note; list[row].meshColumns=[a,b,c,d]; }
+    return {list, stats:{dirs:s[0], files:s[1], conflicts:s[2], identical:s[3], differing:s[4]},
+            meshStats:{analysed:m[0], findings:m[1], unreadable:m[2]}};
+  },
+
+  /** `conflicts_by_plugin`'s tables as its JSON was: [{plugin, records, mine, groups:[{type, count}]}]. */
+  readBranches(tb){
+    const out=(tb.branches||[]).map(([plugin,records,mine])=>({plugin, records, mine:!!mine, groups:[]}));
+    for(const [row,type,count] of tb.groups||[]) out[row].groups.push({type, count});
+    return out;
+  },
+  /** `conflicts_plugin_group`'s tables as its JSON was: {records:[{type, id, plugins, winner,
+   *  all, this}], tally:{status: count}, worst}. */
+  readGroup(tb){
+    const P=(tb.plugins||[]).map(r=>r[0]);
+    const records=(tb.records||[]).map(([type,id,winner,all,mine])=>({type, id, plugins:[], winner:P[winner], all, this:mine}));
+    for(const [row,p] of tb.record_plugins||[]) records[row].plugins.push(P[p]);
+    return {records, tally:Object.fromEntries((tb.tally||[]).map(([s,n])=>[s,n])), worst:((tb.head||[])[0]||[''])[0]};
+  },
+
   async scan(){
     const btn=$('#cfScan'); btn.disabled=true;
     this.mode=$('#cfMode').value;
     $('#cfStats').textContent='Reading every plugin...';
     try{
-      const got=await Engine.call('conflicts_scan',{cfg:this.cfg(), subset:this.subset(), mode:this.mode, exclude:this.words('#cfExclude')});
+      const got=this.readScan(unpackTables(await Engine.bytes('conflicts_scan',{cfg:this.cfg(), subset:this.subset(), mode:this.mode, exclude:this.words('#cfExclude')})));
       this.list=got.list; this.stats=got.stats; this.cells=got.cells||[]; this.sel=null;
       const s=got.stats;
       $('#cfStats').textContent=`${s.scanned} plugin(s), ${s.records} record(s): ${s.found} ${this.mode==='conflicts'?'conflicting':'single'}`
@@ -299,8 +346,8 @@ const WgConflicts={
     const btn=$('#cfScanFiles'); btn.disabled=true;
     $('#cfFStats').textContent='Walking the data folders...';
     try{
-      const got=await Engine.call('conflicts_resources',{cfg:this.cfg(), subsetDirs:this.subsetDirs(), excludeExts:this.words('#cfExts'),
-        compare:$('#cfCompare').checked, meshes:$('#cfMeshes').checked, meshLimit:0, planFile:this.extra().loadorderPlan||''});
+      const got=this.readFiles(unpackTables(await Engine.bytes('conflicts_resources',{cfg:this.cfg(), subsetDirs:this.subsetDirs(), excludeExts:this.words('#cfExts'),
+        compare:$('#cfCompare').checked, meshes:$('#cfMeshes').checked, meshLimit:0, planFile:this.extra().loadorderPlan||''})));
       this.files=got.list; this.fstats=got.stats; this.mstats=got.meshStats; this.fsel=null;
       const s=got.stats, m=got.meshStats;
       $('#cfFStats').textContent=`${s.dirs} folder(s), ${s.files} file(s): ${s.conflicts} conflicting, ${s.differing} differ`
@@ -319,7 +366,8 @@ const WgConflicts={
     $('#cfStats').textContent=was+' - judging each record...';
     try{
       const t0=performance.now();
-      const v=await Engine.call('conflicts_verdicts',{cfg:this.cfg()});
+      // One byte a record, its code (`conflicts_verdicts`).
+      const v=Array.from(new Uint8Array(await Engine.bytes('conflicts_verdicts',{cfg:this.cfg()})));
       // Timed for Messages: it reads every plugin of the scan again (TODO, Merged Lands and caches).
       if(typeof WgLog==='object') WgLog.add(`Conflicts: judged ${list.length} record(s) in ${((performance.now()-t0)/1000).toFixed(1)} s`);
       if(this.list!==list) return;
@@ -535,7 +583,7 @@ const WgConflicts={
 
   /* ---- by plugin (pluginview.py) ---- */
   async loadBranches(){
-    try{ this.branches=await Engine.call('conflicts_by_plugin',{cfg:this.cfg(), subset:this.subset()}); }
+    try{ this.branches=this.readBranches(unpackTables(await Engine.bytes('conflicts_by_plugin',{cfg:this.cfg(), subset:this.subset()}))); }
     catch(e){ this.branches=[]; toast(String(e.message||e),'err',5000); }
     if(this.tab==='plugins') this.drawTree();
   },
@@ -543,7 +591,7 @@ const WgConflicts={
   /* What one plugin's records say, judged once: `{records, tally, worst, byType}`. */
   async judge(plugin){
     if(this.judged[plugin]) return this.judged[plugin];
-    const got=await Engine.call('conflicts_plugin_group',{cfg:this.cfg(), plugin, rtype:''});
+    const got=this.readGroup(unpackTables(await Engine.bytes('conflicts_plugin_group',{cfg:this.cfg(), plugin, rtype:''})));
     const byType={};
     const rank=s=>({'conflict, loses':5,'conflict, wins':4,'override, wins':3,'master':2,'identical to master':1}[s]||0);
     for(const r of got.records){ const t=byType[r.type]; if(!t || rank(r.this)>rank(t)) byType[r.type]=r.this; }

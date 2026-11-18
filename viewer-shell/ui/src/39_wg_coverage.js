@@ -44,10 +44,15 @@ const WgCoverage={
     if(this._sig===GameData.sig && !this._loading) return Promise.resolve();
     if(this._loading) return this._loading;
     const sig=GameData.sig;
-    this._loading=Engine.call('cell_coverage').then(r=>{
-      this.plugins=r.plugins||[];
-      this.ext=new Map((r.ext||[]).map(([x,y,ix])=>[x+','+y, ix]));
-      this.int=new Map((r.int||[]).map(([n,ix])=>[String(n).toLowerCase(), ix]));
+    /* WGTB (`cell_coverage`, commands.rs): `plugins`, `ext` [x, y, plugin] and `int`
+       [name, plugin] one row per plugin a cell has, `extc` [x, y, contested, ground]. */
+    this._loading=Engine.bytes('cell_coverage',{}).then(ab=>{
+      const r=unpackTables(ab);
+      this.plugins=(r.plugins||[]).map(p=>p[0]);
+      this.ext=new Map();
+      for(const [x,y,p] of r.ext||[]){ const k=x+','+y; let v=this.ext.get(k); if(!v) this.ext.set(k, v=[]); v.push(p); }
+      this.int=new Map();
+      for(const [n,p] of r.int||[]){ const k=String(n).toLowerCase(); let v=this.int.get(k); if(!v) this.int.set(k, v=[]); v.push(p); }
       this.extc=new Map((r.extc||[]).map(([x,y,c,l])=>[x+','+y, {conf:c|0, land:l|0}]));
       this.worst=0;
       for(const v of this.ext.values()) if(v.length>this.worst) this.worst=v.length;

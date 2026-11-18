@@ -177,6 +177,10 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   `pull_request_target` and `workflow_run`, which no workflow here uses). Check the first CI run.
 - The dependency audit (`audit.yml`) runs weekly: a new advisory fails it on a Monday with nothing
   changed here.
+- Held by others' pins (2026-11-17): generic-array 0.14.7 (`crypto-common` 0.1.7 takes `=0.14.7`,
+  through wry's sha2 0.10) and lua-src 551.0 (`mlua-sys` 0.13.0 takes `<551.1.0`). They move with
+  wry and mlua.
+- toml 0.8 is still in the build, through htl-core (0.19 too); it goes when htl does.
 - chrono is unmaintained (RUSTSEC-2026-0543, informational; ignored in `viewer-shell/osv-scanner.toml`
   2026-11-17). Nothing builds it (the command line is on `time`), but `Cargo.lock` keeps it as an
   optional dependency of `serde_with` (through `tauri-utils`), and OSV reads the lock. The entry

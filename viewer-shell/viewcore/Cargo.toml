@@ -17,7 +17,7 @@ luacore = { path = "../luacore", features = ["teal"] }
 # Wraithguard: the Preview's OpenMW Lua (src/luarun.rs). The install's own LuaJIT is loaded
 # at run time (libloading, ISC); where there is none, the Lua 5.4 luacore's Teal checks
 # already build (mlua, MIT, its features the ones htl-core asks for).
-libloading = "0.7"
+libloading = "0.9"
 mlua = "0.12"
 # Wraithguard: the Editor's Physics drop (Rapier over the scene's collision; ../physcore).
 physcore = { path = "../physcore" }
@@ -46,12 +46,12 @@ gardenfell-world = { path = "../gardenfell/crates/gardenfell-world" }
 # Wraithguard: OpenMW's navmesh.db (an SQLite file) read for the navmesh overlay. rusqlite
 # is MIT; "bundled" builds SQLite (public domain) from source, so no system library is
 # needed on any of the three OSes. Only the read-only API is used.
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 
 # Wraithguard: sounds decoded for the page to play (src/audio.rs, SOUND.md): WAV (PCM and
 # ADPCM), MP3, Ogg Vorbis and FLAC, in Rust, so what plays does not depend on the machine's
 # GStreamer plugins. MPL-2.0, used unmodified (CREDITS.md).
-symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "adpcm", "mp3", "ogg", "vorbis", "flac"] }
+symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm", "adpcm", "mp3", "ogg", "vorbis", "flac"] }
 
 # Clippy (tools/build_and_check_rust.ps1, CI): everything on except what is a style call
 # this code base has made on purpose.

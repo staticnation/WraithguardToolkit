@@ -680,34 +680,32 @@ fn map_palette(state: &State) -> Result<(std::sync::Arc<World>, std::sync::Arc<s
 /// row order, the tile size, and the world's extent — so the page can size its canvas
 /// and ask for the tiles in batches. Reading the palette is the slow part of the first
 /// call, and it is done here so `world_map_tiles` never has to.
+///
+/// Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; a row a
+/// cell, tens of thousands on a large install): `map` `us` (the tile size, the open sea's
+/// CSS color), `bounds` `iiii` (min x y, max x y; no row when there are no cells) and
+/// `cells` `ii`, in the order `world_map_tiles` counts them. Read by 31_cellmap.js.
 #[tauri::command(async)]
-fn world_map(state: State) -> Result<String, String> {
+fn world_map(state: State) -> Result<tauri::ipc::Response, String> {
     let (w, _) = map_palette(&state)?;
     let cells = viewcore::worldmap::cells(&w);
-    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
-    let mut list = String::from("[");
-    for (i, (x, y)) in cells.iter().enumerate() {
-        if i > 0 {
-            list.push(',');
-        }
-        list.push_str(&format!("[{x},{y}]"));
-        x0 = x0.min(*x);
-        y0 = y0.min(*y);
-        x1 = x1.max(*x);
-        y1 = y1.max(*y);
+    let mut tb = Tables::new();
+    tb.table("map", "us", 1);
+    // Gardenfell 18hp: the open sea's color, so the page needs no literal of its own.
+    tb.u(viewcore::worldmap::TILE as u64).s(&viewcore::worldmap::open_sea_css());
+    tb.table("bounds", "iiii", usize::from(!cells.is_empty()));
+    if !cells.is_empty() {
+        let x0 = cells.iter().map(|c| c.0).min().unwrap_or(0);
+        let y0 = cells.iter().map(|c| c.1).min().unwrap_or(0);
+        let x1 = cells.iter().map(|c| c.0).max().unwrap_or(0);
+        let y1 = cells.iter().map(|c| c.1).max().unwrap_or(0);
+        tb.i(x0 as i64).i(y0 as i64).i(x1 as i64).i(y1 as i64);
     }
-    list.push(']');
-    let mut out = J::obj();
-    out.int("tile", viewcore::worldmap::TILE as u64)
-        // Gardenfell 18hp: the open sea's colour, so the page needs no literal of its own.
-        .str("sea", &viewcore::worldmap::open_sea_css())
-        .raw("cells", &list);
-    if cells.is_empty() {
-        out.raw("min", "null").raw("max", "null");
-    } else {
-        out.raw("min", &format!("[{x0},{y0}]")).raw("max", &format!("[{x1},{y1}]"));
+    tb.table("cells", "ii", cells.len());
+    for (x, y) in &cells {
+        tb.i(*x as i64).i(*y as i64);
     }
-    Ok(out.done())
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// A batch of the map's tiles (round 18cp): `count` cells from index `from` of the list
@@ -734,31 +732,13 @@ fn distant_land(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Result
     Ok(tauri::ipc::Response::new(viewcore::distant::pack(&w, &pal, (x, y), inner.max(0), radius)))
 }
 
-/// Every land texture the loaded world knows about.
+/// Every land texture the loaded world knows about, as bytes (`WGTB`): `textures` (`ss`: id,
+/// file).
 ///
 /// The id and the file are both needed: an ini section names the LTEX id, but
 /// what gets drawn is the filename in that record's DATA field, and the two are
 /// rarely the same string. Sending only the id leaves the terrain untextured.
-#[tauri::command(async)]
-fn textures(state: State) -> Result<String, String> {
-    let app = state.app();
-    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let mut out = String::from("[");
-    for (i, (id, file)) in land_textures(w).iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str("{\"id\":\"");
-        viewcore::json::escape_into(id, &mut out);
-        out.push_str("\",\"file\":\"");
-        viewcore::json::escape_into(file, &mut out);
-        out.push_str("\"}");
-    }
-    out.push(']');
-    Ok(out)
-}
-
-/// Wraithguard: `textures` as bytes (`WGTB`): `textures` (`ss`: id, file).
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 fn textures_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     let app = state.app();
@@ -794,19 +774,9 @@ fn land_textures(w: &viewcore::world::World) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Named cells and regions, for the scope picker.
-#[tauri::command(async)]
-fn scopes(state: State) -> Result<String, String> {
-    let app = state.app();
-    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let (cells, regions) = scope_names(w);
-    let mut out = J::obj();
-    out.raw("cells", &string_array(&cells))
-        .raw("regions", &string_array(&regions));
-    Ok(out.done())
-}
-
-/// Wraithguard: `scopes` as bytes (`WGTB`): `cells` (`s`) and `regions` (`s`).
+/// Named cells and regions, for the scope picker, as bytes (`WGTB`): `cells` (`s`) and
+/// `regions` (`s`).
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 fn scopes_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     let app = state.app();
@@ -843,7 +813,8 @@ fn scope_names(w: &viewcore::world::World) -> (Vec<String>, Vec<String>) {
     (cells, regions)
 }
 
-/// Every exterior cell in the merged world.
+/// Every cell, as bytes (`WGTB`): `grid` (`iissuu`: x, y, name, region, references, has a
+/// pathgrid) and `interiors` (`suu`: name, references, has a pathgrid).
 ///
 /// The cell picker needs the whole grid, not just the named cells: an unnamed
 /// wilderness cell is just as pickable, and its region still decides which selector
@@ -853,53 +824,7 @@ fn scope_names(w: &viewcore::world::World) -> (Vec<String>, Vec<String>) {
 /// is keyed by grid position and an interior has none. They come back beside it, by name,
 /// in `interiors` — nothing places grass in one yet, but the picker has to be able to
 /// *name* a place before anything can be done with it. See memory §18 260.
-#[tauri::command(async)]
-fn cells(state: State) -> Result<String, String> {
-    let app = state.app();
-    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let (grid_rows, ints) = cell_lists(w);
-
-    // [x, y, name, region] per cell, flat, because a few thousand small objects
-    // is measurably slower to hand across than one array.
-    let mut grid = String::from("[");
-    for (i, c) in grid_rows.iter().enumerate() {
-        if i > 0 {
-            grid.push(',');
-        }
-        grid.push_str(&format!("[{},{},", c.x, c.y));
-        grid.push('"');
-        viewcore::json::escape_into(&c.name, &mut grid);
-        grid.push_str("\",\"");
-        viewcore::json::escape_into(&c.region, &mut grid);
-        // Wraithguard: the Editor's Cell View columns - references, and whether it has a
-        // pathgrid (appended, so readers of the first four are unchanged).
-        grid.push_str(&format!("\",{},{}]", c.refs, u8::from(c.pathgrid)));
-    }
-    grid.push(']');
-
-    // [name, references] per interior, sorted, so the picker's list is stable between
-    // scans of the same install rather than in hash order.
-    let mut inter = String::from("[");
-    for (i, c) in ints.iter().enumerate() {
-        if i > 0 {
-            inter.push(',');
-        }
-        inter.push_str("[\"");
-        viewcore::json::escape_into(&c.name, &mut inter);
-        inter.push_str(&format!("\",{},{}]", c.refs, u8::from(c.pathgrid)));
-    }
-    inter.push(']');
-
-    let mut out = J::obj();
-    out.raw("grid", &grid)
-        .int("count", grid_rows.len() as u64)
-        .raw("interiors", &inter)
-        .int("interiorCount", ints.len() as u64);
-    Ok(out.done())
-}
-
-/// Wraithguard: `cells` as bytes (`WGTB`): `grid` (`iissuu`: x, y, name, region,
-/// references, has a pathgrid) and `interiors` (`suu`: name, references, has a pathgrid).
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 fn cells_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     let app = state.app();
@@ -963,33 +888,11 @@ fn cell_lists(w: &viewcore::world::World) -> (Vec<CellRow>, Vec<CellRow>) {
 }
 
 /// Which cells and regions each texture is painted in, for the scope picker.
-#[tauri::command(async)]
-fn texture_usage(state: State) -> Result<String, String> {
-    let app = state.app();
-    let w = app.world.as_ref().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let usage = w.texture_usage();
-    let mut s = String::from("{");
-    let mut first = true;
-    for (tex, (cells, regions)) in &usage {
-        if !first {
-            s.push(',');
-        }
-        first = false;
-        s.push('"');
-        viewcore::json::escape_into(tex, &mut s);
-        s.push_str("\":{\"cells\":");
-        s.push_str(&string_array(cells));
-        s.push_str(",\"regions\":");
-        s.push_str(&string_array(regions));
-        s.push('}');
-    }
-    s.push('}');
-    Ok(s)
-}
-
-/// Wraithguard: `texture_usage` as bytes (`WGTB`): `textures` (`s`: every texture, in the
+///
+/// Wraithguard: as bytes (`WGTB`): `textures` (`s`: every texture, in the
 /// map's order) and `uses` (`sus`: texture, 0 a cell / 1 a region, its name), so a texture
 /// that is in the map with nothing under it keeps its entry.
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 fn texture_usage_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     let app = state.app();
@@ -1013,29 +916,19 @@ fn texture_usage_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(t.done()))
 }
 
-/// Wraithguard: `assets` as bytes (`WGTB`): `meshes` (`s`) and `textures` (`s`) - on a big
+/// The mesh and texture files the overlay exposes, for the asset browsers. The page used
+/// to walk the folders itself through the File System Access API; here the index already
+/// exists as a side effect of connecting, so it is just handed over.
+///
+/// Wraithguard: as bytes (`WGTB`): `meshes` (`s`) and `textures` (`s`) - on a big
 /// install hundreds of thousands of names, the list a JSON answer least wants to be.
+/// The JSON command of the same list was retired 2026-11-17 (Static): the bytes are the one way.
 #[tauri::command(async)]
 fn assets_bytes(state: State) -> Result<tauri::ipc::Response, String> {
     let v = vfs_of(&state)?;
     let meshes = v.list("meshes/", &[".nif"]);
     let textures = v.list("textures/", viewcore::vfs::Vfs::TEX_EXTS);
     Ok(tauri::ipc::Response::new(pack_names(&[("meshes", &meshes), ("textures", &textures)])))
-}
-
-/// The mesh and texture files the overlay exposes, for the asset browsers.
-///
-/// The page used to walk the folders itself through the File System Access API;
-/// here the index already exists as a side effect of connecting, so it is just
-/// handed over.
-#[tauri::command(async)]
-fn assets(state: State) -> Result<String, String> {
-    let v = vfs_of(&state)?;
-    let meshes = v.list("meshes/", &[".nif"]);
-    let textures = v.list("textures/", viewcore::vfs::Vfs::TEX_EXTS);
-    let mut out = J::obj();
-    out.raw("meshes", &string_array(&meshes)).raw("textures", &string_array(&textures));
-    Ok(out.done())
 }
 
 /// Everything the viewport needs to draw one cell, so the page never opens a
@@ -1054,9 +947,9 @@ fn cell_data(
     without: Option<bool>,
     land_mode: Option<String>,
     state: State,
-) -> Result<String, String> {
-    // A cell load asks for one of these per cell and each writes a hundred kilobytes of
-    // heights; done under the lock they queue behind every scatter. See `snapshot`.
+) -> Result<tauri::ipc::Response, String> {
+    // A cell load asks for one of these per cell; done under the lock they would queue
+    // behind every scatter. See `snapshot`.
     let w = { state.app().world.clone() }
         .ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     /* Wraithguard: the merged-lands preview - this cell's ground as Merged Lands would
@@ -1074,22 +967,17 @@ fn cell_data(
     };
     let cell = w.cells.get(&(gx, gy));
 
-    let mut heights = String::from("[");
-    let mut vtex = String::from("[");
+    /* Wraithguard: the ground's grids cross as bytes (`pack_cell`), not JSON text. Static
+       2026-11-17: JSON only where it is needed; these were about 100 KB of text a cell. */
+    let mut heights: Vec<f32> = Vec::new();
+    let mut vtex: Vec<u16> = Vec::new();
     let mut ltex = String::from("{");
     if let Some(l) = land {
-        for (i, h) in l.heights.iter().enumerate() {
-            if i > 0 {
-                heights.push(',');
-            }
-            heights.push_str(&format!("{:.1}", h));
-        }
+        // Rounded to a tenth (`{:.1}` read back), the same f32 the page made of the text.
+        heights = l.heights.iter().map(|h| format!("{h:.1}").parse::<f64>().unwrap_or(0.0) as f32).collect();
         let mut seen: Vec<u16> = Vec::new();
-        for (i, v) in l.vtex.iter().enumerate() {
-            if i > 0 {
-                vtex.push(',');
-            }
-            vtex.push_str(&v.to_string());
+        for v in l.vtex.iter() {
+            vtex.push(*v);
             if *v != 0 && !seen.contains(v) {
                 seen.push(*v);
                 if let Some(id) = tex_id(*v, l.plugin) {
@@ -1105,8 +993,6 @@ fn cell_data(
             }
         }
     }
-    heights.push(']');
-    vtex.push(']');
     ltex.push('}');
 
     /* The ground normal at every vertex, as the *engine* resolves it — its own VNML
@@ -1115,37 +1001,26 @@ fn cell_data(
        gets is a rule, the engine owns the rules, and a page that re-decided it would be
        a second implementation of exactly the question §11a was measured to answer.
 
-       Signed 16-bit per component, hex, 4 chars each. Bytes would do for shading but
-       not for the slope overlay: that is drawn from these normals and compared against
-       `fMaximumAngle`, so a coarse encoding would put a visible margin of error along
-       the very edge the overlay exists to show. 65x65x3 -> about 50 KB a cell, in line
-       with the height grid the page already carries. */
-    let mut normals = String::with_capacity(if land.is_some() { VERTS * VERTS * 12 + 2 } else { 2 });
-    normals.push('"');
+       Signed 16-bit per component (i16 in `pack_cell`, 6 bytes a vertex). One byte would
+       do for shading but not for the slope overlay: that is drawn from these normals and
+       compared against `fMaximumAngle`, so a coarse encoding would put a visible margin
+       of error along the very edge the overlay exists to show. */
+    let mut normals: Vec<i16> = Vec::with_capacity(if land.is_some() { VERTS * VERTS * 3 } else { 0 });
     if let Some(l) = land {
         for vy in 0..VERTS {
             for vx in 0..VERTS {
                 let n = l.normal_at(vx as f32 * VERT_STEP, vy as f32 * VERT_STEP);
                 for c in n {
-                    let q = (c.clamp(-1.0, 1.0) * 32767.0).round() as i32 as u16;
-                    normals.push_str(&format!("{q:04x}"));
+                    normals.push((c.clamp(-1.0, 1.0) * 32767.0).round() as i32 as i16);
                 }
             }
         }
     }
-    normals.push('"');
 
-    /* The vertex colours, VCLR as the record has them: 65x65 RGB bytes, hex, 2 chars
-       each — about 25 KB a cell. An empty string for a record without the block, which
-       the page draws white, the way the game does. Round 11 item 11. */
-    let mut colours = String::with_capacity(VERTS * VERTS * 6 + 2);
-    colours.push('"');
-    if let Some(c) = land.and_then(|l| l.colours.as_ref()) {
-        for b in c.iter() {
-            colours.push_str(&format!("{b:02x}"));
-        }
-    }
-    colours.push('"');
+    /* The vertex colors, VCLR as the record has them: 65x65 RGB bytes. None for a
+       record without the block, which the page draws white, the way the game does.
+       Round 11 item 11. */
+    let colors: Vec<u8> = land.and_then(|l| l.colours.as_ref()).map(|c| c.to_vec()).unwrap_or_default();
 
     /* The alpha maps the ground is drawn from, built here rather than page-side.
        The rule they encode — one texel of ring taken from each neighbouring
@@ -1172,9 +1047,9 @@ fn cell_data(
         let gone = &w.history.exterior((gx, gy)).gone;
         review_items(&w, &c.refs, gone, review.as_deref(), without.unwrap_or(false), &|p| viewcore::review::in_grid(p, gx, gy))
     });
-    let (refs, models, actors, lights) = match &reviewed {
-        Some(items) => refs_json_marked(&w, items, false),
-        None => refs_json(&w, cell.map(|c| &c.refs), false),
+    let refs = match &reviewed {
+        Some(items) => refs_tables_marked(&w, items, false),
+        None => refs_tables(&w, cell.map(|c| &c.refs), false),
     };
     /* Wraithguard: who edits this cell's ground, in load order, and - in the merged-lands
        preview - where the edits met. */
@@ -1215,45 +1090,58 @@ fn cell_data(
         // The preview draws a water surface to judge height limits against. Only
         // exteriors reach this command, and their sea is always at zero.
         .raw("water", "0")
-        .raw("heights", &heights)
-        .raw("normals", &normals)
-        .raw("colours", &colours)
-        .raw("vtex", &vtex)
         .raw("ltex", &ltex)
         .raw("layers", &layers)
-        .raw("refs", &refs)
-        .raw("models", &models)
-        .raw("actors", &actors)
-        .raw("lights", &lights)
         .raw("prov", &prov)
         .raw("landEditors", &string_array(&editors))
         .raw("landMerged", &land_merged)
         .bool("reviewed", reviewed.is_some());
-    Ok(out.done())
+    Ok(tauri::ipc::Response::new(pack_cell(&out.done(), &heights, &normals, &colors, &vtex, &refs)))
 }
 
-/// Every reference in one place, with the meshes and actors it names.
-///
-/// Written once and used by both `cell_data` and `interior_data`: a room's contents and a
-/// cell's contents are the same question asked of two different containers, and the day
-/// they were two copies is the day one of them would stop reporting which plugin supplied
-/// a reference.
-///
-/// Round 18al: `indoors` is a room the sky never reaches - an interior not flagged to
-/// behave like an exterior - where a banner whose twin only its script earned draws its
-/// plain, still file (`World::model_in`). Robin: "no interior banners wave in the wind";
-/// "Interiors that are tagged to work as exteriors should of course still have their
-/// flags work as in exteriors too."
-fn refs_json(
+/* Wraithguard: `cell_data`'s and `interior_data`'s answer, `WGCD` (read by CellWire in
+   ui/src/17_cell.js): "WGCD" | u32 version 2 | u32 length + the cell's other fields as JSON
+   | u32 count + f32 heights | u32 count + i16 normal components | u32 count + u8 colors
+   | u32 count + u16 texture indices | u32 length + the references as WGTB
+   (`refs_tables_marked`). Little-endian; a count is 0 with no land (every interior) or no
+   VCLR. */
+fn pack_cell(json: &str, heights: &[f32], normals: &[i16], colors: &[u8], vtex: &[u16], refs: &[u8]) -> Vec<u8> {
+    let mut o = Vec::with_capacity(32 + json.len() + heights.len() * 4 + normals.len() * 2 + colors.len() + vtex.len() * 2 + refs.len());
+    let n = |o: &mut Vec<u8>, v: usize| o.extend_from_slice(&(v as u32).to_le_bytes());
+    o.extend_from_slice(b"WGCD");
+    n(&mut o, 2);
+    n(&mut o, json.len());
+    o.extend_from_slice(json.as_bytes());
+    n(&mut o, heights.len());
+    for h in heights {
+        o.extend_from_slice(&h.to_le_bytes());
+    }
+    n(&mut o, normals.len());
+    for c in normals {
+        o.extend_from_slice(&c.to_le_bytes());
+    }
+    n(&mut o, colors.len());
+    o.extend_from_slice(colors);
+    n(&mut o, vtex.len());
+    for v in vtex {
+        o.extend_from_slice(&v.to_le_bytes());
+    }
+    n(&mut o, refs.len());
+    o.extend_from_slice(refs);
+    o
+}
+
+/// A container's references as bytes, every version standing (`usize::MAX`: all the history
+/// has). See [`refs_tables_marked`].
+fn refs_tables(
     w: &viewcore::world::World,
     src: Option<&HashMap<viewcore::esp::RefNum, viewcore::esp::CellRef>>,
     indoors: bool,
-) -> (String, String, String, String) {
-    // Every version stands (`usize::MAX`: all the history has).
+) -> Vec<u8> {
     let items: Vec<viewcore::review::Item> = src
         .map(|m| m.values().map(|r| (r.clone(), viewcore::review::Mark::None, usize::MAX)).collect())
         .unwrap_or_default();
-    refs_json_marked(w, &items, indoors)
+    refs_tables_marked(w, &items, indoors)
 }
 
 /// Wraithguard: which references to send, for the cell viewer's "review a mod" - all of
@@ -1276,181 +1164,192 @@ fn review_items(
     })
 }
 
-/// [`refs_json`] over references already chosen, each with its review mark.
-fn refs_json_marked(
-    w: &viewcore::world::World,
-    items: &[viewcore::review::Item],
-    indoors: bool,
-) -> (String, String, String, String) {
-    let mut refs = String::from("[");
-    let mut models = String::from("{");
-    /* Round 17m: the LIGH records among the objects in this cell, so the preview can
-       light the scene with them after dark. Keyed the same way as `models`, and only
-       for lights that actually burn where they stand — the OffDefault flag means "does
-       not burn while placed in a cell". */
-    let mut lights = String::from("{");
-    let mut first_light = true;
-    // Actors travel beside the models rather than among them: the page decides per
-    // reference whether an actor is a corpse worth drawing, and needs its health and
-    // persist flag to do so.
-    let mut actors = String::from("{");
-    let mut first = true;
-    let mut first_model = true;
-    let mut first_actor = true;
-    {
-        let mut named: Vec<&viewcore::review::Item> = items.iter().collect();
-        named.sort_by_key(|(r, _, _)| (r.num.content_file, r.num.index));
-        for (r, mark, versions) in named {
-            let key = r.id.to_ascii_lowercase();
-            let actor = w.actors.get(&key);
-            /* Wraithguard: a leveled creature list placed in the cell - a spawn point. Sent
-               with the actors, drawn with the model `resolve_leveled` gave it (the list's one
-               mesh, or the Construction Set's creature marker). */
-            let lev = if actor.is_none() {
-                w.objects.get(&key).filter(|o| o.kind == Some(viewcore::objects::ObjKind::LeveledCreature))
-            } else {
-                None
-            };
-            /* Gardenfell 18hl: a LIGH record with no mesh is in `lights` and not in `models`;
-               it has something to shine, so it goes to the page with an empty model and the
-               page places its light at the reference (`bareLights`). */
-            if actor.is_none() && lev.is_none() && !w.models.contains_key(&key) && !w.lights.contains_key(&key) {
-                continue;
-            }
-            if !first {
-                refs.push(',');
-            }
-            first = false;
-            refs.push_str("{\"id\":\"");
-            viewcore::json::escape_into(&r.id, &mut refs);
-            /* `from` is which plugin in the load order supplied this reference — an
-               index into the same plugin list the page already holds, not the name,
-               because a cell can carry thousands of references and the name would be
-               repeated on every one of them. The left column used to show these totalled
-               up per plugin, which answered a question nobody had; what people want to
-               know is who put *that* rock there, and that is asked by right-clicking it. */
-            /* And which reference it *is*, spelled the way the mask spells it. The page
-               could name a mesh and a plugin but never an instance, so it could not ask
-               "how much paint is on this rock" about the rock under the pointer. This is
-               the same key `statics_paint` and `paint_stroke` already use — the same
-               naming, carried one place further, rather than a second way of naming a
-               reference. Empty when the load order cannot resolve it. */
-            let rkey = viewcore::refkey::RefKey::of(r.num, &w.plugins)
-                .map(|k| viewcore::refkey::key_text(&k))
-                .unwrap_or_default();
-            refs.push_str(&format!(
-                "\",\"pos\":[{:.2},{:.2},{:.2}],\"rot\":[{:.5},{:.5},{:.5}],\"scale\":{:.4},\"from\":{},\"key\":\"",
-                r.pos[0], r.pos[1], r.pos[2], r.rot[0], r.rot[1], r.rot[2], r.scale,
-                r.plugin
-            ));
-            viewcore::json::escape_into(&rkey, &mut refs);
-            refs.push('"');
-            /* Wraithguard: for reviewing a cell's conflicts - how this reference relates to
-               the plugin under review, every plugin that supplied a version of it, and how
-               far the load order has moved it from where its first plugin put it. */
-            if *mark != viewcore::review::Mark::None {
-                refs.push_str(",\"mark\":\"");
-                refs.push_str(mark.name());
-                refs.push('"');
-            }
-            let h = w.history.of(&r.num);
-            let n = (*versions).min(h.touched.len());
-            if n > 1 {
-                refs.push_str(&format!(
-                    ",\"hist\":[{}]",
-                    h.touched[..n].iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")
-                ));
-                let d = viewcore::review::moved_by(r, &h.poses[..n.min(h.poses.len())]);
-                if d > 0.5 {
-                    refs.push_str(&format!(",\"moved\":{:.1}", d));
-                }
-            }
-            /* Gardenfell 18ez: a reference whose class the game never animates, on a mesh
-               with a `.kf` beside it: the page asks for that mesh `still` (see
-               `mesh_payload`). Said only when it changes the picture, so every reader of a
-               reference sees what it saw. Actors and leveled spawns have their own rules. */
-            if actor.is_none() && lev.is_none() && !w.anim_ids.contains(&key) {
-                let has_kf = w
-                    .models
-                    .get(&key)
-                    .map(|m| w.kf_meshes.contains(&m.replace('\\', "/").to_ascii_lowercase()))
-                    .unwrap_or(false);
-                if has_kf {
-                    refs.push_str(",\"still\":true");
-                }
-            }
-            // Wraithguard: grass from a `groundcover=` plugin.
-            if usize::try_from(r.plugin).map(|p| w.groundcover.contains(&p)).unwrap_or(false) {
-                refs.push_str(",\"gc\":1");
-            }
-            /* Round 17y: where a door leads, when it teleports. The dialogue offers to open
-               the cell on the far side; an interior is named, an exterior is wherever the
-               far position falls. */
-            if let Some(d) = &r.door {
-                refs.push_str(&format!(
-                    ",\"door\":{{\"pos\":[{:.2},{:.2},{:.2}],\"rot\":[{:.5},{:.5},{:.5}],\"cell\":\"",
-                    d.pos[0], d.pos[1], d.pos[2], d.rot[0], d.rot[1], d.rot[2]
-                ));
-                viewcore::json::escape_into(&d.cell, &mut refs);
-                refs.push_str("\"}");
-            }
-            refs.push('}');
-            if let Some(o) = lev {
-                if !actors.contains(&format!("\"{}\":", key)) {
-                    if !first_actor {
-                        actors.push(',');
-                    }
-                    first_actor = false;
-                    push_lev(&key, &o.model, &mut actors);
-                }
-                continue;
-            }
-            if let Some(a) = actor {
-                if !first_actor {
-                    actors.push(',');
-                }
-                first_actor = false;
-                push_actor(w, &key, a, &mut actors);
-                continue;
-            }
-            if let Some(li) = w.lights.get(&key) {
-                if !li.off_default() && !lights.contains(&format!("\"{}\":", key)) {
-                    if !first_light {
-                        lights.push(',');
-                    }
-                    first_light = false;
-                    lights.push('"');
-                    viewcore::json::escape_into(&key, &mut lights);
-                    // Round 17y: and the record's flags whole, for rules the page may want
-                    // (Fire 0x010, Flicker 0x008, Pulse 0x080...).
-                    lights.push_str(&format!(
-                        "\":{{\"radius\":{},\"colour\":[{},{},{}],\"negative\":{},\"flags\":{}}}",
-                        li.radius.max(16),
-                        li.colour[0],
-                        li.colour[1],
-                        li.colour[2],
-                        li.negative(),
-                        li.flags
-                    ));
-                }
-            }
-            let mesh = w.model_in(&key, indoors).unwrap_or_default();
-            if !first_model {
-                models.push(',');
-            }
-            first_model = false;
-            models.push('"');
-            viewcore::json::escape_into(&key, &mut models);
-            models.push_str("\":\"");
-            viewcore::json::escape_into(mesh, &mut models);
-            models.push('"');
-        }
+/// A number as the JSON wrote it - `{:.N}` read back - so the page holds the
+/// same value it always did (positions to the hundredth, rotations to 1e-5).
+fn rounded(v: f32, places: usize) -> f64 {
+    format!("{v:.places$}").parse().unwrap_or(0.0)
+}
+
+/* Wraithguard: a cell's references, and the models, lights and actors they draw, as bytes
+   (`WGTB`, `Tables` in editor.rs), after the grids in `WGCD` (see `pack_cell`). Static
+   2026-11-17: JSON only where it is needed; a cell's references were its biggest text after
+   the ground. `CellWire.read` (ui/src/17_cell.js) turns them back into the objects the JSON
+   was, so every reader of a reference sees what it saw:
+
+   - `refs` `sdddddddissdudddddds`: id, pos x y z, rot x y z, scale, from (the plugin, an
+     index into the page's list; -1 none), key (the mask's name for it), mark ("" none),
+     moved, flags (1 still, 2 groundcover, 4 a door), the door's pos x y z and rot x y z,
+     and the cell it leads to.
+   - `hist` `ui`: a reference (its row in `refs`) and one plugin that supplied a version of
+     it, in order - only for references more than one plugin touched.
+   - `models` `ss`: object id (lower case), mesh.
+   - `lights` `siuuuui`: id, radius, color r g b, negative (0/1), the record's flags.
+   - `actors` (`write_actors` in editor.rs): id, kind (npc / crea / lev), model, twin, health,
+     bits, AI Hello. */
+fn refs_tables_marked(w: &viewcore::world::World, items: &[viewcore::review::Item], indoors: bool) -> Vec<u8> {
+    struct RefRow {
+        id: String,
+        pos: [f64; 3],
+        rot: [f64; 3],
+        scale: f64,
+        from: i32,
+        key: String,
+        mark: &'static str,
+        moved: f64,
+        flags: u64,
+        door: Option<([f64; 3], [f64; 3], String)>,
     }
-    refs.push(']');
-    models.push('}');
-    actors.push('}');
-    lights.push('}');
-    (refs, models, actors, lights)
+    let mut refs: Vec<RefRow> = Vec::new();
+    let mut hist: Vec<(usize, i32)> = Vec::new();
+    // An object's model, light and actor once each, however many references place it.
+    let mut models: Vec<(String, String)> = Vec::new();
+    let mut lights: Vec<(String, i32, [u8; 3], bool, i32)> = Vec::new();
+    let mut actors: Vec<ActorRow> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut named: Vec<&viewcore::review::Item> = items.iter().collect();
+    named.sort_by_key(|(r, _, _)| (r.num.content_file, r.num.index));
+    for (r, mark, versions) in named {
+        let key = r.id.to_ascii_lowercase();
+        let actor = w.actors.get(&key);
+        /* Wraithguard: a leveled creature list placed in the cell - a spawn point. Sent
+           with the actors, drawn with the model `resolve_leveled` gave it (the list's one
+           mesh, or the Construction Set's creature marker). */
+        let lev = if actor.is_none() {
+            w.objects.get(&key).filter(|o| o.kind == Some(viewcore::objects::ObjKind::LeveledCreature))
+        } else {
+            None
+        };
+        /* Gardenfell 18hl: a LIGH record with no mesh is in `lights` and not in `models`;
+           it has something to shine, so it goes to the page with an empty model and the
+           page places its light at the reference (`bareLights`). */
+        if actor.is_none() && lev.is_none() && !w.models.contains_key(&key) && !w.lights.contains_key(&key) {
+            continue;
+        }
+        /* `from` is which plugin in the load order supplied this reference — an index into
+           the same plugin list the page already holds, not the name, because a cell can
+           carry thousands of references. What people want to know is who put *that* rock
+           there, and that is asked by right-clicking it.
+
+           `key` is which reference it *is*, spelled the way the mask spells it: the same
+           key `statics_paint` and `paint_stroke` use, so the page can ask "how much paint
+           is on this rock" about the rock under the pointer. Empty when the load order
+           cannot resolve it. */
+        let rkey = viewcore::refkey::RefKey::of(r.num, &w.plugins)
+            .map(|k| viewcore::refkey::key_text(&k))
+            .unwrap_or_default();
+        let row = refs.len();
+        let mut flags = 0u64;
+        let mut moved = 0.0;
+        /* Wraithguard: for reviewing a cell's conflicts - how this reference relates to the
+           plugin under review, every plugin that supplied a version of it, and how far the
+           load order has moved it from where its first plugin put it. */
+        let h = w.history.of(&r.num);
+        let n = (*versions).min(h.touched.len());
+        if n > 1 {
+            hist.extend(h.touched[..n].iter().map(|&p| (row, p)));
+            let d = viewcore::review::moved_by(r, &h.poses[..n.min(h.poses.len())]);
+            if d > 0.5 {
+                moved = rounded(d as f32, 1);
+            }
+        }
+        /* Gardenfell 18ez: a reference whose class the game never animates, on a mesh with
+           a `.kf` beside it: the page asks for that mesh `still` (see `mesh_payload`). Said
+           only when it changes the picture. Actors and leveled spawns have their own rules. */
+        if actor.is_none() && lev.is_none() && !w.anim_ids.contains(&key) {
+            let has_kf = w
+                .models
+                .get(&key)
+                .map(|m| w.kf_meshes.contains(&m.replace('\\', "/").to_ascii_lowercase()))
+                .unwrap_or(false);
+            if has_kf {
+                flags |= 1;
+            }
+        }
+        // Wraithguard: grass from a `groundcover=` plugin.
+        if usize::try_from(r.plugin).map(|p| w.groundcover.contains(&p)).unwrap_or(false) {
+            flags |= 2;
+        }
+        /* Round 17y: where a door leads, when it teleports. The dialogue offers to open the
+           cell on the far side; an interior is named, an exterior is wherever the far
+           position falls. */
+        let door = r.door.as_ref().map(|d| {
+            flags |= 4;
+            (
+                [rounded(d.pos[0], 2), rounded(d.pos[1], 2), rounded(d.pos[2], 2)],
+                [rounded(d.rot[0], 5), rounded(d.rot[1], 5), rounded(d.rot[2], 5)],
+                d.cell.clone(),
+            )
+        });
+        refs.push(RefRow {
+            id: r.id.clone(),
+            pos: [rounded(r.pos[0], 2), rounded(r.pos[1], 2), rounded(r.pos[2], 2)],
+            rot: [rounded(r.rot[0], 5), rounded(r.rot[1], 5), rounded(r.rot[2], 5)],
+            scale: rounded(r.scale, 4),
+            from: r.plugin,
+            key: rkey,
+            mark: if *mark != viewcore::review::Mark::None { mark.name() } else { "" },
+            moved,
+            flags,
+            door,
+        });
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+        if let Some(o) = lev {
+            actors.push(lev_row(&key, &o.model));
+            continue;
+        }
+        if let Some(a) = actor {
+            // The page decides per reference whether an actor is a corpse worth drawing,
+            // and needs its health and persist flag to do so.
+            actors.push(actor_row(w, &key, a));
+            continue;
+        }
+        /* Round 17m: the LIGH records among the objects in this cell, so the preview can
+           light the scene with them after dark - only lights that burn where they stand
+           (OffDefault: "does not burn while placed in a cell"). Round 17y: and the record's
+           flags whole (Fire 0x010, Flicker 0x008, Pulse 0x080...). */
+        if let Some(li) = w.lights.get(&key) {
+            if !li.off_default() {
+                lights.push((key.clone(), li.radius.max(16), li.colour, li.negative(), li.flags));
+            }
+        }
+        let mesh = w.model_in(&key, indoors).unwrap_or_default().to_string();
+        models.push((key, mesh));
+    }
+
+    let mut tb = Tables::new();
+    tb.table("refs", "sdddddddissdudddddds", refs.len());
+    for x in &refs {
+        tb.s(&x.id);
+        for v in x.pos.iter().chain(x.rot.iter()) {
+            tb.d(*v);
+        }
+        tb.d(x.scale).i(x.from as i64).s(&x.key).s(x.mark).d(x.moved).u(x.flags);
+        let (dp, dr, dc) = match &x.door {
+            Some((p, r, c)) => (*p, *r, c.as_str()),
+            None => ([0.0; 3], [0.0; 3], ""),
+        };
+        for v in dp.iter().chain(dr.iter()) {
+            tb.d(*v);
+        }
+        tb.s(dc);
+    }
+    tb.table("hist", "ui", hist.len());
+    for (row, p) in &hist {
+        tb.u(*row as u64).i(*p as i64);
+    }
+    tb.table("models", "ss", models.len());
+    for (k, m) in &models {
+        tb.s(k).s(m);
+    }
+    tb.table("lights", "siuuuui", lights.len());
+    for (k, radius, c, negative, flags) in &lights {
+        tb.s(k).i(*radius as i64).u(c[0] as u64).u(c[1] as u64).u(c[2] as u64).u(*negative as u64).i(*flags as i64);
+    }
+    write_actors(&mut tb, &actors);
+    tb.done()
 }
 
 /// Who put what here.
@@ -1511,24 +1410,30 @@ fn plugin_name(w: &viewcore::world::World, ix: Option<usize>) -> &str {
 
 /// Everything the viewport needs to draw one interior, by name.
 ///
-/// The same answer `cell_data` gives, minus everything that is about ground: no heights,
-/// no normals, no vtex, no coverage layers, and `hasLand` false. A room is its contents.
+/// The same answer `cell_data` gives (`WGCD`), minus everything that is about ground: no
+/// heights, no normals, no vtex, no coverage layers, and `hasLand` false. A room is its
+/// contents.
 ///
 /// Keyed by name because an interior has no grid — which is the whole of the bug this
 /// exists to fix. `CellData.loadCell` asked for `(gx, gy)`, an interior has none, so every
 /// one of them arrived as (0, 0) and quietly loaded whichever exterior sits at the origin.
 /// Matched without regard to case, like every other name in the tool (§50).
 #[tauri::command(async)]
-fn interior_data(name: String, review: Option<String>, without: Option<bool>, state: State) -> Result<String, String> {
+fn interior_data(
+    name: String,
+    review: Option<String>,
+    without: Option<bool>,
+    state: State,
+) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }
         .ok_or_else(|| viewcore::msg!("eng.no_install"))?;
     let room = w.room(&name).ok_or_else(|| viewcore::msg!("eng.no_interior", name = name))?;
 
     let gone = &w.history.interior(&viewcore::world::room_key(&name)).gone;
     let reviewed = review_items(&w, &room.refs, gone, review.as_deref(), without.unwrap_or(false), &|_| true);
-    let (refs, models, actors, lights) = match &reviewed {
-        Some(items) => refs_json_marked(&w, items, !room.quasi),
-        None => refs_json(&w, Some(&room.refs), !room.quasi),
+    let refs = match &reviewed {
+        Some(items) => refs_tables_marked(&w, items, !room.quasi),
+        None => refs_tables(&w, Some(&room.refs), !room.quasi),
     };
     let prov = prov_json(&w, Some((&room.refs, &room.prov)));
 
@@ -1576,21 +1481,14 @@ fn interior_data(name: String, review: Option<String>, without: Option<bool>, st
                 None => "null".to_string(),
             },
         )
-        .raw("heights", "[]")
-        .str("normals", "")
-        .str("colours", "")
-        .raw("vtex", "[]")
+        // No ground: WGCD's grids are empty (`pack_cell`).
         .raw("ltex", "{}")
         .raw("layers", "[]")
-        .raw("refs", &refs)
-        .raw("models", &models)
-        .raw("actors", &actors)
-        .raw("lights", &lights)
         .raw("prov", &prov)
         .raw("landEditors", "[]")
         .raw("landMerged", "null")
         .bool("reviewed", reviewed.is_some());
-    Ok(out.done())
+    Ok(tauri::ipc::Response::new(pack_cell(&out.done(), &[], &[], &[], &[], &refs)))
 }
 
 
@@ -2126,7 +2024,7 @@ fn extra_of(bcx: &Option<Vec<String>>) -> viewcore::img::Extra {
 /// where a season of avoidance bugs came from. It now draws what the engine read.
 /// The bytes `mesh_data` answers with, and the textures the mesh names - the bundle
 /// (below) fetches those in the same call.
-/// `still`: the reference's class never animates (Gardenfell 18ez; see `refs_json_marked`),
+/// `still`: the reference's class never animates (Gardenfell 18ez; see `refs_tables_marked`),
 /// so the `.kf` beside the mesh is not played. False draws the file as it animates - the
 /// mesh viewer, and every request from a page that does not send the flag.
 fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str, still: bool) -> Result<(Vec<u8>, Vec<String>), String> {
@@ -2276,15 +2174,18 @@ fn model_radius(v: &Vfs, rev: u64, model: &str) -> f32 {
 
 /// Wraithguard: distant objects (OpenMW's object paging, for the viewer) - the references
 /// placed in every exterior within `radius` cells of (`x`, `y`) and outside the `inner`
-/// rings, grouped by model, as `{"models":[{"m":model,"r":radius,"t":tier,"refs":[[x,y,z,
-/// rx,ry,rz,scale],...]}],"refs":n,"beyond":n,"over":n}`. Budgeted as MGE XE budgets its
+/// rings, grouped by model, as bytes (`WGTB`, Static 2026-11-17: JSON only where it is
+/// needed; up to 30,000 references of seven numbers each): `meta` `uuu` (references kept,
+/// beyond their band, over the budget), `models` `sdu` (mesh, radius, tier) and `refs`
+/// `uddddddd` (its row in `models`, x y z, rx ry rz, scale - to 0.1, 1e-5 and 1e-4, as the
+/// JSON had them). Read by 58_wg_distant_objects.js. Budgeted as MGE XE budgets its
 /// distant statics (`viewcore::lod`): each reference is near, far or very far by its radius
 /// times its scale, and drawn only within its tier's band of the cells past the rings;
 /// `t` is the model's own tier, which its one simplified copy is made for. Left out too:
 /// what is deleted, actors (they move), grass from `groundcover=` plugins (drawn only
 /// near), and markers (not drawn in the game).
 #[tauri::command(async)]
-fn distant_objects(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Result<String, String> {
+fn distant_objects(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Result<tauri::ipc::Response, String> {
     let (w, v, rev) = {
         let app = state.app();
         (
@@ -2354,34 +2255,30 @@ fn distant_objects(x: i32, y: i32, inner: i32, radius: i32, state: State) -> Res
         chosen[mi].push(ri);
         kept += 1;
     }
-    let mut out = String::from("{\"models\":[");
-    let mut first_model = true;
-    for (mi, m) in models.iter().enumerate() {
-        if chosen[mi].is_empty() {
-            continue;
-        }
-        let list = &by_model[m];
-        let mut refs = String::new();
+    let rows: Vec<usize> = (0..models.len()).filter(|&mi| !chosen[mi].is_empty()).collect();
+    let mut tb = Tables::new();
+    tb.table("meta", "uuu", 1);
+    tb.u(kept as u64).u(beyond as u64).u(over as u64);
+    tb.table("models", "sdu", rows.len());
+    for &mi in &rows {
+        tb.s(&models[mi]).d(rounded(radii[mi], 1)).u(viewcore::lod::tier_of(radii[mi]) as u64);
+    }
+    tb.table("refs", "uddddddd", kept);
+    for (row, &mi) in rows.iter().enumerate() {
+        let list = &by_model[&models[mi]];
         for &ri in &chosen[mi] {
             let (pos, rot, scale, _) = &list[ri];
-            if !refs.is_empty() {
-                refs.push(',');
+            tb.u(row as u64);
+            for v in pos {
+                tb.d(rounded(*v, 1));
             }
-            refs.push_str(&format!(
-                "[{:.1},{:.1},{:.1},{:.5},{:.5},{:.5},{:.4}]",
-                pos[0], pos[1], pos[2], rot[0], rot[1], rot[2], scale
-            ));
+            for v in rot {
+                tb.d(rounded(*v, 5));
+            }
+            tb.d(rounded(*scale, 4));
         }
-        if !first_model {
-            out.push(',');
-        }
-        first_model = false;
-        out.push_str("{\"m\":\"");
-        viewcore::json::escape_into(m, &mut out);
-        out.push_str(&format!("\",\"r\":{:.1},\"t\":{},\"refs\":[{refs}]}}", radii[mi], viewcore::lod::tier_of(radii[mi])));
     }
-    out.push_str(&format!("],\"refs\":{kept},\"beyond\":{beyond},\"over\":{over}}}"));
-    Ok(out)
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// A mesh's payload from its bytes: the drawable parts, the collision geometry (`geom`
@@ -3176,9 +3073,16 @@ fn loadorder_rule_ages(rules: Vec<String>) -> Result<String, String> {
 /// Wraithguard: a mods folder scanned for the subset, `{lines, folders, plugins, start}`; the
 /// lines go straight into the sort (`subsetLines`).
 #[tauri::command(async)]
-fn loadorder_scan(dir: String) -> Result<String, String> {
+fn loadorder_scan(dir: String) -> Result<tauri::ipc::Response, String> {
     let scan = viewcore::ordercore::inputs::scan_mod_directories(&dir);
-    Ok(serde_json::json!({"lines": scan.lines, "folders": scan.folders, "plugins": scan.plugins, "start": scan.start}).to_string())
+    let mut tb = Tables::new();
+    tb.table("scan", "uus", 1);
+    tb.u(scan.folders as u64).u(scan.plugins as u64).s(&scan.start);
+    tb.table("lines", "s", scan.lines.len());
+    for l in &scan.lines {
+        tb.s(l);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /* ---- the cell map's coverage (Wraithguard) -------------------------------------------
@@ -3188,32 +3092,40 @@ fn loadorder_scan(dir: String) -> Result<String, String> {
    and each interior lists the plugins with a CELL record for it, by index into
    `plugins`, so a large load order does not repeat every name on every cell. */
 
-/// `{plugins:[names], ext:[[x,y,[plugin ix...]]...], int:[[name,[plugin ix...]]...]}`.
+/// Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed): `plugins`
+/// `s`; `ext` `iiu` (x, y, a plugin with a CELL record for it - one row per plugin, in order);
+/// `int` `su` (the room's name, a plugin, likewise); `extc` `iiuu` (x, y, contested
+/// references, plugins editing the ground). Cells in the order the JSON had them. Read by
+/// 39_wg_coverage.js.
 #[tauri::command(async)]
-fn cell_coverage(state: State) -> Result<String, String> {
+fn cell_coverage(state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let ix = |v: &Vec<u32>| format!("[{}]", v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","));
-    let mut ext: Vec<String> = w
+    // Sorted as the JSON's text was (`[x,y,...]` as a string), so the page's maps fill in
+    // the same order.
+    let mut ext: Vec<(String, (i32, i32), &Vec<u32>)> = w
         .cells
         .values()
         .map(|c| (c, &w.history.exterior(c.grid).touched_by))
         .filter(|(_, by)| !by.is_empty())
-        .map(|(c, by)| format!("[{},{},{}]", c.grid.0, c.grid.1, ix(by)))
+        .map(|(c, by)| {
+            let ixs = by.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            (format!("[{},{},[{}]]", c.grid.0, c.grid.1, ixs), c.grid, by)
+        })
         .collect();
-    ext.sort();
+    ext.sort_by(|a, b| a.0.cmp(&b.0));
     /* Wraithguard: and per exterior, how contested its references are and how many
        plugins edit its ground - the map's other two heat modes. */
     let mut grids: std::collections::BTreeSet<(i32, i32)> = w.cells.keys().copied().collect();
     grids.extend(w.land_edits.keys().copied());
-    let extc: Vec<String> = grids
+    let extc: Vec<((i32, i32), usize, usize)> = grids
         .into_iter()
         .filter_map(|g| {
             let conf = w.cells.get(&g).map(|c| viewcore::usage::conflicts(&c.refs, &w.history, w.history.exterior(g))).unwrap_or(0);
             let land = w.land_edits.get(&g).map(|v| v.len()).unwrap_or(0);
-            (conf > 0 || land > 1).then(|| format!("[{},{},{},{}]", g.0, g.1, conf, land))
+            (conf > 0 || land > 1).then_some((g, conf, land))
         })
         .collect();
-    let mut int: Vec<String> = w
+    let mut int: Vec<(String, &str, &Vec<u32>)> = w
         .interiors
         .iter()
         .map(|(k, r)| (r, &w.history.interior(k).touched_by))
@@ -3221,25 +3133,47 @@ fn cell_coverage(state: State) -> Result<String, String> {
         .map(|(r, by)| {
             let mut name = String::new();
             viewcore::json::escape_into(&r.name, &mut name);
-            format!("[\"{}\",{}]", name, ix(by))
+            let ixs = by.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            (format!("[\"{}\",[{}]]", name, ixs), r.name.as_str(), by)
         })
         .collect();
-    int.sort();
-    Ok(format!(
-        "{{\"plugins\":{},\"ext\":[{}],\"int\":[{}],\"extc\":[{}]}}",
-        string_array(&w.plugins),
-        ext.join(","),
-        int.join(","),
-        extc.join(",")
-    ))
+    int.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut tb = Tables::new();
+    tb.table("plugins", "s", w.plugins.len());
+    for p in &w.plugins {
+        tb.s(p);
+    }
+    tb.table("ext", "iiu", ext.iter().map(|e| e.2.len()).sum());
+    for (_, g, by) in &ext {
+        for p in by.iter() {
+            tb.i(g.0 as i64).i(g.1 as i64).u(*p as u64);
+        }
+    }
+    tb.table("int", "su", int.iter().map(|e| e.2.len()).sum());
+    for (_, name, by) in &int {
+        for p in by.iter() {
+            tb.s(name).u(*p as u64);
+        }
+    }
+    tb.table("extc", "iiuu", extc.len());
+    for (g, conf, land) in &extc {
+        tb.i(g.0 as i64).i(g.1 as i64).u(*conf as u64).u(*land as u64);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: the path grids of the cells asked for - `"x,y"` or `"int:<name>"` - with
 /// their points in world units: `[{spec, from, points:[[x,y,z]..], edges:[[a,b]..]}]`.
+/* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed): `grids`
+   `ss` (the cell's spec, the plugin it is from), `points` `uddd` (its row in `grids`, x y z
+   in world units) and `edges` `uuu` (its row in `grids`, the two points' indices within
+   that grid). Read by 48_wg_tools.js. */
 #[tauri::command(async)]
-fn pathgrid(cells: Vec<String>, state: State) -> Result<String, String> {
+fn pathgrid(cells: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let mut out: Vec<String> = Vec::new();
+    let mut grids: Vec<(&str, &str)> = Vec::new();
+    let mut points: Vec<(usize, [f64; 3])> = Vec::new();
+    let mut edges: Vec<(usize, u32, u32)> = Vec::new();
     for spec in &cells {
         let (pg, origin) = match viewcore::cells::CellKey::parse(spec) {
             Some(viewcore::cells::CellKey::Interior(name)) => (w.pathgrids_int.get(&viewcore::world::room_key(&name)), (0.0, 0.0)),
@@ -3247,20 +3181,25 @@ fn pathgrid(cells: Vec<String>, state: State) -> Result<String, String> {
             None => (None, (0.0, 0.0)),
         };
         let Some(pg) = pg else { continue };
-        let pts: Vec<String> = pg
-            .points
-            .iter()
-            .map(|p| format!("[{},{},{}]", p[0] as f32 + origin.0, p[1] as f32 + origin.1, p[2]))
-            .collect();
-        let edges: Vec<String> = pg.edges.iter().map(|(a, b)| format!("[{a},{b}]")).collect();
-        let mut o = J::obj();
-        o.str("spec", spec)
-            .str("from", plugin_name(&w, usize::try_from(pg.plugin).ok()))
-            .raw("points", &format!("[{}]", pts.join(",")))
-            .raw("edges", &format!("[{}]", edges.join(",")));
-        out.push(o.done());
+        let row = grids.len();
+        grids.push((spec, plugin_name(&w, usize::try_from(pg.plugin).ok())));
+        points.extend(pg.points.iter().map(|p| (row, [(p[0] as f32 + origin.0) as f64, (p[1] as f32 + origin.1) as f64, p[2] as f64])));
+        edges.extend(pg.edges.iter().map(|&(a, b)| (row, a, b)));
     }
-    Ok(format!("[{}]", out.join(",")))
+    let mut tb = Tables::new();
+    tb.table("grids", "ss", grids.len());
+    for (spec, from) in &grids {
+        tb.s(spec).s(from);
+    }
+    tb.table("points", "uddd", points.len());
+    for (row, p) in &points {
+        tb.u(*row as u64).d(p[0]).d(p[1]).d(p[2]);
+    }
+    tb.table("edges", "uuu", edges.len());
+    for (row, a, b) in &edges {
+        tb.u(*row as u64).u(*a as u64).u(*b as u64);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: OpenMW's navigation mesh over the cells asked for (as `pathgrid` takes
@@ -3307,8 +3246,12 @@ fn collision_bundle(meshes: Vec<String>, state: State) -> Result<tauri::ipc::Res
 /// Wraithguard: every cell where something is used - `kind` "mesh" (a mesh path), "id"
 /// (a base record) or "texture" (on the meshes that name it, and on the ground):
 /// `{ids, meshes, places:[{spec,label,count,pos,rot,ground}]}`.
+/* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed): `ids`
+   `s` (the records that use it), `meshes` `s` (the meshes that name it) and `places`
+   `ssuddddu` (spec, label, count, x y z to 0.1, rot, 1 when it is the ground's). Read by
+   48_wg_tools.js. */
 #[tauri::command(async)]
-fn where_used(kind: String, name: String, state: State) -> Result<String, String> {
+fn where_used(kind: String, name: String, state: State) -> Result<tauri::ipc::Response, String> {
     let (v, w) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?)
@@ -3334,23 +3277,26 @@ fn where_used(kind: String, name: String, state: State) -> Result<String, String
         _ => return Err(format!("unknown kind {kind}")),
     }
     let places = viewcore::usage::places_of(&w, &ids);
-    let place = |p: &viewcore::usage::Place, on_ground: bool| {
-        let mut o = J::obj();
-        o.str("spec", &p.spec)
-            .str("label", &p.label)
-            .int("count", p.count as u64)
-            .raw("pos", &format!("[{:.1},{:.1},{:.1}]", p.pos[0], p.pos[1], p.pos[2]))
-            .num("rot", p.rot as f64)
-            .bool("ground", on_ground);
-        o.done()
-    };
-    let mut all: Vec<String> = places.iter().map(|p| place(p, false)).collect();
-    all.extend(ground.iter().map(|p| place(p, true)));
     let mut idv: Vec<String> = ids.into_iter().collect();
     idv.sort();
-    let mut o = J::obj();
-    o.raw("ids", &string_array(&idv)).raw("meshes", &string_array(&meshes)).raw("places", &format!("[{}]", all.join(",")));
-    Ok(o.done())
+    let mut tb = Tables::new();
+    tb.table("ids", "s", idv.len());
+    for id in &idv {
+        tb.s(id);
+    }
+    tb.table("meshes", "s", meshes.len());
+    for m in &meshes {
+        tb.s(m);
+    }
+    tb.table("places", "ssuddddu", places.len() + ground.len());
+    for (p, on_ground) in places.iter().map(|p| (p, false)).chain(ground.iter().map(|p| (p, true))) {
+        tb.s(&p.spec).s(&p.label).u(p.count as u64);
+        for v in p.pos {
+            tb.d(rounded(v, 1));
+        }
+        tb.d(p.rot as f64).u(on_ground as u64);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: every place in the setup that supplies an asset, winner first -
@@ -3432,75 +3378,146 @@ const MOVEMENT_GMSTS: [(&str, f32); 18] = [
 /// scripts' and the start scripts' source (`scripts: {lowercased id: {id, text}}`); the start
 /// scripts (`start`); every global variable (`globals: [{name, kind, value}]`); and the actors
 /// and containers among the ids (`actors: {id: {tag, items: [[item, count]], stats}}`).
+/* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; the scene's
+   scripts whole): `objects` `ss` (object id, its script), `scripts` `sss` (name, id, text - the
+   scripts of those objects and the start scripts), `start` `s`, `globals` `ssd` (name, kind,
+   value), `actors` `ssu` (id, NPC_ / CREA / CONT, has stats 0/1), with
+   `actor_items` `usi` (its row, item, count) and `actor_stats` `ui` (its row, a stat, in
+   order). Read by `WgScripts.readScene` (73_wg_scripts.js). */
 #[tauri::command(async)]
-fn scene_scripts(ids: Vec<String>, state: State) -> Result<String, String> {
+fn scene_scripts(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let mut objects = serde_json::Map::new();
+    let mut objects: Vec<(String, &String)> = Vec::new();
     let mut want: std::collections::BTreeSet<String> = w.start_scripts.iter().map(|s| s.to_ascii_lowercase()).collect();
     // The actors and containers among them: their type, what they carry, their health,
     // magicka and fatigue (the scripts' GetItemCount, GetHealth, AI and combat).
-    let mut actors = serde_json::Map::new();
+    let mut actors: Vec<(String, String, Option<&[i32; 8]>, &[(String, i32)])> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for id in ids {
         let k = id.to_ascii_lowercase();
+        if !seen.insert(k.clone()) {
+            continue;
+        }
         if let Some(sc) = w.object_scripts.get(&k) {
             want.insert(sc.clone());
-            objects.insert(k.clone(), serde_json::json!(sc));
+            objects.push((k.clone(), sc));
         }
         let tag = w.records.placed_type(&k);
         if let Some(t @ (b"NPC_" | b"CREA" | b"CONT")) = tag.as_ref() {
-            actors.insert(k.clone(), serde_json::json!({
-                "tag": String::from_utf8_lossy(t),
-                "items": w.inventories.get(&k).cloned().unwrap_or_default(),
-                "stats": w.actor_stats.get(&k),
-            }));
+            let items = w.inventories.get(&k).map(|v| v.as_slice()).unwrap_or(&[]);
+            actors.push((k.clone(), String::from_utf8_lossy(t).into_owned(), w.actor_stats.get(&k), items));
         }
     }
-    let scripts: serde_json::Map<String, serde_json::Value> = want
-        .iter()
-        .filter_map(|k| w.script_texts.get(k).map(|(id, text)| (k.clone(), serde_json::json!({"id": id, "text": text}))))
-        .collect();
-    let globals: Vec<serde_json::Value> = w.globals.values().map(|(name, kind, value)| serde_json::json!({"name": name, "kind": kind.to_string(), "value": value})).collect();
-    Ok(serde_json::json!({"objects": objects, "scripts": scripts, "start": w.start_scripts, "globals": globals, "actors": actors}).to_string())
+    let scripts: Vec<(&String, &(String, String))> = want.iter().filter_map(|k| w.script_texts.get(k).map(|s| (k, s))).collect();
+    let mut tb = Tables::new();
+    tb.table("objects", "ss", objects.len());
+    for (k, s) in &objects {
+        tb.s(k).s(s);
+    }
+    tb.table("scripts", "sss", scripts.len());
+    for (k, (id, text)) in &scripts {
+        tb.s(k).s(id).s(text);
+    }
+    tb.table("start", "s", w.start_scripts.len());
+    for s in &w.start_scripts {
+        tb.s(s);
+    }
+    tb.table("globals", "ssd", w.globals.len());
+    for (name, kind, value) in w.globals.values() {
+        // The f32's own value, widened (as serde_json wrote it).
+        tb.s(name).s(&kind.to_string()).d(*value as f64);
+    }
+    tb.table("actors", "ssu", actors.len());
+    for (k, tag, stats, _) in &actors {
+        tb.s(k).s(tag).u(stats.is_some() as u64);
+    }
+    tb.table("actor_items", "usi", actors.iter().map(|a| a.3.len()).sum());
+    for (row, (_, _, _, items)) in actors.iter().enumerate() {
+        for (item, n) in items.iter() {
+            tb.u(row as u64).s(item).i(*n as i64);
+        }
+    }
+    tb.table("actor_stats", "ui", actors.iter().map(|a| a.2.map(|s| s.len()).unwrap_or(0)).sum());
+    for (row, (_, _, stats, _)) in actors.iter().enumerate() {
+        for v in stats.iter().flat_map(|s| s.iter()) {
+            tb.u(row as u64).i(*v as i64);
+        }
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: scripts' source by id (a script another starts, `StartScript`):
 /// `{lowercased id: {id, text}}`, the ones the load order has.
+/* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; whole
+   script sources): `scripts` `sss` (the name asked, lower case; the record's id; its text),
+   for those the load order has. Read by 73_wg_scripts.js. */
 #[tauri::command(async)]
-fn script_texts(names: Vec<String>, state: State) -> Result<String, String> {
+fn script_texts(names: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
-    let out: serde_json::Map<String, serde_json::Value> = names
+    let mut seen = std::collections::HashSet::new();
+    let rows: Vec<(String, &String, &String)> = names
         .iter()
         .filter_map(|n| {
             let k = n.to_ascii_lowercase();
-            w.script_texts.get(&k).map(|(id, text)| (k, serde_json::json!({"id": id, "text": text})))
+            let (id, text) = w.script_texts.get(&k)?;
+            seen.insert(k.clone()).then_some((k, id, text))
         })
         .collect();
-    Ok(serde_json::Value::Object(out).to_string())
+    let mut tb = Tables::new();
+    tb.table("scripts", "sss", rows.len());
+    for (k, id, text) in &rows {
+        tb.s(k).s(id).s(text);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: what the scene's OpenMW Lua (`ui/src/74_wg_lua.js`) starts from: the load
 /// order's registered scripts, `scripts: [{path, flags}]` in load order (none, and a `note`,
 /// for a Morrowind.ini setup), and the record type of each object id asked about,
 /// `types: {id: tag}`, which decides the scripts an object gets (`NPC`, `LIGHT`, ...).
+/* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; a type per
+   object of the scene): `head` `s` (a note: why there are no scripts), `scripts` `s` (each
+   registered script's path), `script_flags` `us` (its row, a flag), `types` `ss` (an id asked,
+   lower case; its record type). Read by 74_wg_lua.js. */
 #[tauri::command(async)]
-fn lua_scene(ids: Vec<String>, state: State) -> Result<String, String> {
+fn lua_scene(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
     let (vfs, order, w) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone(), app.world.clone())
     };
     let reg = viewcore::luascan::registered(&vfs, order.as_deref())?;
     let note = if reg.is_none() { "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts." } else { "" };
-    let scripts: Vec<serde_json::Value> = reg.unwrap_or_default().into_iter().map(|(path, flags)| serde_json::json!({"path": path, "flags": flags})).collect();
-    let mut types = serde_json::Map::new();
+    let scripts = reg.unwrap_or_default();
+    let mut types: Vec<(String, String)> = Vec::new();
     if let Some(w) = &w {
+        let mut seen = std::collections::HashSet::new();
         for id in ids {
             let k = id.to_ascii_lowercase();
             if let Some(t) = w.records.placed_type(&k) {
-                types.insert(k, serde_json::json!(String::from_utf8_lossy(&t)));
+                if seen.insert(k.clone()) {
+                    types.push((k, String::from_utf8_lossy(&t).into_owned()));
+                }
             }
         }
     }
-    Ok(serde_json::json!({"note": note, "scripts": scripts, "types": types}).to_string())
+    let mut tb = Tables::new();
+    tb.table("head", "s", 1);
+    tb.s(note);
+    tb.table("scripts", "s", scripts.len());
+    for (path, _) in &scripts {
+        tb.s(path);
+    }
+    tb.table("script_flags", "us", scripts.iter().map(|(_, f)| f.len()).sum());
+    for (row, (_, flags)) in scripts.iter().enumerate() {
+        for f in flags {
+            tb.u(row as u64).s(f);
+        }
+    }
+    tb.table("types", "ss", types.len());
+    for (k, t) in &types {
+        tb.s(k).s(t);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: the Preview's OpenMW Lua (`viewcore::luarun`), one at a time.
@@ -3651,9 +3668,12 @@ fn lua_collision(frame: &str, state: &State) {
 /// `tris` (its drawn triangles, nine numbers each) stand in for a mesh with no collision;
 /// `land` is the ground as the page has it (the Land view's strokes not yet kept), a
 /// square's 65 x 65 heights, `null` for none - the load order's for squares not given. Answers `{frames: [[[x, y, z, rx,
-/// ry, rz]]], seconds, settled, skipped}`, positions in the world's units.
+/// ry, rz]]], seconds, settled, skipped}`, positions in the world's units - as bytes (`WGTB`,
+/// Static 2026-11-17: JSON only where it is needed; every frame of every body): `head` `duu`
+/// (seconds, settled 0/1, frame count), `poses` `udddddd` (its frame, x y z, rx ry
+/// rz; a frame's bodies in order) and `skipped` `s`. Read by `WgPhysics.readDrop`.
 #[tauri::command(async)]
-fn phys_drop(request: String, state: State) -> Result<String, String> {
+fn phys_drop(request: String, state: State) -> Result<tauri::ipc::Response, String> {
     use viewcore::physcore::{self as pc, glam_mat3_from_rows};
     let req: serde_json::Value = serde_json::from_str(&request).map_err(|e| e.to_string())?;
     let (vfs, world) = {
@@ -3737,8 +3757,24 @@ fn phys_drop(request: String, state: State) -> Result<String, String> {
         }
     }
     let out = pc::drop(&statics, &bodies, &settings);
-    let frames: Vec<Vec<[f32; 6]>> = out.frames.iter().map(|fr| fr.iter().map(|(p, r)| [p[0], p[1], p[2], r[0], r[1], r[2]]).collect()).collect();
-    Ok(serde_json::json!({"frames": frames, "seconds": out.seconds, "settled": out.settled, "skipped": out.skipped}).to_string())
+    let mut tb = Tables::new();
+    tb.table("head", "duu", 1);
+    tb.d(out.seconds as f64).u(out.settled as u64).u(out.frames.len() as u64);
+    tb.table("poses", "udddddd", out.frames.iter().map(|fr| fr.len()).sum());
+    for (i, fr) in out.frames.iter().enumerate() {
+        for (p, r) in fr {
+            // Each f32 widened, as serde_json wrote it.
+            tb.u(i as u64);
+            for v in p.iter().chain(r.iter()) {
+                tb.d(*v as f64);
+            }
+        }
+    }
+    tb.table("skipped", "s", out.skipped.len());
+    for k in &out.skipped {
+        tb.s(k);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: the Preview's OpenMW Lua stopped and its state dropped.
@@ -3757,13 +3793,27 @@ fn lua_run_stop() -> Result<String, String> {
 /// Wraithguard: the game state an OpenMW save holds, for the Dialogue window's In game tab
 /// (`toolscore::save::game_state`): `{name, sex, race, class, level, factions: [[id, rank]],
 /// globals: [{name, kind, value}], journal: [[quest, index]]}`.
+/* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed): `save` `ssssi`
+   (name, sex, race, class, level), `factions` `si`, `globals` `ssd` (name, kind, value),
+   `journal` `si` and `inventory` `si`. Read by `WgScripts.readSave` (73_wg_scripts.js). */
 #[tauri::command(async)]
-fn dialogue_state_from_save(path: String) -> Result<String, String> {
+fn dialogue_state_from_save(path: String) -> Result<tauri::ipc::Response, String> {
     let data = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
     let g = toolscore::save::game_state(&data)?;
-    let globals: Vec<serde_json::Value> = g.globals.iter().map(|(n, k, v)| serde_json::json!({"name": n, "kind": k.to_string(), "value": v})).collect();
-    Ok(serde_json::json!({"name": g.name, "sex": g.sex, "race": g.race, "class": g.class, "level": g.level,
-        "factions": g.factions, "globals": globals, "journal": g.journal, "inventory": g.inventory}).to_string())
+    let mut tb = Tables::new();
+    tb.table("save", "ssssi", 1);
+    tb.s(&g.name).s(&g.sex).s(&g.race).s(&g.class).i(g.level as i64);
+    for (name, list) in [("factions", &g.factions), ("journal", &g.journal), ("inventory", &g.inventory)] {
+        tb.table(name, "si", list.len());
+        for (k, v) in list {
+            tb.s(k).i(*v as i64);
+        }
+    }
+    tb.table("globals", "ssd", g.globals.len());
+    for (n, k, v) in &g.globals {
+        tb.s(n).s(&k.to_string()).d(*v as f64);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
 }
 
 /// Wraithguard: the player's stats from an OpenMW save, for the first-person body
@@ -4106,10 +4156,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             tools_locate,
             tools_tes3cmd,
             find_record,
-            editor_tags,
             editor_records,
             editor_rows,
-            editor_cell_refs,
             editor_ref_names,
             editor_actors,
             lua_scan,
@@ -4121,13 +4169,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             mesh_inspect,
             mesh_save,
             open_install,
-            textures,
-            cells,
-            texture_usage,
-            assets,
             cell_data,
             interior_data,
-            scopes,
             startup_install,
             theme_set,
             picker_set,

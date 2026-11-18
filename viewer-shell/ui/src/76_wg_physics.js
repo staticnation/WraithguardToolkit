@@ -10,6 +10,14 @@
    StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 const WgPhysics={
+  /** `phys_drop`'s tables (WGTB, commands.rs) as the object its JSON was: {frames:[[[x, y, z,
+   *  rx, ry, rz] per body] per frame], seconds, settled, skipped}. */
+  readDrop(tb){
+    const [seconds,settled,count]=(tb.head||[])[0]||[0,0,0];
+    const frames=Array.from({length:count}, ()=>[]);
+    for(const [f,...pose] of tb.poses||[]) frames[f].push(pose);
+    return {frames, seconds, settled:!!settled, skipped:(tb.skipped||[]).map(r=>r[0])};
+  },
   st:{gravity:1, friction:0.7, bounce:0.05, seconds:6, dropOnly:false, hollow:true},
   run:null,               // {bodies:[{hit, ref, off, scale}], frames, i, raf}
   REACH:1024,             // how far around the bodies other objects count as ground (units)
@@ -140,7 +148,7 @@ const WgPhysics={
     this.draw();
     this.tell('Falling…');
     let got;
-    try{ got=await Engine.call('phys_drop', {request:JSON.stringify(this.request(list))}); }
+    try{ got=this.readDrop(unpackTables(await Engine.bytes('phys_drop', {request:JSON.stringify(this.request(list))}))); }
     catch(e){ this.run=null; this.draw(); return this.tell(String(e.message||e)); }
     if(this.run!==run) return;
     run.busy=false;
