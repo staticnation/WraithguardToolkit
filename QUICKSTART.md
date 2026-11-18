@@ -71,7 +71,8 @@ The top bar switches between the pages.
   the game on it.
 - **Land**: sculpt, paint and color the terrain with a brush, into the Editor's patch.
 - **Tools**: Lint, Backups, Remove / rename master, Save Check, Journal, tes3cmd, Merge
-  Lands, Merge settings, Merge to master and the Mesh optimizer.
+  Lands, Merge objects (TES3Merge's merge), Merge settings, Merge to master, the Mesh
+  optimizer and Check meshes (repaired copies of meshes exporters wrote wrong).
 - **Help**: these documents, inside the program.
 
 ---
@@ -88,7 +89,9 @@ wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
 ```
 
 Leave out `--emit-toml` to preview the plan and write nothing. A timestamped `.bak` is
-made before anything is overwritten.
+made before anything is overwritten. It runs Merge Lands, Merge objects and Check meshes
+too (`--merge-lands`, `--merge-objects`, `--check-meshes`); `wraithguard --help` lists
+everything.
 
 ---
 
@@ -97,7 +100,8 @@ made before anything is overwritten.
 - **Nothing is written until you Export.** *Dry run* writes nothing even then, and the
   command line previews by default.
 - **A curated MOMW order is never reordered.** Only your additions move.
-- **Your mods are never modified.** Patches, Merged Lands and the Land view's edits all
-  go into new plugins.
+- **Your mods are never modified.** Patches, Merged Lands, Merged Objects and the Land
+  view's edits all go into new plugins; optimized and repaired meshes go into a folder of
+  their own, which you add last.
 - The MOMW team doesn't support customizations. This program helps you place and
   inspect them; it can't promise they're conflict-free.

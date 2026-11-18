@@ -105,6 +105,9 @@ for code: it is GPL-3.
   edits its scale at home - load both in the CS and see where the rock stands; if it stands
   where B moved it, 0023 and the Editor's rule turn round together
   (`tests/fixtures/move_cases.json`, "moved, then a plain record in its home cell").
+- Lenient reading (Settings, "Read past unknown subrecords") drops what it steps over, so a
+  marked record can't be written into a patch or Merged Objects. Keeping the unknown
+  subrecord's bytes with the record, and writing them back, would let one be patched.
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
@@ -149,7 +152,8 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
 - gtk-0.18-patches (`viewer-shell/Cargo.toml` `[patch.crates-io]`). Each Tauri release: is
   `webkit2gtk` still in `viewer-shell/Cargo.lock`? When it is gone (a wry on WebKitGTK 6), drop the
   two patch lines and archive the repository. Tauri also pins string_cache 0.9 and jsonptr 0.7
-  (Aikido: waiting on upstream): recheck each Tauri release.
+  (Aikido: waiting on upstream): recheck each Tauri release. Last rechecked with Tauri 2.12.7
+  (2026-11-18): `webkit2gtk`, string_cache 0.9 and jsonptr 0.7 are all still there.
 - Actions re-pinned 2026-11-17 in `subset sort\workflows`, to copy into `.github/workflows`:
   checkout 7.0.1, upload-artifact 7.0.2, cache 6.1.0, setup-node 7.1.0 (all were Node 24 already;
   the new majors are their move to ES modules, and checkout 7's block on fork PRs is for
@@ -213,13 +217,12 @@ the vanilla CS, so then:
 - Send Robin `subset sort\Gardenfell-offering-2026-10-19.zip` (0001-0014). His `fixture/`
   stays out of the repo; put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
 - Offer Greatness7 our tes3 fork's four fixes, each with its write-up in
-  `subset sort\tes3-patches`. Our fork has them since 7912cc2:
+  `subset sort\tes3-patches`. Our fork has them since 7912cc2 (710b0e2 with its formatting), and
+  WG's `Cargo.lock` takes 710b0e2:
   - `bytes_io-length-bounds`: the `bytemuck` panic on a misread length;
   - `esp-lenient-unknown-subrecords`: an NPC_ with a FILL;
   - `nif-uv-sets-by-count`: the corpus meshes that failed, which had their `Has UV` word 0;
   - `reserve-count-bounds`: counts that aborted the process.
-- Lenient reading drops what it steps over, so a marked record can't be written. Keeping the
-  unknown subrecord's bytes with the record, and writing them back, would let one be patched.
 - Send Robin 0024 (UV sets by their count, `stream::walk`, `netimmerse::repair`) with the next
   offering.
 - `gardenfell-g7`'s differential tests on a full install (`GARDENFELL_G7_PLUGINS`,

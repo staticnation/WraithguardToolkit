@@ -194,9 +194,12 @@
   output folder made before still has the same file; its `tool` field now reads "Wraithguard mesh
   optimizer".
 
-- **Tauri 2.12.6** (it was 2.12.0), with tauri-build 2.7.5, wry 0.57.2, tao 0.37.2, the dialog
-  plugin 2.8.4 and the fs plugin 2.7.1: the patch releases since, nothing in the app changed for
-  them.
+- **Tauri 2.12.7** (it was 2.12.0), with tauri-build 2.7.6, wry 0.57.3, tao 0.37.2, the dialog
+  plugin 2.8.4 and the fs plugin 2.7.1, and smallvec 1.16.6: the patch releases since, nothing in
+  the app changed for them. generic-array (0.14.7) and lua-src (551.0) are held where they are by
+  crypto-common's and mlua-sys's pins.
+- **The tes3 fork at `710b0e2`**: its four fixes (`subset sort\tes3-patches`), which the
+  entries on lenient reading and on reserved counts rely on.
 
 - **Every dependency at its newest version**, majors included: toml 1 (landcore, ordercore,
   toolscore), rusqlite 0.43, sha2 0.11, base64 0.23, libloading 0.9, htl-core 0.19, symphonia 0.6
@@ -271,8 +274,8 @@
 - **Two more bounds in the tes3 fork** (staticnation/tes3 `reserve-count-bounds`, with
   `nif-uv-sets-by-count`). The NIF object and root counts, and a leveled list's `INDX` count, were
   reserved as read. A damaged count of 4 billion asked for 34 to 137 GB, and the process aborted,
-  which no error handling can catch. They are now capped by the bytes left. These take effect when
-  `Cargo.lock` takes the fork's commit.
+  which no error handling can catch. They are now capped by the bytes left (in `Cargo.lock` since
+  `710b0e2`).
 - **tes3cmd's own backups were copied into your mod folder** (wg_fixes61, unreleased). A command
   not told `--hide-backups` (`delete`, `modify`) keeps tes3cmd's backup beside the plugin
   (`Conf_A~1.esp`), and the new-file step took those for plugins the run made. Only plugins are

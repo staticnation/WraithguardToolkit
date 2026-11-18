@@ -215,6 +215,15 @@ the series and his fixture on his full 18hu source: it builds, and his whole sui
   order with no moves pays nothing. Test: `tests/fixtures/move_cases.json`, "moved, then a plain
   record in its home cell" (`viewcore/tests/ref_moves.rs`), one answer for both sides now.
 
+- `patches/0024-nif-uv-sets-by-count-and-repairs.patch`: `NiGeometryData` reads its UV sets
+  by `Num UV Sets` (low six bits, as nif.xml sizes them), whatever the `Has UV` word says. Some
+  exporters write the word 0 with the UV sets there, and reading by the word took the texture
+  coordinates as the triangles (The Unhatched's `nf_x_temple_main.nif`, Baths of Vvardenfell's
+  steam meshes). It also adds `stream::walk`/`walk_from`, which read as `Stream::parse` does
+  and keep each block's bytes, and `netimmerse::repair` (new file), Wraithguard's Check meshes
+  and its mesh optimizer's repairs. Tests: `repair.rs` `mod tests` (five), run by CI with
+  `-p gardenfell-nif --lib`. Written up for Robin in `patches/NOTES-FOR-ROBIN.md`.
+
 ## File hashes (SHA-256)
 
 ```
