@@ -6,7 +6,7 @@
 //! just what it needs of each record, keyed by ASCII-lowercased ID the way MWEdit and the
 //! game look IDs up; a later plugin's record replaces an earlier one.
 //!
-//! Plugins are read with greatness7's tes3 crate (`Plugin::load_bytes_filtered`, only
+//! Plugins are read with greatness7's tes3 crate (`plugin::load_filtered`, only
 //! the record types a script can name), as the rest of the backend reads them; cells,
 //! which a compile needs only by name, are read from the file's framing instead of being
 //! parsed whole. The editor adds the records its patch pool holds (a new global, a new
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use encoding_rs::WINDOWS_1252;
-use tes3::esp::{EditorId, Plugin, TES3Object, TypeInfo};
+use tes3::esp::{EditorId, TES3Object, TypeInfo};
 
 use crate::frames::{records, subrecords};
 
@@ -182,9 +182,8 @@ fn record_of(obj: &TES3Object) -> Option<Record> {
 
 /// The records of one plugin a compile can refer to.
 pub fn records_from_bytes(data: &[u8]) -> std::io::Result<Vec<Record>> {
-    let mut plugin = Plugin::new();
-    crate::guarded(|| plugin.load_bytes_filtered_with_encoding(data, wanted, crate::plugin::code_page()))?;
-    let mut out: Vec<Record> = plugin.objects.iter().filter_map(record_of).collect();
+    let objects = crate::plugin::load_filtered(data, wanted)?;
+    let mut out: Vec<Record> = objects.iter().filter_map(record_of).collect();
     // Cells by name, from the framing: a compile never needs a cell's contents.
     for (tag, body) in records(data) {
         if tag == b"CELL" {

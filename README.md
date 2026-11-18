@@ -378,7 +378,11 @@ Each tool is a section on the left with its work on the right.
 - **Report** lists what was read: the plugins with their masters, the archives, the meshes
   and textures found, and anything that couldn't be read.
 - **Settings** (the gear) holds the theme, the language, how the mouse moves the camera,
-  and the side panel.
+  and the side panel. **Read past unknown subrecords** (off by default) lets the scans, the
+  Editor and Merge objects read a plugin with a subrecord its record type doesn't know (an NPC
+  with a FILL, as some tools write), instead of leaving the plugin out. A record read that way
+  is marked: the Editor says so and won't write it into a patch, and Merge objects leaves out a
+  record whose last version was read so, because writing it would drop that subrecord.
 
 ---
 
@@ -460,6 +464,7 @@ yourself, last, as you would after the Tools page's merge.
 | `--merge-objects-inclusive` | NPC and creature inventories merged inclusively (every item any plugin gives). |
 | `--merge-objects-lists-only` | Only the leveled lists, into `multipatch.esp` (TES3Merge's multipatch). |
 | `--check-meshes [FOLDER]` | Check meshes: the meshes that are not sound listed with what was found. With FOLDER, the mendable ones are written there repaired, at their own paths. FOLDER is left out of the meshes read, so add it last to your data folders. |
+| `--lenient-plugins` | Read past a subrecord a record type doesn't know instead of refusing the plugin, as Settings' *Read past unknown subrecords*. |
 | `--check-meshes-guesses` | With `--check-meshes FOLDER`: also write the meshes mendable only by a guess. |
 | `--no-predicate-warnings`, `-v`/`-vv`, `--trace` | Quieter, louder, or a trace log. |
 | `tes3cmd <command> ...` | tes3cmd itself, built in (below). |

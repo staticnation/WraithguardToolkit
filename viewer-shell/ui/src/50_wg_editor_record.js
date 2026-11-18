@@ -487,6 +487,7 @@ Object.assign(WgEditor, {
       v.plugins.map((p,i)=>i===v.plugins.length-1? '<b>'+escHtml(p)+'</b>' : escHtml(p)).join(' &gt; ')+'</span></div>';
     if(v.whole) h+='<div class="hint">Wraithguard\'s patch takes this whole record from '+escHtml(v.whole)+'; a change here replaces that choice.</div>';
     if(v.new) h+='<div class="hint">Made by this patch: a change here is the record itself.</div>';
+    for(const [p,why] of (v.lossy||[])) h+='<div class="hint warn">Read from '+escHtml(p)+' past a subrecord its type does not know ('+escHtml(why)+'), because Settings has "Read past unknown subrecords" on. A patch can\'t carry this version: writing it would drop that subrecord.</div>';
     const flags=v.fields.find(f=>f.path==='flags');
     const flagsNow=flags? String(('queued' in flags)? flags.queued : flags.value||'') : null;
     const deleted=flagsNow!=null && flagsNow.split('|').some(x=>x.trim()==='DELETED');

@@ -2611,6 +2611,17 @@ fn cpu_threads() -> usize {
     viewcore::pool::threads()
 }
 
+/// Wraithguard: Settings' "Read past unknown subrecords" (`editcore::plugin::set_lenient`):
+/// set when `on` is given, and answered as it stands. Off until the page sets it from the
+/// viewer profile.
+#[tauri::command(async)]
+fn plugins_lenient(on: Option<bool>) -> bool {
+    match on {
+        Some(v) => editcore::plugin::set_lenient(v),
+        None => editcore::plugin::lenient(),
+    }
+}
+
 /* ---- ORI: what a picked reference is, and where every part of it comes from ---------
 
    Wraithguard's object inspector, after the console's `ori`: click a placed object and
@@ -4283,6 +4294,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             assets_bundle,
             texture_data,
             cpu_threads,
+            plugins_lenient,
             viewer_profile_read,
             cell_coverage,
             ori,

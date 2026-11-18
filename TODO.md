@@ -218,9 +218,8 @@ the vanilla CS, so then:
   - `esp-lenient-unknown-subrecords`: an NPC_ with a FILL;
   - `nif-uv-sets-by-count`: the corpus meshes that failed, which had their `Has UV` word 0;
   - `reserve-count-bounds`: counts that aborted the process.
-- After the fork's push: `cargo update -p tes3 -p bytes_io` in `viewer-shell`, then set
-  `Reader::lenient` in `editcore::plugin::reader`, so a plugin with a subrecord its record type
-  doesn't know is read past it rather than refused.
+- Lenient reading drops what it steps over, so a marked record can't be written. Keeping the
+  unknown subrecord's bytes with the record, and writing them back, would let one be patched.
 - Send Robin 0024 (UV sets by their count, `stream::walk`, `netimmerse::repair`) with the next
   offering.
 - `gardenfell-g7`'s differential tests on a full install (`GARDENFELL_G7_PLUGINS`,

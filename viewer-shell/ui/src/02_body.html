@@ -710,6 +710,11 @@
         <label class="sw"><input type="checkbox" id="setPad" checked><span class="tr"></span></label></div></div>
       <div class="row"><label title="Cells drawn with the OpenMW-style normal (_n, _nh) and specular (_spec) maps your mods ship beside their textures, with settings.cfg's suffixes. Off by default: each mesh then loads two or three more textures, and a big cell such as Balmora can run the viewer out of memory. The mesh viewer always has them, with a switch per map.">Normal and specular maps (cells)</label><div class="ctl">
         <label class="sw"><input type="checkbox" id="setNrmMaps"><span class="tr"></span></label></div></div>
+      <!-- Wraithguard (38_wg_viewport.js, editcore::plugin::set_lenient): plugins with a
+           subrecord their record type does not know. Saved in the viewer profile. -->
+      <div class="mhead2">Plugins</div>
+      <div class="row"><label title="A plugin with a subrecord its record type does not know (an NPC with a FILL, as some tools write) can't be read, and the scans, the Editor and Merge objects leave it out. On, such a record is read past what it does not know. A record read that way is marked: the Editor says so and won't write it into a patch, and Merge objects leaves out a record whose last version was read so, because writing it would drop that subrecord. Records that read normally are unchanged. Off by default. Takes effect for plugins read from now on: rescan, or reopen the Editor.">Read past unknown subrecords</label><div class="ctl">
+        <label class="sw"><input type="checkbox" id="setLenient"><span class="tr"></span></label></div></div>
       <div class="mhead2">Performance</div>
       <div class="row"><label title="The most frames drawn per second. Lower saves power and keeps the machine cool; Off draws as fast as the screen refreshes. The view also stops drawing while the window is minimized or a dialogue covers most of it.">Frame rate cap</label><div class="ctl">
         <select class="fld" id="setFpsCap">

@@ -472,11 +472,11 @@ fn patch_record(tag: &str, v: &mut Value, id: &str, opts: &Options) -> bool {
 
 // ---- the run --------------------------------------------------------------------------------
 
-/// One plugin's records of the merged types, as values (cells without their references).
+/// One plugin's records of the merged types, as values (cells without their references), a
+/// record read leniently marked (`plugin::LOSSY`).
 fn read_plugin(path: &Path, tags: &[[u8; 4]]) -> Result<Vec<Value>, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let objs = crate::plugin::objects(&bytes, Some(tags), true).map_err(|e| e.to_string())?;
-    objs.iter().map(|o| serde_json::to_value(o).map_err(|e| e.to_string())).collect()
+    crate::plugin::values(&bytes, Some(tags), true).map_err(|e| e.to_string())
 }
 
 /// Merges `plugins` (`(name, path)` in load order) as TES3Merge does (see the module).
@@ -563,13 +563,36 @@ pub fn merge(plugins: &[(String, PathBuf)], opts: &Options) -> Outcome {
     let mut used: HashSet<usize> = HashSet::new();
     for t in &type_order {
         for key in order.iter().filter(|k| &k.0 == t) {
-            let recs = &versions[key];
-            let (first, last) = (&recs[0].1, &recs[recs.len() - 1].1);
-            let id = record_id(last).unwrap_or_default();
+            let marked = &versions[key];
             // A record the last plugin deletes stays deleted: nothing is merged into it.
-            if deleted(last) {
+            if deleted(&marked[marked.len() - 1].1) {
                 continue;
             }
+            // The merge starts from the last version: one read past a subrecord its type does
+            // not know (lenient reading) would lose it, so the record is left out. An earlier
+            // version read so is merged from as read.
+            if let Some(why) = crate::plugin::lossy(&marked[marked.len() - 1].1) {
+                let id = record_id(&marked[marked.len() - 1].1).unwrap_or_default();
+                out.failed.push(format!("{t} {id}"));
+                out.lines.push(format!(
+                    "Left out {t} record '{id}': {} was read past a subrecord its type does not know ({why}), and merging it would drop that subrecord.",
+                    plugins[marked[marked.len() - 1].0].0
+                ));
+                continue;
+            }
+            let recs: Vec<(usize, Value)> = marked
+                .iter()
+                .map(|(i, v)| {
+                    let mut v = v.clone();
+                    if let Value::Object(m) = &mut v {
+                        m.remove(crate::plugin::LOSSY);
+                    }
+                    (*i, v)
+                })
+                .collect();
+            let recs = &recs;
+            let (first, last) = (&recs[0].1, &recs[recs.len() - 1].1);
+            let id = record_id(last).unwrap_or_default();
             let mut current = last.clone();
             let mut from: Vec<usize> = vec![recs[0].0, recs[recs.len() - 1].0];
             if recs.len() > 2 && !deleted(first) {

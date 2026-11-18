@@ -5,7 +5,9 @@
 
    The renderer (06_gl.js) reads `opts.zoomToCursor` and `opts.fpsCap`, and asks
    `R.covered()` each frame; this binds the Settings controls, keeps them in the viewer
-   profile (PrevSettings' `[viewport]`: zoom_cursor, fps_cap), and answers `covered`.
+   profile (PrevSettings' `[viewport]`: zoom_cursor, fps_cap, lenient_plugins and the rest),
+   and answers `covered`. It also carries Settings' "Read past unknown subrecords", a switch
+   in the engine (`plugins_lenient`).
    Copyright (c) 2026 StaticNation.
    ===================================================================================== */
 const WgViewport={
@@ -48,6 +50,10 @@ const WgViewport={
     // already read are read again, so the scene has them at once.
     const nm=$('#setNrmMaps');
     if(nm) nm.onchange=()=>{ App._nrmChosen=true; this.setCellNormalMaps(nm.checked); this.touch(); };
+    // Read past unknown subrecords: the engine's switch (plugins_lenient), off until the
+    // viewer profile turns it on.
+    const ln=$('#setLenient');
+    if(ln) ln.onchange=()=>{ this.setLenient(ln.checked); this.touch(); };
     const pd=$('#setPad');
     if(pd) pd.onchange=()=>{ if(typeof WgPad==='object') WgPad.setEnabled(pd.checked); this.touch(); };
     const fc=$('#setFpsCap');
@@ -78,6 +84,15 @@ const WgViewport={
 
   touch(){ if(typeof PrevSettings==='object') PrevSettings.touch(); },
 
+  /** Lenient plugin reading (Settings' "Read past unknown subrecords") on or off, in the
+      engine and on the switch. */
+  lenient:false,
+  setLenient(on){
+    this.lenient=!!on;
+    const ln=$('#setLenient'); if(ln) ln.checked=this.lenient;
+    try{ const p=Engine.call('plugins_lenient',{on:this.lenient}); if(p && p.catch) p.catch(()=>{}); }catch(_){}
+  },
+
   /** Wraithguard: cells load without the normal and specular maps unless the switch is
       turned on. Following the setup's settings.cfg turned them on for most installs, and
       a big cell (Balmora, ~600 meshes) then decoded two or three extra textures per mesh
@@ -97,6 +112,7 @@ const WgViewport={
     return [['zoom_cursor',o.zoomToCursor!==false], ['fps_cap',Math.max(0,+o.fpsCap||0)],
             ['ao_mode',o.ssgi? 'ssgi' : 'ssao'],
             ['gamepad', typeof WgPad==='object'? WgPad.enabled!==false : true],
+            ['lenient_plugins', !!this.lenient],
             ['cov_heat', typeof WgCoverage==='object'? !!WgCoverage.on : true],
             ['cov_mode', typeof WgCoverage==='object'? String(WgCoverage.mode==='plugin'? 'mods' : WgCoverage.mode) : 'mods'],
             // `cell_maps`, not `normal_maps_cells`: that one saved `true` into profiles
@@ -111,6 +127,7 @@ const WgViewport={
     if(V.fps_cap!=null && App.R) App.R.opts.fpsCap=Math.max(0,+V.fps_cap||0);
     if(V.ao_mode!=null && App.R) App.R.opts.ssgi=String(V.ao_mode)==='ssgi';
     if(V.gamepad!=null && typeof WgPad==='object') WgPad.setEnabled(!!V.gamepad);
+    if(V.lenient_plugins!=null) this.setLenient(!!V.lenient_plugins);
     { const pd=$('#setPad'); if(pd && typeof WgPad==='object') pd.checked=WgPad.enabled!==false; }
     if(V.cov_heat!=null && typeof WgCoverage==='object') WgCoverage.on=!!V.cov_heat;
     if(V.cov_mode!=null && typeof WgCoverage==='object' && ['mods','conflicts','land'].includes(String(V.cov_mode))) WgCoverage.mode=String(V.cov_mode);

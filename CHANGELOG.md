@@ -316,6 +316,21 @@
 
 ### Added
 
+- **Read past unknown subrecords** (Settings, `--lenient-plugins`; `editcore::plugin::set_lenient`,
+  `plugins_lenient`). Off by default. A plugin with a subrecord its record type doesn't know (an
+  NPC_ with a FILL, as tools and test fixtures write) failed that record and the plugin with it,
+  so the scans, the Editor and Merge objects left the plugin out. With the switch on, such a
+  record is read again with the tes3 fork's `Reader::lenient`, which steps over what it doesn't
+  know (the fork's `esp-lenient-unknown-subrecords`, in `Cargo.lock` since `710b0e2`).
+  - **Strict first:** a record that reads strictly is read exactly as before.
+  - **Marked:** a record read leniently carries the strict read's error (`__lossy`).
+  - **Never written silently:** writing a marked record back would drop the subrecord. The patch
+    writer (`records_bytes`) refuses one and names it, and the Editor's record dialog says which
+    version was read so. Merge objects leaves out a record whose last version was read so, but
+    merges from an earlier version read so as usual. A record left untouched by an in-place
+    edit is still copied byte for byte.
+  - **Saved** in the viewer profile (`lenient_plugins`), and set in the engine when the profile
+    loads.
 - **Merge objects** (Tools, `--merge-objects`; `editcore::mergeobjects`, `tools_merge_objects`).
   TES3Merge's merge, ported: one `Merged Objects.esp` keeps every mod's changes to the records
   two or more plugins change, not only the last one's. It works for an `openmw.cfg`, an MO2

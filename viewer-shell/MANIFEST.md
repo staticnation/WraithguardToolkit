@@ -158,6 +158,7 @@ names a command that is not defined, or one is left unregistered.
 - **read**: `read_asset`
 - **mesh**: `mesh_data`, `mesh_collision`, `mesh_inspect`, `mesh_save`
 - **cpu**: `cpu_threads`
+- **plugins**: `plugins_lenient` (Settings' "Read past unknown subrecords")
 - **ori**: `ori`, `ori_dialogue`
 - **find**: `find_record`
 - **editor**: `editor_tags`, `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs`, `editor_cell_refs_bytes`, `editor_ref_names`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`

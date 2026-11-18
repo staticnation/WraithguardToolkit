@@ -371,6 +371,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "editor_link" => Reply::Text(t::editor_link(st(), s(a, "name"), s(a, "body"))?),
         "editor_land_link" => Reply::Text(t::editor_land_link(raw(a)?)?),
         "cpu_threads" => Reply::Raw(t::cpu_threads().to_string()),
+        "plugins_lenient" => Reply::Raw(t::plugins_lenient(a.get("on").and_then(|v| v.as_bool())).to_string()),
         // The settings file and the Setup page (port 4.5): the page's first start is driven
         // through these (ui/tests/boot.js, WG_SETUP=1).
         "setup_state" => Reply::Json(t::setup_state(s(a, "settingsFile"))?),

@@ -277,6 +277,11 @@ fn command() -> Command {
                      paths, for a data folder added last (your mods are not modified); --dry-run writes nothing",
                 ),
         )
+        .arg(flag(
+            "lenient-plugins",
+            "Read past a subrecord a record type does not know (an NPC_ with a FILL) instead of refusing the plugin; such a record is \
+             marked, and Merge objects leaves out a record whose last version was read so (Settings' \"Read past unknown subrecords\")",
+        ))
         .arg(flag("check-meshes-guesses", "With --check-meshes FOLDER: also write the meshes mendable only by a guess (a node whose lists do not read, emptied)"))
         .arg(Arg::new("verbose").short('v').long("verbose").action(ArgAction::Count).help("Show run diagnostics on stderr (-v, -vv)"))
 }
@@ -332,6 +337,8 @@ struct Args {
     /// `--check-meshes`: `Some("")` to report only, else the folder the repaired copies go to.
     check_meshes: Option<String>,
     check_meshes_guesses: bool,
+    /// `--lenient-plugins`: `editcore::plugin::set_lenient` for the run.
+    lenient_plugins: bool,
     unused: Vec<&'static str>,
     verbose: u8,
 }
@@ -415,6 +422,7 @@ impl Args {
             merge_objects_lists_only: on("merge-objects-lists-only"),
             check_meshes: m.get_one::<String>("check-meshes").map(|v| if v.is_empty() { String::new() } else { py_path(v) }),
             check_meshes_guesses: on("check-meshes-guesses"),
+            lenient_plugins: on("lenient-plugins"),
             unused,
             verbose,
         }
@@ -800,6 +808,7 @@ fn run(args: &Args) -> Result<(), String> {
     let log = Log { verbose: args.verbose };
     let trace = Trace::open(args.trace.as_deref());
     trace.line("CLI started");
+    editcore::plugin::set_lenient(args.lenient_plugins);
     if args.stray_profile {
         return Err("--profile names an MO2 profile: give the MO2 folder with --mo2".into());
     }

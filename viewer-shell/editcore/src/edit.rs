@@ -68,6 +68,10 @@ pub fn crlf(text: &str) -> String {
 pub fn flatten(record: &Value) -> Vec<(String, Value)> {
     fn walk(v: &Map<String, Value>, parent: &str, out: &mut Vec<(String, Value)>) {
         for (k, x) in v {
+            // A lenient read's mark (`plugin::LOSSY`) is not a field.
+            if parent.is_empty() && k == crate::plugin::LOSSY {
+                continue;
+            }
             let path = if parent.is_empty() { k.clone() } else { format!("{parent}.{k}") };
             match x {
                 Value::Object(m) => walk(m, &path, out),
@@ -238,7 +242,8 @@ impl Editor {
 
     /// What the record dialog shows: `{tag, type, id, winner, plugins, whole, new,
     /// fields}`, each field `{path, value, editable, kind, options}` with `count` for a
-    /// list and `queued` and `source` (a plugin, or "typed") when the patch changes it.
+    /// list and `queued` and `source` (a plugin, or "typed") when the patch changes it; and
+    /// `lossy` when a version was read past a subrecord its type does not know.
     pub fn view(&self, found: &Found) -> Value {
         let choices = self.queue.fields().get(&(found.record_type.clone(), found.key.clone()));
         let by_plugin: Vec<(&str, Vec<(String, Value)>)> = found.versions.iter().map(|(p, r)| (p.as_str(), flatten(r))).collect();
@@ -275,7 +280,9 @@ impl Editor {
             fields.push(item);
         }
         let whole = self.queue.selections().iter().find(|s| s.record_type == found.record_type && s.key == found.key).map(|s| s.plugin.clone());
-        json!({
+        let lossy: Vec<Value> =
+            found.versions.iter().filter_map(|(p, r)| crate::plugin::lossy(r).map(|why| json!([p, why]))).collect();
+        let mut view = json!({
             "tag": found.tag,
             "type": found.record_type,
             "id": found.key,
@@ -284,7 +291,13 @@ impl Editor {
             "whole": whole,
             "new": found.new,
             "fields": fields,
-        })
+        });
+        // The versions read past a subrecord their type does not know (lenient reading), as
+        // `[plugin, why]`, only when there are any. A patch carrying one is refused (`records_bytes`).
+        if !lossy.is_empty() {
+            view["lossy"] = Value::Array(lossy);
+        }
+        view
     }
 
     /// Queues a typed value for one field (and saves the journal). A value equal to what
