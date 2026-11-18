@@ -58,10 +58,12 @@ wildcards = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# The forks ([patch] in Cargo.toml and the crates' own git dependencies). cargo audit and
-# OSV-Scanner do not read these: watch their upstreams by hand (TODO.md, Forks).
+# The forks ([patch] in Cargo.toml and the crates' own git dependencies), and tes3cmd-rs,
+# Static's own port of tes3cmd (toolscore's built-in tes3cmd). cargo audit and OSV-Scanner do
+# not read these: watch their upstreams by hand (TODO.md, Forks).
 allow-git = [
     "https://github.com/staticnation/tes3",
     "https://github.com/staticnation/merge_to_master",
     "https://github.com/staticnation/gtk-0.18-patches",
+    "https://github.com/staticnation/tes3cmd-rs",
 ]
