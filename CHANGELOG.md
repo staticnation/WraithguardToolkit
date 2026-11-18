@@ -153,6 +153,14 @@
   still ask `WgEditor.ask` as before. Checked against the engine before the change: the same
   answers, pending patch, pending land and journal after each of eight edits, refusals included.
 
+- **README revised for the program as it is** (2026-11-18): MO2 and Morrowind.ini installs
+  (Setup, the Load order page's Plain mlox and Export, the command line), the Editor's *Edit a
+  plugin* in place, the Land view's masks, Merge Lands' models, seam repair, cells left out and
+  OpenMWMergedLands import, the Master flags warning, the three cameras, tes3cmd built in, the
+  missing `--merge-repair-seams` and `--merge-seam-except`, the backups' names, and Safety
+  reworded to match (a plugin is written when you ask for it, a backup first). Setup's tes3cmd
+  field now says it is the external one, and "neighbouring" and "behaviour" in the Merge Lands
+  text and the command line's help are American.
 - **American spelling for the mesh tools**: the mesh viewer's button reads "Optimize draw order"
   (it was "Optimise"), and the Tools page's Mesh optimiser is the Mesh optimizer, its messages
   "optimized". The manifest it writes keeps its name, `wraithguard-mesh-optimiser.json`, so an

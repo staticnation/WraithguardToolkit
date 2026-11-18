@@ -172,7 +172,7 @@ fn command() -> Command {
                 .value_name("GAP")
                 .value_parser(clap::value_parser!(i32).range(1..))
                 .help(
-                    "With --merge-lands: also repair the seams the terrain already has (neighbouring cells that disagree about the \
+                    "With --merge-lands: also repair the seams the terrain already has (neighboring cells that disagree about the \
                      vertices they share, in cells no plugin changed), where the gap is at most GAP world units (default 24; a wider \
                      one is taken to be meant). Off by default: only the borders of cells a plugin changed are repaired",
                 ),

@@ -12,12 +12,14 @@ a modded setup needs:
 - a **3D Cell Preview** of any cell in your load order, with its scripts running;
 - **Conflicts**, record by record and file by file;
 - an **Editor** in the Construction Set's mold that writes its changes into one new patch
-  plugin;
+  plugin, or into a plugin of the load order you choose to edit;
 - a **Land** view for sculpting and painting terrain;
-- **Tools** for linting, backups, broken masters, save checks, tes3cmd, Merged Lands and
-  more.
+- **Tools** for linting, backups, broken masters, save checks, tes3cmd (built in), Merged
+  Lands and more.
 
-One program for Windows, macOS and Linux, with a command line beside it for headless use.
+It reads an OpenMW install (`openmw.cfg`), a Mod Organizer 2 install, or the game's own
+(`Data Files` and `Morrowind.ini`). One program for Windows, macOS and Linux, with a command
+line beside it for headless use.
 
 **New here? [QUICKSTART.md](QUICKSTART.md) is the five-minute version.** Writing your own
 sort rules? See [MLOX_RULES.md](MLOX_RULES.md). Both also open from **Help** inside the
@@ -76,14 +78,15 @@ Help page shows. Unpack it anywhere and run the program; there is nothing to ins
 
 ## First start: Setup
 
-The first start opens **Setup**: every path the program runs on, in one place. Each field
-is checked as you type, the same way the program will read it. Missing data folders, a TOML
-that doesn't parse and rule files that aren't there are named, with what to do about them,
-before anything is loaded. **Save and load** saves the settings and loads your install.
+The first start opens **Setup**: every path the program runs on, in one place, in three
+groups (your install, sorting, Tools). Each field is checked as you type, the same way the
+program will read it. Missing data folders, a TOML that doesn't parse and rule files that
+aren't there are named, with what to do about them, before anything is loaded. **Save and
+load** saves the settings and loads your install.
 
 | Field | What it is |
 |---|---|
-| **openmw.cfg** | The cfg OpenMW starts with. Its `data=` folders and `content=` files are the load order every page reads. **Find** looks where OpenMW keeps it. |
+| **The install** | The load order every page reads. **OpenMW**: the `openmw.cfg` it starts with, its `data=` folders and `content=` files (**Find** looks where OpenMW keeps it). **MO2…**: a Mod Organizer 2 folder, with the profile it has selected (or add `\|Profile`). **Morrowind…**: the game's `Data Files`, read with the `Morrowind.ini` beside it. |
 | **OpenMW folder** | Where OpenMW is installed. The Lua checks read its API from here, and the Cell Preview runs OpenMW Lua with its LuaJIT and built-in scripts. Optional. |
 | **Rule files** | mlox rule files, one per line, lowest priority first: `mlox_base.txt`, then `mlox_user.txt`, then your own. A folder means its `.txt` files. |
 | **Your rule file** | Where the rule maker adds your own rules. Keep it last among the rule files. |
@@ -94,8 +97,15 @@ before anything is loaded. **Save and load** saves the settings and loads your i
 | **Data-paths cache** | The list's `data=` order, fetched for sorting data paths. |
 | **Write customizations to** | Where Export writes the corrected TOML. Empty: back into customizations.toml. |
 | **Grass plugins** | Plugins written as `groundcover=` rather than `content=`. |
+| **tes3cmd** | An external tes3cmd (the MOMW Tools Pack's `tes3cmd.exe`, or the Perl script), for when the Tools page's *Use external* is ticked. Optional: tes3cmd is built in. |
 | **Merge Lands writes to** | The folder `Merged Lands.esp` goes in. Empty: the one holding most of the load order. |
 | **Leave out of scans** | Plugins the conflict and cell scans skip: patterns, separated by commas. |
+
+On an MO2 or `Morrowind.ini` install the fields that are OpenMW's or MOMW's alone (the
+customizations TOML, plugin-order.yml, the list, grass plugins, the OpenMW folder) are
+hidden, and the Load order page sorts by the mlox rules alone. An MO2 install that feeds
+OpenMW through MO2's *Export to OpenMW* counts as OpenMW's: its OpenMW folder still applies,
+and Export writes both MO2's order and that `openmw.cfg`.
 
 Setup is always one click away in the top bar. It also opens by itself after a start that
 never finished loading, so a broken install can't lock you out; **Restart** starts the
@@ -115,7 +125,9 @@ That means its terrain and textures, objects, NPCs and creatures in their gear, 
 sky and weather, grass, particles, lights and shadows. The Preview changes only what you
 see, never a plugin.
 
-- **Moving around.** Orbit with the right mouse button, or press **Tab** for WASD flight.
+- **Moving around.** Three cameras, and **Tab** (or the toolbar's button) goes round them:
+  orbit with the right mouse button, WASD flight, and first person at a person's eye height,
+  walking on the land and on objects with gravity, steps and jumps.
   **Cell map** (or the key under Escape) opens the world map to pick another cell, with
   the mods that touch each one. The arrows at the view's edges step one cell over.
   **Shift+click** a door to go through it.
@@ -182,10 +194,18 @@ curated list, the plugins you choose are placed among the rest the same way.
 With **plugin-order.yml** and the **list name** set, plugins on the curated list are kept
 out of the sort, and only your true additions move.
 
+**Plain mlox.** With no curated list to keep, **Plain mlox** places the whole `content=` list
+by the mlox rules alone, as mlox itself does. An MO2 or `Morrowind.ini` install is always
+sorted this way; Export then writes MO2's `loadorder.txt`, `plugins.txt` and the profile's
+`Morrowind.ini` (and the `openmw.cfg` MO2 exports, when it feeds OpenMW), or the game's
+`Morrowind.ini` and its plugins' dates. With a customizations TOML named, Export on an
+`openmw.cfg` also writes the customizations that make MOMW's Configurator build the same
+order.
+
 **The orders.** `content=` and `data=` as two lists. Drag a row (or select it and move it)
-to adjust, and untick one to leave it out. Your own mods are marked, and plugins with a
-master problem are marked too. **Sort data paths** also places the `data=` folders your mods
-add.
+to adjust, and untick one to leave it out. A box on each list's header finds rows by name.
+Your own mods are marked, and plugins with a master problem are marked too. **Sort data
+paths** also places the `data=` folders your mods add.
 
 **The warnings**, beside the orders, filtered by kind:
 
@@ -195,6 +215,7 @@ add.
 | Rules not applied | Ordering rules that contradict each other or the frozen list. |
 | Masters | A master missing (installed but not enabled, or not found at all) or loading after its dependent. |
 | Master sizes | The installed master isn't the version the plugin was built against (0 usually means a failed tes3cmd sync). |
+| Master flags | A plugin whose extension and header disagree: an `.esp` flagged as a master, or an `.esm` that isn't. |
 | plugin-order.yml | A "custom" plugin already on the list, an unmanaged plugin, one the list says needs cleaning. |
 | Drift | Your base order no longer matches the list's. |
 | Stale merges | A generated file (`delta-merged.omwaddon`, `S3LightFixes.esp` ...) older than the plugins it merged: run the Configurator again. |
@@ -251,8 +272,14 @@ Everything queued goes to the same patch the Editor builds.
 ### Editor
 
 The Construction Set's working windows around the Preview's render window: a mode of its
-own (the top bar's **Editor**). Every change goes into **one patch plugin**, and your mods
-are never touched.
+own (the top bar's **Editor**). Every change goes into one pool of edits, kept between runs.
+**Build patch** writes it as **a new patch plugin**, loaded after the rest, so your mods are
+never touched. Or choose a plugin of the load order under **Edit a plugin**, as the
+Construction Set has an active file: the Editor then reads it last, so you edit records as
+that plugin has them, and Build patch writes the pool into it in place. Every other record of
+that plugin is kept byte for byte, and the plugin as it was is kept once as
+`name.preedit.bak`. Plugins are read and written in the install's code page (OpenMW's
+`encoding=`, or the game's edition), so Russian and Polish names come out right.
 
 - **The Object Window.** Every record of the load order by type, with a filter (Ctrl+F),
   search by any field, sortable columns (id, name, model, the plugins that define it, how
@@ -294,10 +321,12 @@ are never touched.
 - **Keys.** Every shortcut is listed under **Keys**, and **Change the keys…** remaps them,
   along with a game controller's buttons.
 - **Finishing.**
-  - **Verify** checks what the patch carries.
+  - **Verify** checks what the patch carries: matching ids, sounds, and land borders the
+    patch opens with a neighboring cell.
   - **Test in OpenMW** writes it to a scratch plugin and starts the game in the cell you're
     looking at.
-  - **Build patch** writes the plugin.
+  - **Build patch** writes the plugin: a new one (*Append* to it over several sessions, or
+    *Replace* it), or the plugin you're editing, in place.
   - **Messages** keeps every note and error.
 
 ### Land
@@ -308,8 +337,13 @@ patch a moment after each stroke. With **Preview first** on, strokes wait for **
 
 - **Height**: raise, lower, smooth, sharpen, flatten (to where the stroke began, a fixed
   height, the sea or the brush's average), ramp, noise, terrace and erode.
-- **Texture**: paint a land texture onto the ground's texture cells.
+- **Texture**: paint a land texture onto the ground's texture cells. Hovering a texture's
+  name shows its picture.
 - **Color**: blend the vertex colors the game tints the ground by.
+- **Mask**: paint a mask onto the ground (Alt rubs it out), then hold the height and color
+  brushes inside it or out of it. The **Texture mask** does the same by what is painted on
+  the ground: "only on these textures" levels a road without moving the grass beside it.
+  Masks are the page's own and are never written to the patch.
 - The brush has shapes, falloffs and dynamics: click, drag or hold; decay and fade;
   velocity, jitter, a stabilizer and a cap. Presets save the settings.
 - Overlays show hillshade, a height tint and contour lines.
@@ -323,12 +357,12 @@ Each tool is a section on the left with its work on the right.
 | Tool | What it does |
 |---|---|
 | **Lint** | Problems the game doesn't report: the "evil GMSTs" (only when name and value both match), the interior fog bug, new interiors with no path grid anywhere, blank headers, Tribunal/Bloodmoon calls without the master, `.omwscripts` twins left out. |
-| **Backups** | Every copy the program and tes3cmd took before changing a file: restore or delete it. |
+| **Backups** | Every copy the program and tes3cmd took before changing a file (a master removed, a plugin edited in place or run through tes3cmd, a merge's output replaced): restore or delete it. |
 | **Remove / rename master** | A master OpenMW can't find: removed (references renumbered, a dry run first) or pointed at the file that replaced it. The original is kept once as `.premaster.bak`. |
 | **Save Check** | Whether a save loads with this order (the content files it needs that the order lacks), the space each mod takes in it and how to shrink it, and two saves compared. |
 | **Journal** | Every quest's stages in index order, each with the scripts and responses that set it, and their conditions. |
 | **tes3cmd** | tes3cmd built in ([tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs), no tes3cmd.exe or Perl needed) on each plugin: clean, header or any command, on a copy with its masters read from your data folders and never changed, a backup kept; master sizes synced in-app. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and `diff` on two; a multipatch.esp made goes beside them. Tick *Use external* to run your own tes3cmd instead; commands that run Perl code (`modify --run`) use it either way. |
-| **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against its masters or against the load order before it, and plugins can be left out by name or folder. See [MERGED_LANDS.md](MERGED_LANDS.md). |
+| **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against the load order before it (the default, as OpenMWMergedLands does) or against its masters (contested vertices blended, as the original Merged Lands does). Seams are repaired along the cells plugins changed, and optionally the seams the terrain already had. Plugins can be left out by name or folder, and cells for every plugin or for one (Tamriel Rebuilt's Hunza Camp by default). **Import from OpenMWMergedLands** reads its `merged_lands.toml`. *Dry run*, *Verbose* (with each step's time and the peak memory) and *Cancel* are beside **Build**. See [MERGED_LANDS.md](MERGED_LANDS.md). |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
 | **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. |
@@ -346,8 +380,9 @@ Each tool is a section on the left with its work on the right.
 
 ## The command line
 
-`wraithguard` does the sort, the export and the read-only scans with no window, so it runs
-in scripts, CI and on a headless machine. It takes the same inputs as the Load order page:
+`wraithguard` does the sort, the export, the read-only scans, Merge Lands and tes3cmd with
+no window, so it runs in scripts, CI and on a headless machine. It takes the same inputs as
+the Load order page:
 
 ```
 wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
@@ -395,11 +430,14 @@ yourself, last, as you would after the Tools page's merge.
 | `--merge-model loadorder\|masters` | Measure each plugin's terrain against the load order before it (default: the later plugin wins a contested vertex, as OpenMWMergedLands), or against the masters (contested heights, normals, colors and world map are blended, as the original Merged Lands). |
 | `--merge-fork-config [FILE]` | Take the plugins, folders and cells OpenMWMergedLands leaves out, and where it writes, from its `merged_lands.toml` (FILE, or found beside the cfg or in OpenMW's config folder). Anything given on the command line still wins. |
 | `--merge-keep-world-map` | Write the world maps (WNAM) as the merge has them, as OpenMWMergedLands does (default: entries made again where a repair moved the height, a missing map generated). |
+| `--merge-repair-seams [GAP]` | Also repair the seams the terrain already has, between cells no plugin changed, where the gap is at most GAP world units (default 24; a wider one is taken to be meant). Off by default. |
+| `--merge-seam-except X,Y ...` | With `--merge-repair-seams`: cells whose borders are never repaired (a cliff or an edge the load order means to have). |
 | `--merge-cell-ignore X,Y ...` | Exterior cells left out of the merge for every plugin. |
 | `--merge-cell-ignore-by-plugin PLUGIN=X,Y;X,Y ...` | One plugin's terrain left out at those cells (default: Tamriel Rebuilt's Hunza Camp; with no value, none). |
 | `--merge-no-clamp` | Stop, writing nothing, if a height step is left that a record cannot store and the slope limiter could not repair (default: clamp it and say so). |
 | `--merge-ignore ...` | Plugins Merge Lands leaves out, by name or by folder; replaces the default list (generated plugins such as `delta-merged.omwaddon`). |
 | `--no-predicate-warnings`, `-v`/`-vv`, `--trace` | Quieter, louder, or a trace log. |
+| `tes3cmd <command> ...` | tes3cmd itself, built in (below). |
 
 An MO2 install or the game's own takes the place of `--cfg`, and is sorted by the mlox
 rules alone (no MOMW list); `--plain-mlox` does the same for an `openmw.cfg`:
@@ -438,7 +476,11 @@ It reads `Morrowind.ini` and `Data Files` from the folder it runs in, as tes3cmd
   patch journal are kept **beside the program**. Keep it in a folder you can write to.
 - **Profiles and mesh setups** (`.toml`) are beside the program too, unless you choose
   another folder for them; existing files are moved there when you do.
-- **Backups** sit beside the file they copy, timestamped.
+- **Backups** sit beside the file they copy: timestamped for the cfg and the TOML, and kept
+  once for a plugin: `.premaster.bak`, `.preedit.bak`, `.premerge.bak`, `.preclean.bak`,
+  `.precustom.bak` or `.masterfix.bak` (tes3cmd's `header` keeps its own, `Name~1.esp`).
+- **tes3cmd's working copies** go in `wraithguard_tes3cmd_staging` in the system's temporary
+  folder.
 - **Patches** go where you choose when you Build. **Merged Lands.esp** goes in the folder
   Setup names, or the one holding most of the load order.
 - **Exports** go to the customizations TOML (and the cfg, if you ask).
@@ -451,10 +493,17 @@ It reads `Morrowind.ini` and `Data Files` from the folder it runs in, as tes3cmd
   buttons are the only things that write. *Dry run* and the command line's default write
   nothing (its `--write-cfg`, `--emit-toml` and `--merge-lands` write).
 - **Backups first.** `openmw.cfg`, a customizations TOML, a plugin whose master is removed,
-  and a file tes3cmd cleans are all copied before they change.
+  a plugin you edit in place, and a file tes3cmd changes are all copied before they change.
 - **A curated list's order is never changed.** Only your additions move.
-- **Your mods are never modified.** The Editor's patch, Merged Lands and the Land view's
-  edits are new plugins, loaded after the rest.
+- **Your mods change only when you ask for it.** The Editor's patch, Merged Lands and the Land
+  view's edits are new plugins, loaded after the rest. A plugin of yours is written only when
+  you choose it under *Edit a plugin*, or run tes3cmd or Remove / rename master on it from
+  the Tools page, each with a backup first. Merge to master writes a new file and never its
+  sources.
+- **tes3cmd works on copies.** `clean` and other commands change a copy of each plugin, copied
+  back only if the command succeeded and changed it (`header` runs in the plugin's folder and
+  keeps tes3cmd's own backup). The built-in tes3cmd never writes a master: one it changes
+  (`fixit`'s header sync, `resetdates`) is changed on a private copy.
 - The MOMW team doesn't support customizations. This program helps you see and place
   them; it can't promise they're conflict-free.
 
@@ -462,9 +511,10 @@ It reads `Morrowind.ini` and `Data Files` from the folder it runs in, as tes3cmd
 
 ## Building and developing
 
-You need Rust (stable, via [rustup](https://rustup.rs)). On Linux you also need the
-WebKitGTK 4.1 and GTK 3 development packages (`libwebkit2gtk-4.1-dev libgtk-3-dev
-librsvg2-dev`).
+You need Rust (stable, 1.89 or later, via [rustup](https://rustup.rs)). On Linux you also
+need the WebKitGTK 4.1 and GTK 3 development packages (`libwebkit2gtk-4.1-dev libgtk-3-dev
+librsvg2-dev`). Cargo fetches the git dependencies itself: the `tes3` fork, merge_to_master
+and [tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs).
 
 ```
 cp wraithguard_toolkit_icon.ico viewer-shell/icons/
@@ -493,7 +543,9 @@ runs every check CI runs:
   - `node boot.js` for the whole page against `wg-view-serve`, the headless engine built
     by `viewer-shell/check-commands`.
 
-CI (`.github/workflows/ci.yml`) runs exactly that list. `build-app.yml` builds the release
+CI (`.github/workflows/ci.yml`) runs exactly that list; `deny.yml` checks every dependency's
+source and license (`viewer-shell/deny.toml`), `audit.yml` and `osv-scanner.yml` look for
+advisories, and `sast.yml` runs the static analysis. `build-app.yml` builds the release
 packages on a `v*` tag or a `build/**` branch, the Linux AppImage with Tauri's bundler
 (`cargo tauri build --bundles appimage` in `viewer-shell`).
 
@@ -550,7 +602,8 @@ ports of MGE XE's shaders, and is kept separate from the MIT code.
 It stands on a lot of other people's work:
 
 - greatness7's `tes3` crates and Robin Hjelte's Gardenfell;
-- mlox and its rule databases, plox, tes3conv, tes3cmd and merge_to_master;
+- mlox and its rule databases, plox, tes3conv, tes3cmd (ported as tes3cmd-rs) and
+  merge_to_master;
 - MGE XE, OpenMW and Modding-OpenMW.com;
 - Rapier, and many Rust crates.
 

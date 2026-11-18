@@ -43,7 +43,7 @@ const WgSetup={
       ['groundcover','Grass plugins','lines','Plugins written as groundcover= rather than content=, one a line.'],
     ]],
     ['Tools', [
-      ['tes3cmd','tes3cmd','file','The tes3cmd program, for the Tools page\'s clean and header. Optional.'],
+      ['tes3cmd','tes3cmd','file','An external tes3cmd (the MOMW Tools Pack\'s tes3cmd.exe, or the Perl script), for when the Tools page\'s Use external is ticked. Optional: tes3cmd is built in.'],
       ['mergeLandsFolder','Merge Lands writes to','dir','The folder Merged Lands.esp goes in. Empty: the one holding most of the load order.'],
       ['exclude','Leave out of scans','plain','Plugins the conflict and cell scans leave out: patterns, commas between.'],
     ]],
