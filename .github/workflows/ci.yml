@@ -29,7 +29,7 @@ jobs:
     # booted against the real commands.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # nothing here pushes; the token is not left in .git
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # the stable branch
@@ -101,7 +101,7 @@ jobs:
         # The `serve` profile (viewer-shell/Cargo.toml): release speed without the shipped
         # programs' link-time optimisation. The binary is viewer-shell/target/serve/wg-view-serve.
         run: cargo build --profile serve --manifest-path viewer-shell/check-commands/Cargo.toml --bin wg-view-serve
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Install viewer test dependencies

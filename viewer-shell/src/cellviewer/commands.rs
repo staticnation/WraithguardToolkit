@@ -4233,6 +4233,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             tools_tes3cmd_find,
             tools_locate,
             tools_tes3cmd,
+            tools_tes3cmd_undo,
             find_record,
             editor_records,
             editor_rows,

@@ -153,6 +153,29 @@
   still ask `WgEditor.ask` as before. Checked against the engine before the change: the same
   answers, pending patch, pending land and journal after each of eight edits, refusals included.
 
+- **tes3cmd's results are a list you can filter and undo** (`toolscore::recdiff`, `tools_tes3cmd`,
+  `tools_tes3cmd_undo`, `61_wg_tools.js`). A run's answer now carries, beside the log, every record
+  it removed, added or changed in each plugin. That comes from comparing each plugin before and
+  after the run, so it works for any command, built in or external, and says which subrecords of a
+  changed record differ (`FRMR -3` for a cell's cleaned references). The Tools page lists them
+  under the run with a filter, kind chips and a plugin picker. **Undo selected** puts the ticked
+  records back as they were: a removed record where it was, a changed one as it was, an added one
+  taken out, the header's record count moved to match. With every record put back, the plugin is
+  byte for byte the file it was. The plugin as it was is kept with the run in the staging folder's
+  `results` (the last ten runs), and undo refuses a plugin that changed since the run. The log
+  folds away when there are records to list. The answer is WGTB bytes (it was JSON).
+- **Conflicts judges a record once** (`verdicts_of`, `JUDGED`, conflicts.rs). The record list's
+  verdicts and a plugin's records (Judge all asks once per plugin) each read every plugin of every
+  record again, so a plugin was read once for each plugin it shares a record with. A record is now
+  judged once and kept with the scan, until the next scan or until a plugin it was judged from
+  changes on disk (its size or date, checked on each use). Compared with the engine before the
+  change over every plugin of the five test installs (276 answers, the same bytes), and after a
+  plugin changed between calls.
+- **`editor_records` checked, the TODO item closed.** The Object Window's JSON second way reads on
+  every list of the five test installs (200 lists, the same rows as the bytes) and with record text
+  holding quotes, backslashes, tabs, control characters, DEL and bytes the code page leaves
+  undefined. The answer that did not read on Static's setup was from 4.4.1, through the Python
+  app's loopback server, which 5.0 retired.
 - **README revised for the program as it is** (2026-11-18): MO2 and Morrowind.ini installs
   (Setup, the Load order page's Plain mlox and Export, the command line), the Editor's *Edit a
   plugin* in place, the Land view's masks, Merge Lands' models, seam repair, cells left out and
@@ -234,6 +257,10 @@
 
 ### Fixed
 
+- **tes3cmd's own backups were copied into your mod folder** (wg_fixes61, unreleased). A command
+  not told `--hide-backups` (`delete`, `modify`) keeps tes3cmd's backup beside the plugin
+  (`Conf_A~1.esp`), and the new-file step took those for plugins the run made. Only plugins are
+  taken now, and never a `~N` backup.
 - **tes3cmd no longer writes your masters** (`toolscore::tes3cmd::stage`). The staging hard-linked
   each plugin's masters into its private `Data Files` when the drive allowed, as the Python did.
   So a command that writes the masters it finds (`fixit`'s header sync and date reset,

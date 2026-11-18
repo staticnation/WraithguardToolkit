@@ -49,6 +49,11 @@ fn strs(a: &Val, k: &str) -> Vec<String> {
 }
 
 
+/// A list of counts (absent: none).
+fn nums(a: &Val, k: &str) -> Vec<usize> {
+    a.get(k).and_then(|v| v.as_arr()).map(|xs| xs.iter().filter_map(|x| x.as_i64()).map(|n| n.max(0) as usize).collect()).unwrap_or_default()
+}
+
 /// A count or a size (absent, or below nothing: 0).
 fn u(a: &Val, k: &str) -> usize {
     a.get(k).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize
@@ -333,7 +338,8 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "tools_journal" => Reply::Json(t::tools_journal(s(a, "cfg"))?),
         "tools_tes3cmd_find" => Reply::Text(t::tools_tes3cmd_find(s(a, "cfg"), s(a, "explicit"))),
         "tools_locate" => Reply::Json(t::tools_locate(s(a, "cfg"), strs(a, "names"))?),
-        "tools_tes3cmd" => Reply::Json(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"), Some(b(a, "external")))?),
+        "tools_tes3cmd" => Reply::Bytes(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"), Some(b(a, "external")))?.0),
+        "tools_tes3cmd_undo" => Reply::Bytes(t::tools_tes3cmd_undo(s(a, "run"), u(a, "file"), nums(a, "rows"))?.0),
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),
         "mesh_collision" => Reply::Bytes(t::mesh_collision(s(a, "path"), st())?.0),

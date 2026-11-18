@@ -48,7 +48,7 @@ const WgToolsPage={
     ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how'],
     ['m2m','Merge to master','A plugin folded into its master, or a whole load order into one master (merge_to_master)'],
     ['meshopt','Mesh optimizer','Draw-order copies of the load order\'s meshes, only where it helps']],
-  t3:{files:[]},
+  t3:{files:[], res:null},
   m2:{plugin:'', master:'', files:[]},
   jr:{data:null, quest:null},
   ms:{path:'', list:[]},
@@ -164,7 +164,17 @@ const WgToolsPage={
     <input type="text" id="tlT3Exe" placeholder="external tes3cmd (found by itself when empty)" style="flex:1;min-width:200px"><button class="btn dim" id="tlT3Browse">Browse...</button>
     <button class="btn dim" id="tlT3Add" title="Add plugin files">Add files...</button><button class="btn dim" id="tlT3Mine" title="Your own mods: the ones the sort places into the curated list">Add your mods</button><button class="btn dim" id="tlT3List" title="The curated list's plugins (the Load order page's list name)">Add list mods</button><button class="btn dim" id="tlT3Clear">Clear</button></div>
   <div class="scroll"><div id="tlT3Files" class="empty">Add the plugins to run on. clean and a custom command run on a copy of each plugin, its masters read from your data folders and never changed, and copy back what changed (a one-time .preclean.bak / .precustom.bak kept); fixit, multipatch and resetdates run once over all the plugins added, common and diff on two; Morrowind.esm, Tribunal.esm and Bloodmoon.esm are never cleaned. sync rewrites only the master sizes (.masterfix.bak kept).</div>
-  <pre id="tlT3Out" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
+  <div id="tlT3Res" hidden style="border-top:1px solid var(--line)">
+    <div class="acts" style="display:flex;gap:6px;padding:6px 8px;align-items:center;flex-wrap:wrap">
+      <b>What changed</b><span id="tlT3ResN" class="sp" style="color:var(--tx3)"></span>
+      <input type="text" id="tlT3ResFind" placeholder="filter: type, id, plugin, subrecord" style="flex:1;min-width:160px">
+      <select id="tlT3ResFile" title="One plugin's changes, or every plugin's"></select>
+      <span id="tlT3ResKinds"></span>
+      <button class="btn dim" id="tlT3ResAll" title="Tick every change the filter shows">Select shown</button>
+      <button class="btn" id="tlT3ResUndo" title="Put the ticked records back as they were before the run: a removed record restored where it was, a changed one as it was, an added one taken out">Undo selected</button></div>
+    <div id="tlT3ResBody" style="max-height:340px;overflow:auto"></div></div>
+  <details id="tlT3Log" open><summary style="padding:4px 8px;cursor:pointer">Log</summary>
+  <pre id="tlT3Out" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></details></div></div>
 <div class="col pane" id="tlLands" hidden><h3>Merge Lands <span class="sp"></span>
   <label title="Report every plugin's settings and everything that could not be read"><input type="checkbox" id="tlMlVerbose"> Verbose</label>
   <label title="Report what would be merged without writing anything"><input type="checkbox" id="tlMlDry"> Dry run</label>
@@ -271,6 +281,10 @@ const WgToolsPage={
     $('#tlM2Clear').onclick=()=>{ this.m2.files=[]; this.m2Draw(); };
     $('#tlM2Run').onclick=()=>this.m2Run();
     $('#tlT3Clear').onclick=()=>{ this.t3.files=[]; this.t3Draw(); };
+    $('#tlT3ResFind').oninput=()=>this.t3ResDraw();
+    $('#tlT3ResFile').onchange=()=>this.t3ResDraw();
+    $('#tlT3ResAll').onclick=()=>{ const res=this.t3.res; if(!res) return; for(const r of this.t3Shown()) res.sel.add(r.key); this.t3ResDraw(); };
+    $('#tlT3ResUndo').onclick=()=>this.t3Undo();
     $('#tlT3Run').onclick=()=>this.t3Run();
     $('#tlMgPick').onclick=async()=>{
       const p=await Engine.pick('open',{filters:[{name:'Plugins', extensions:['esp','esm','omwaddon','omwgame','ESP','ESM']}]});
@@ -681,12 +695,82 @@ const WgToolsPage={
       // The engine picks the tes3cmd: built in, or the external one (found by itself when
       // the path is empty) when ticked or when the command runs Perl code.
       const exe=$('#tlT3Exe').value.trim(), external=$('#tlT3Ext').checked;
-      let r=await Engine.call('tools_tes3cmd',{cfg:this.cfg(), exe, cmd, extra, files:this.t3.files, external});
-      if(typeof r==='string') r=JSON.parse(r);
+      const r=this.t3Read(await Engine.bytes('tools_tes3cmd',{cfg:this.cfg(), exe, cmd, extra, files:this.t3.files, external}));
       $('#tlT3Out').textContent=r.lines.join('\n')+'\n\n'+r.status;
+      this.t3.res={run:r.run, files:r.files, changes:r.changes, sel:new Set(), kind:''};
+      // With records to list, the list leads and the log folds away (one click to open).
+      $('#tlT3Log').open=!r.changes.length;
+      this.t3ResDraw();
       toast(r.status,'ok',5000);
-    }catch(e){ $('#tlT3Out').textContent=String(e.message||e); }
+    }catch(e){ $('#tlT3Out').textContent=String(e.message||e); $('#tlT3Log').open=true; }
     finally{ btn.disabled=false; }
+  },
+
+  /** `tools_tes3cmd`'s and `tools_tes3cmd_undo`'s bytes (WGTB, laid out beside them in
+   *  commands/tools.rs): the status and run, the log, the plugins changed, and each record
+   *  change as {file, row (its place in its file's list, what undo names), kind, tag, id, nth,
+   *  detail, key}. */
+  t3Read(buf){
+    const t=unpackTables(buf), head=(t.head||[])[0]||[];
+    const files=(t.files||[]).map(r=>({path:r[0], count:r[1]}));
+    const seen=files.map(()=>0);
+    const changes=(t.changes||[]).map(r=>{ const row=seen[r[0]]++; return {file:r[0], row, kind:r[1], tag:r[2], id:r[3], nth:r[4], detail:r[5], key:r[0]+':'+r[2]+':'+r[3]+':'+r[4]}; });
+    return {status:head[0]||'', run:head[1]||'', lines:(t.lines||[]).map(r=>r[0]), files, changes};
+  },
+  /** The changes the filter, the kind chip and the plugin picker leave. */
+  t3Shown(){
+    const res=this.t3.res; if(!res) return [];
+    const q=$('#tlT3ResFind').value.trim().toLowerCase(), f=$('#tlT3ResFile').value;
+    return res.changes.filter(c=>c.tag!=='TES3' && (!res.kind || c.kind===res.kind) && (f==='' || String(c.file)===f) &&
+      (!q || (c.tag+' '+c.id+' '+c.detail+' '+(res.files[c.file]||{}).path).toLowerCase().includes(q)));
+  },
+  t3ResDraw(){
+    const res=this.t3.res, box=$('#tlT3Res');
+    const list=res? res.changes.filter(c=>c.tag!=='TES3') : [];
+    box.hidden=!res || !res.files.length;
+    if(box.hidden) return;
+    const base=p=>String(p).split(/[\\/]/).pop();
+    const pick=$('#tlT3ResFile'), was=pick.value;
+    pick.innerHTML='<option value="">every plugin ('+res.files.length+')</option>'+res.files.map((f,i)=>`<option value="${i}">${loEsc(base(f.path))} (${f.count})</option>`).join('');
+    pick.value=[...pick.options].some(o=>o.value===was)? was : '';
+    const counts={removed:0, changed:0, added:0}; for(const c of list) counts[c.kind]=(counts[c.kind]||0)+1;
+    $('#tlT3ResKinds').innerHTML=[['','all',list.length],...Object.entries(counts).map(([k,n])=>[k,k,n])].filter(x=>x[2]||!x[0])
+      .map(([k,l,n])=>`<span class="chip${res.kind===k?' on':''}" data-k="${k}" style="cursor:pointer;margin-right:4px">${l} (${n})</span>`).join('');
+    for(const s of $('#tlT3ResKinds').querySelectorAll('[data-k]')) s.onclick=()=>{ res.kind=s.dataset.k; this.t3ResDraw(); };
+    const shown=this.t3Shown(), cap=2000;
+    // A tick stays only on a change still listed (an undo takes changes off the list).
+    const live=new Set(list.map(c=>c.key)); for(const k of [...res.sel]) if(!live.has(k)) res.sel.delete(k);
+    $('#tlT3ResN').textContent=list.length? `${list.length} record(s) in ${res.files.length} plugin(s), ${res.sel.size} ticked` : 'every change undone';
+    const rows=shown.slice(0,cap).map(c=>`<tr><td><input type="checkbox" data-key="${loEsc(c.key)}"${res.sel.has(c.key)?' checked':''}></td>`+
+      `<td class="p">${loEsc(base(res.files[c.file].path))}</td><td class="p">${c.kind}</td><td class="p">${loEsc(c.tag)}</td>`+
+      `<td class="p">${loEsc(c.id)}${c.nth?' <small>('+(c.nth+1)+')</small>':''}</td><td class="p">${loEsc(c.detail)}</td></tr>`).join('');
+    $('#tlT3ResBody').innerHTML=shown.length
+      ? `<table class="mo"><tr><th></th><th class="p">Plugin</th><th class="p">Change</th><th class="p">Type</th><th class="p">Record</th><th class="p">Subrecords</th></tr>${rows}</table>`+
+        (shown.length>cap? `<div class="empty">${shown.length-cap} more: narrow the filter to see them.</div>` : '')
+      : `<div class="empty">${list.length? 'Nothing matches the filter.' : 'Nothing left to undo.'}</div>`;
+    for(const b of $('#tlT3ResBody').querySelectorAll('input[data-key]')) b.onchange=()=>{ if(b.checked) res.sel.add(b.dataset.key); else res.sel.delete(b.dataset.key); $('#tlT3ResN').textContent=`${list.length} record(s) in ${res.files.length} plugin(s), ${res.sel.size} ticked`; };
+  },
+  /** Undo the ticked changes, a plugin at a time (`tools_tes3cmd_undo`); the list is redrawn
+   *  from the engine's answer, so what is shown is what the files hold. */
+  async t3Undo(){
+    const res=this.t3.res; if(!res || !res.sel.size) return toast('Tick the changes to undo first','warn',3000);
+    const byFile=new Map();
+    for(const c of res.changes) if(res.sel.has(c.key)){ if(!byFile.has(c.file)) byFile.set(c.file,[]); byFile.get(c.file).push(c.row); }
+    if(!await wgConfirm(`Put back ${res.sel.size} record(s) in ${byFile.size} plugin(s) as they were before the run?`)) return;
+    const btn=$('#tlT3ResUndo'); btn.disabled=true;
+    const said=[];
+    try{
+      for(const [file, rows] of byFile){
+        try{
+          const r=this.t3Read(await Engine.bytes('tools_tes3cmd_undo',{run:res.run, file, rows}));
+          said.push(r.status); res.files=r.files; res.changes=r.changes;
+        }catch(e){ said.push(String(e.message||e)); }
+      }
+      res.sel.clear();
+      this.t3ResDraw();
+      $('#tlT3Out').textContent+='\n\nUndo: '+said.join('\n      ');
+      toast(said.join(' '),'ok',6000);
+    }finally{ btn.disabled=false; }
   },
 
   /* ---- Journal ---- */

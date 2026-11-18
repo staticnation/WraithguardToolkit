@@ -227,6 +227,12 @@ pub(super) fn tools_locate(cfg: String, names: Vec<String>) -> Result<String, St
 /// a copy staged with the plugin's masters and copy back what changed, a backup kept. Answers
 /// `{lines, status}`.
 ///
+/// Wraithguard: as bytes (WGTB, Static 2026-11-18: the results the page lists, filters and undoes
+/// in place of tes3cmd's text alone): `head` `ss` (the status, the run's id), `lines` `s` (the
+/// log), `files` `su` (each plugin the run changed, how many records) and `changes` `usssus`
+/// (its file's row, `removed`/`added`/`changed`, type, id, which of that key, the subrecords
+/// that differ). `tools_tes3cmd_undo` puts records back. Read by `61_wg_tools.js` (`t3Read`).
+///
 /// Wraithguard: the tes3cmd built in (`Engine::Builtin`, tes3cmd-rs) unless `external` is set
 /// and a tes3cmd is found (`exe`, else beside the setup), or the command runs Perl code
 /// (`needs_perl`: `modify --run` and the like), which goes to an external one when there is
@@ -239,7 +245,7 @@ pub(super) fn tools_tes3cmd(
     extra: Vec<String>,
     files: Vec<String>,
     external: Option<bool>,
-) -> Result<String, String> {
+) -> Result<tauri::ipc::Response, String> {
     let setup = cf_setup(&cfg)?;
     let files: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
     let mut dirs = setup.data.clone();
@@ -269,7 +275,16 @@ pub(super) fn tools_tes3cmd(
             }
         }
         let status = format!("Resync: {fixed} plugin(s) updated, {} already in sync, {fail} error(s).", ok - fixed);
-        return Ok(serde_json::json!({"lines": lines, "status": status}).to_string());
+        // Only the headers' master sizes change (kept as `.masterfix.bak`): no records to list.
+        let mut tb = Tables::new();
+        tb.table("head", "ss", 1);
+        tb.s(&status).s("");
+        tb.table("lines", "s", lines.len());
+        for l in &lines {
+            tb.s(l);
+        }
+        t3_tables(&mut tb, &[]);
+        return Ok(tauri::ipc::Response::new(tb.done()));
     }
     if cmd == "custom" && extra.is_empty() {
         return Err("Type a tes3cmd command first, e.g. 'dump --type CELL' or 'clean'.".into());
@@ -295,5 +310,97 @@ pub(super) fn tools_tes3cmd(
     };
     let staging = std::env::temp_dir().join("wraithguard_tes3cmd_staging");
     let r = toolscore::tes3cmd::run(&engine, &cmd, &extra, &files, &find, &staging, &setup.plugins());
-    Ok(serde_json::json!({"lines": r.lines, "status": r.status}).to_string())
+    let held: Vec<HeldFile> = r
+        .files
+        .iter()
+        .map(|f| HeldFile { path: f.path.clone(), before: f.before.clone(), expect: std::fs::read(&f.path).map(|b| digest(&b)).unwrap_or(0), changes: f.changes.clone() })
+        .collect();
+    let mut tb = Tables::new();
+    tb.table("head", "ss", 1);
+    tb.s(&r.status).s(&r.id);
+    tb.table("lines", "s", r.lines.len());
+    for l in &r.lines {
+        tb.s(l);
+    }
+    t3_tables(&mut tb, &held);
+    let mut runs = T3_RUNS.lock().unwrap_or_else(|p| p.into_inner());
+    runs.retain(|(id, _)| std::path::Path::new(&staging).join("results").join(id).is_dir());
+    runs.push((r.id, held));
+    Ok(tauri::ipc::Response::new(tb.done()))
+}
+
+/// A plugin a tes3cmd run changed, held for undo: its file, its copy from before the run, a
+/// digest of the file as the run (or the last undo) left it, and what differs from before.
+struct HeldFile {
+    path: PathBuf,
+    before: PathBuf,
+    expect: u64,
+    changes: Vec<toolscore::recdiff::Change>,
+}
+
+/// The tes3cmd runs of this session whose plugins can be undone, by id (their "before" copies
+/// are in the staging folder's `results`, the newest `KEEP_RUNS` kept).
+static T3_RUNS: Mutex<Vec<(String, Vec<HeldFile>)>> = Mutex::new(Vec::new());
+
+fn digest(b: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    b.hash(&mut h);
+    h.finish()
+}
+
+/// `files` `su` and `changes` `usssus` of `held` (see `tools_tes3cmd`).
+fn t3_tables(tb: &mut Tables, held: &[HeldFile]) {
+    tb.table("files", "su", held.len());
+    for f in held {
+        tb.s(&f.path.to_string_lossy()).u(f.changes.len() as u64);
+    }
+    tb.table("changes", "usssus", held.iter().map(|f| f.changes.len()).sum());
+    for (i, f) in held.iter().enumerate() {
+        for c in &f.changes {
+            tb.u(i as u64).s(c.kind).s(&c.key.tag).s(&c.key.id).u(u64::from(c.key.nth)).s(&c.detail);
+        }
+    }
+}
+
+/// Wraithguard: puts records a tes3cmd run changed back (`toolscore::recdiff::undo`): of run
+/// `run`'s plugin `file` (its row in `files`), the changes at `rows` (their places in that
+/// file's list, as the last answer gave it) - a removed record restored where it was, a changed
+/// one as it was, an added one taken out, the header's count made right. Refused when the plugin
+/// changed since (another tool, or the game's editor): its file is not the run's any more.
+/// Answers the run's `files` and `changes` again (WGTB, as `tools_tes3cmd`), with `head` `s`
+/// saying what was done.
+#[tauri::command(async)]
+pub(super) fn tools_tes3cmd_undo(run: String, file: usize, rows: Vec<usize>) -> Result<tauri::ipc::Response, String> {
+    let mut runs = T3_RUNS.lock().unwrap_or_else(|p| p.into_inner());
+    let held = runs.iter_mut().find(|(id, _)| *id == run).map(|(_, h)| h).ok_or("That run is no longer kept: undo is for the last ten runs of this session.")?;
+    let f = held.get_mut(file).ok_or("no such plugin in that run")?;
+    let name = f.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let current = std::fs::read(&f.path).map_err(|e| format!("{name}: {e}"))?;
+    if digest(&current) != f.expect {
+        return Err(format!("{name} has changed since this run (another tool wrote it): undo would lose that, so it is left as it is."));
+    }
+    let before = std::fs::read(&f.before).map_err(|e| format!("{name}'s copy from before the run: {e}"))?;
+    let keys: Vec<toolscore::recdiff::Key> = rows.iter().filter_map(|&i| f.changes.get(i)).map(|c| c.key.clone()).collect();
+    if keys.is_empty() {
+        return Err("Choose the changes to undo first.".into());
+    }
+    let new = toolscore::recdiff::undo(&before, &current, &keys);
+    let tmp = f.path.with_extension("wgundo.tmp");
+    std::fs::write(&tmp, &new).and_then(|()| std::fs::rename(&tmp, &f.path)).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{name}: {e}")
+    })?;
+    f.expect = digest(&new);
+    f.changes = toolscore::recdiff::diff(&before, &new);
+    let said = format!(
+        "{name}: {} put back{}.",
+        keys.len(),
+        if f.changes.iter().all(|c| c.key.tag == "TES3") { " - the plugin is as it was before the run" } else { "" }
+    );
+    let mut tb = Tables::new();
+    tb.table("head", "s", 1);
+    tb.s(&said);
+    t3_tables(&mut tb, held);
+    Ok(tauri::ipc::Response::new(tb.done()))
 }

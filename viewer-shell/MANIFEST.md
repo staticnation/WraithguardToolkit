@@ -169,7 +169,7 @@ names a command that is not defined, or one is left unregistered.
 - **conflicts**: `conflicts_scan`, `conflicts_fields`, `conflicts_land_surfaces`, `conflicts_resources`, `conflicts_texture`, `conflicts_report`, `conflicts_csv`, `conflicts_patch`, `conflicts_by_plugin`, `conflicts_plugin_group`, `conflicts_verdicts`, `conflicts_plugin_bulk`, `conflicts_plugin_bulk_apply`
 - **land**: `land_meta_read`, `land_meta_preview`, `land_meta_write`, `land_merge_home`, `land_merge`, `land_merge_cancel`, `land_merge_progress`
 - **help**: `help_docs`, `help_doc`, `help_open_link`
-- **tools**: `tools_lint`, `tools_backups`, `tools_backups_restore`, `tools_backups_delete`, `tools_masters`, `tools_remove_master`, `tools_merge_master`, `tools_rename_master`, `tools_save_check`, `tools_journal`, `tools_tes3cmd_find`, `tools_locate`, `tools_tes3cmd`
+- **tools**: `tools_lint`, `tools_backups`, `tools_backups_restore`, `tools_backups_delete`, `tools_masters`, `tools_remove_master`, `tools_merge_master`, `tools_rename_master`, `tools_save_check`, `tools_journal`, `tools_tes3cmd_find`, `tools_locate`, `tools_tes3cmd`, `tools_tes3cmd_undo`
 - **settings**: `settings_seed`, `settings_write`
 - **setup**: `setup_state`, `setup_check`, `setup_find_cfgs`, `setup_mark`
 - **app**: `app_restart`

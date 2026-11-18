@@ -33,7 +33,9 @@ are copied now for the external one, and dropped after a custom command. The bui
 none (2026-11-18): `tes3cmd_rs::cli::run_over` reads them where the setup has them and sends any
 write to one to a private copy (tes3cmd-rs's `fsx` overlay), so only the plugins worked on are
 staged. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and
-`diff` once on two. Left: per-record results in place of tes3cmd's text.
+`diff` once on two. Per-record results (2026-11-18): every record a run removed, added or
+changed, from the plugins before and after (`toolscore::recdiff`, so any tes3cmd's runs), listed
+on the page with a filter and undone record by record.
 
 ## Why
 

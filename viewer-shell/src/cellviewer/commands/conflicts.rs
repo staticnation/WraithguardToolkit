@@ -84,7 +84,12 @@ pub(super) struct ConflictScan {
     list: Vec<conflictcore::records::Conflict>,
     stats: conflictcore::records::Stats,
     mode: String,
+    /// Which scan this is (`SCAN_IDS`): the verdicts judged of it (`JUDGED`) are its own.
+    id: u64,
 }
+
+/// Each record scan's number, for the verdicts kept of it (`JUDGED`).
+static SCAN_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 pub(super) struct ResourceScan {
     list: Vec<conflictcore::resources::Resource>,
@@ -253,7 +258,7 @@ pub(super) fn conflicts_scan(
     };
     let cells = if mode == "conflicts" { conflictcore::map::group_by_cell(&list) } else { Default::default() };
     let out = cf_scan_tables(&list, &stats, &excluded, &cells);
-    *CONFLICTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(ConflictScan { paths, list, stats, mode });
+    *CONFLICTS.lock().unwrap_or_else(|p| p.into_inner()) = Some(ConflictScan { paths, list, stats, mode, id: SCAN_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) });
     Ok(tauri::ipc::Response::new(out))
 }
 
@@ -718,6 +723,14 @@ pub(super) fn cf_read_many(
     setup: &viewcore::ordercore::cfg::OpenmwCfg,
     list: &[&conflictcore::records::Conflict],
 ) -> std::collections::HashMap<(String, String, String), serde_json::Value> {
+    cf_read_many_at(setup, list).0
+}
+
+/// `cf_read_many`, and the files it read, by plugin.
+fn cf_read_many_at(
+    setup: &viewcore::ordercore::cfg::OpenmwCfg,
+    list: &[&conflictcore::records::Conflict],
+) -> (std::collections::HashMap<(String, String, String), serde_json::Value>, std::collections::HashMap<String, PathBuf>) {
     use std::collections::{HashMap, HashSet};
     let mut wanted: Vec<(String, HashSet<(String, String)>)> = Vec::new();
     for c in list {
@@ -741,10 +754,60 @@ pub(super) fn cf_read_many(
     };
     let threads = scan_budget();
     let chunk = wanted.len().div_ceil(threads).max(1);
-    std::thread::scope(|s| {
+    let read = std::thread::scope(|s| {
         let jobs: Vec<_> = wanted.chunks(chunk).map(|part| s.spawn(move || part.iter().flat_map(read).collect::<Vec<_>>())).collect();
         jobs.into_iter().flat_map(|j| j.join().unwrap_or_default()).collect()
-    })
+    });
+    (read, at)
+}
+
+/// One record of the scan judged across its plugins (`judge`): its `ConflictAll` code, and
+/// each plugin's `ConflictThis` in the record's plugin order.
+type Verdict = (u8, Vec<conflictcore::fields::ConflictThis>);
+
+/// The verdicts judged of the last record scan (Static 2026-11-18): `conflicts_verdicts` and
+/// `conflicts_plugin_group` (Judge all calls it once per plugin) used to read every plugin a
+/// record has again on each call, so a plugin was read once for each plugin it shares a record
+/// with. A record is judged once now and kept, by its place in the scan's list, until another
+/// scan or until a plugin it was judged from changes on disk (size or date; checked on each use).
+struct Judged {
+    scan: u64,
+    stamps: std::collections::HashMap<PathBuf, (u64, Option<std::time::SystemTime>)>,
+    per: Vec<Option<Verdict>>,
+}
+
+static JUDGED: Mutex<Option<Judged>> = Mutex::new(None);
+
+fn stamp(p: &std::path::Path) -> (u64, Option<std::time::SystemTime>) {
+    std::fs::metadata(p).map(|m| (m.len(), m.modified().ok())).unwrap_or((u64::MAX, None))
+}
+
+/// The verdicts of `list`'s records at `wanted` (scan `scan`), judging the ones not kept yet.
+fn verdicts_of(setup: &viewcore::ordercore::cfg::OpenmwCfg, scan: u64, list: &[conflictcore::records::Conflict], wanted: &[usize]) -> Vec<Verdict> {
+    use conflictcore::summary::judge;
+    let mut slot = JUDGED.lock().unwrap_or_else(|p| p.into_inner());
+    let fresh = slot.as_ref().is_some_and(|j| j.scan == scan && j.per.len() == list.len() && j.stamps.iter().all(|(p, s)| stamp(p) == *s));
+    if !fresh {
+        *slot = Some(Judged { scan, stamps: std::collections::HashMap::new(), per: vec![None; list.len()] });
+    }
+    let j = slot.as_mut().expect("just set");
+    let missing: Vec<usize> = wanted.iter().copied().filter(|&i| j.per[i].is_none()).collect();
+    if !missing.is_empty() {
+        let refs: Vec<&conflictcore::records::Conflict> = missing.iter().map(|&i| &list[i]).collect();
+        let (read, files) = cf_read_many_at(setup, &refs);
+        for p in files.into_values() {
+            let s = stamp(&p);
+            j.stamps.entry(p).or_insert(s);
+        }
+        for &i in &missing {
+            let c = &list[i];
+            let versions: Vec<(String, Option<&serde_json::Value>)> =
+                c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
+            let (all, this) = judge(&versions);
+            j.per[i] = Some((all.code(), this));
+        }
+    }
+    wanted.iter().map(|&i| j.per[i].clone().expect("judged")).collect()
 }
 
 /// Wraithguard: the last record scan as plugin -> type (`group_by_plugin`), plugins in the
@@ -780,24 +843,23 @@ pub(super) fn conflicts_by_plugin(cfg: String, subset: Vec<String>) -> Result<ta
 /// `worst` the plugin's `ConflictThis` names.
 #[tauri::command(async)]
 pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String) -> Result<tauri::ipc::Response, String> {
-    use conflictcore::summary::{judge, tally};
+    use conflictcore::summary::tally;
     let setup = cf_setup(&cfg)?;
-    let list: Vec<conflictcore::records::Conflict> = {
+    let (whole, scan_id) = {
         let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
         let scan = slot.as_ref().ok_or("scan first")?;
-        scan.list.iter().filter(|c| (rtype.is_empty() || c.rtype == rtype) && c.plugins.contains(&plugin)).cloned().collect()
+        (scan.list.clone(), scan.id)
     };
-    let refs: Vec<&conflictcore::records::Conflict> = list.iter().collect();
-    let read = cf_read_many(&setup, &refs);
+    let at_list: Vec<usize> =
+        whole.iter().enumerate().filter(|(_, c)| (rtype.is_empty() || c.rtype == rtype) && c.plugins.contains(&plugin)).map(|(i, _)| i).collect();
+    let verdicts = verdicts_of(&setup, scan_id, &whole, &at_list);
+    let list: Vec<&conflictcore::records::Conflict> = at_list.iter().map(|&i| &whole[i]).collect();
     let mut statuses = Vec::new();
     let mut judged = Vec::new();
-    for c in &list {
-        let versions: Vec<(String, Option<&serde_json::Value>)> =
-            c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
-        let (all, this) = judge(&versions);
+    for (c, (all, this)) in list.iter().zip(&verdicts) {
         let mine = c.plugins.iter().position(|p| *p == plugin).map(|i| this[i]).unwrap_or(conflictcore::fields::ConflictThis::Unknown);
         statuses.push(mine);
-        judged.push((all.code(), mine.name()));
+        judged.push((*all, mine.name()));
     }
     let mut counts = Vec::new();
     tally(statuses.iter().copied(), &mut counts);
@@ -808,7 +870,7 @@ pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String)
        `su` (status, count, in order). Read by `WgConflicts.readGroup` (60_wg_conflicts.js). */
     let mut names: Vec<&str> = Vec::new();
     let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for c in &list {
+    for c in list.iter().copied() {
         for n in c.plugins.iter().chain(std::iter::once(&c.winner)) {
             if !at.contains_key(n.as_str()) {
                 at.insert(n.as_str(), names.len());
@@ -825,7 +887,7 @@ pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String)
     }
     tb.table("records", "ssuus", list.len());
     for (c, (all, this)) in list.iter().zip(&judged) {
-        tb.s(&c.rtype).s(&c.id).u(at[c.winner.as_str()] as u64).u(*all as u64).s(this);
+        tb.s(&c.rtype).s(&c.id).u(at[c.winner.as_str()] as u64).u(u64::from(*all)).s(this);
     }
     tb.table("record_plugins", "uu", list.iter().map(|c| c.plugins.len()).sum());
     for (row, c) in list.iter().enumerate() {
@@ -846,24 +908,15 @@ pub(super) fn conflicts_plugin_group(cfg: String, plugin: String, rtype: String)
 /// is the codes themselves (Static 2026-11-17: JSON only where it is needed).
 #[tauri::command(async)]
 pub(super) fn conflicts_verdicts(cfg: String) -> Result<tauri::ipc::Response, String> {
-    use conflictcore::summary::judge;
     let _gate = scan_gate();
     let setup = cf_setup(&cfg)?;
-    let list: Vec<conflictcore::records::Conflict> = {
+    let (list, scan_id) = {
         let slot = CONFLICTS.lock().unwrap_or_else(|p| p.into_inner());
         let scan = slot.as_ref().ok_or("scan first")?;
-        scan.list.clone()
+        (scan.list.clone(), scan.id)
     };
-    let refs: Vec<&conflictcore::records::Conflict> = list.iter().collect();
-    let read = cf_read_many(&setup, &refs);
-    let codes: Vec<u8> = list
-        .iter()
-        .map(|c| {
-            let versions: Vec<(String, Option<&serde_json::Value>)> =
-                c.plugins.iter().map(|p| (p.clone(), read.get(&(p.clone(), c.rtype.clone(), c.id.clone())))).collect();
-            judge(&versions).0.code()
-        })
-        .collect();
+    let all: Vec<usize> = (0..list.len()).collect();
+    let codes: Vec<u8> = verdicts_of(&setup, scan_id, &list, &all).into_iter().map(|v| v.0).collect();
     Ok(tauri::ipc::Response::new(codes))
 }
 

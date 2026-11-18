@@ -17,12 +17,10 @@ for `CHANGELOG.md`; a decision stays as one line where open work depends on it. 
   Static's real order (619 plugins, 2026-11-10) spent 4.4 s between "declaring" and "wrote" (13.5
   MB); Verbose now splits the encoding from the disk write. A Verbose run of the real order says
   whether that time is the disk (or a scanner on the new file) or the encoding.
-- tes3cmd (built in since 2026-11-17, `viewer-shell/TES3CMD-REWRITE.md`; `staticnation/tes3cmd-rs`
-  a git dependency of `toolscore`, the external one an opt-in fallback). Open: per-record results
-  the page can list, filter and undo (the plan's "Why"), in place of tes3cmd's text. Left on
-  purpose: `modify --run` and `--program-file` run Perl, so they stay the external tes3cmd's; the
-  master cache is not ported (it holds every record of the master, so reading it back costs what
-  reading the master does).
+- tes3cmd (built in since 2026-11-17, `viewer-shell/TES3CMD-REWRITE.md`). Left on purpose:
+  `modify --run` and `--program-file` run Perl, so they stay the external tes3cmd's; the master
+  cache is not ported (it holds every record of the master, so reading it back costs what reading
+  the master does).
 
 ## Merge Lands
 
@@ -110,8 +108,6 @@ for code: it is GPL-3.
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
-- Why `editor_records` came back unreadable on Static's setup (Messages has the first 120
-  characters of the answer).
 
 ### Speed and caches
 
@@ -123,15 +119,6 @@ for code: it is GPL-3.
   plugin's `LAND`/`LTEX` records on disk as the Python kept `<stem>.land.json`, and ask the scan
   cache whether a plugin has terrain (`landcore` does not depend on `editcore`: a shared cache
   crate, or move the cache).
-- `conflicts_verdicts` and `conflicts_plugin_group` read the scan's plugins again on each call
-  (`cf_read_many`); Judge all calls the second once per plugin, so a plugin's records are read
-  again for every plugin it shares one with. Both are timed in Messages ("Conflicts: judged ..."):
-  if Judge all is slow on the big order, keep each plugin's records of the scan's keys between
-  calls, dropped with the scan.
-- The record cache: if it grows too big (the `uses` table is most of it), keep only the strings
-  of fields that can name a record. Search all over a big order holds the matches' text until the
-  answer is made (tens of megabytes for a common word over 621 plugins): if that shows, count past
-  the first 2,000 fields without keeping them.
 - Not done, on purpose: `read_tag` builds its values through JSON text (a record's `f32` fields
   would come out widened to `f64` from `serde_json::to_value`); `editRevision` is not answered
   without the lock (a stale revision would hide the refresh the poll is for).

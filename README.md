@@ -363,7 +363,7 @@ Each tool is a section on the left with its work on the right.
 | **Remove / rename master** | A master OpenMW can't find: removed (references renumbered, a dry run first) or pointed at the file that replaced it. The original is kept once as `.premaster.bak`. |
 | **Save Check** | Whether a save loads with this order (the content files it needs that the order lacks), the space each mod takes in it and how to shrink it, and two saves compared. |
 | **Journal** | Every quest's stages in index order, each with the scripts and responses that set it, and their conditions. |
-| **tes3cmd** | tes3cmd built in ([tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs), no tes3cmd.exe or Perl needed) on each plugin: clean, header or any command, on a copy with its masters read from your data folders and never changed, a backup kept; master sizes synced in-app. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and `diff` on two; a multipatch.esp made goes beside them. Tick *Use external* to run your own tes3cmd instead; commands that run Perl code (`modify --run`) use it either way. |
+| **tes3cmd** | tes3cmd built in ([tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs), no tes3cmd.exe or Perl needed) on each plugin: clean, header or any command, on a copy with its masters read from your data folders and never changed, a backup kept; master sizes synced in-app. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and `diff` on two; a multipatch.esp made goes beside them. Every record a run removed, added or changed is listed under it, filtered by plugin, kind or text, and **Undo selected** puts the ticked records back as they were. Tick *Use external* to run your own tes3cmd instead; commands that run Perl code (`modify --run`) use it either way. |
 | **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against the load order before it (the default, as OpenMWMergedLands does) or against its masters (contested vertices blended, as the original Merged Lands does). Seams are repaired along the cells plugins changed, and optionally the seams the terrain already had. Plugins can be left out by name or folder, and cells for every plugin or for one (Tamriel Rebuilt's Hunza Camp by default). **Import from OpenMWMergedLands** reads its `merged_lands.toml`. *Dry run*, *Verbose* (with each step's time and the peak memory) and *Cancel* are beside **Build**. See [MERGED_LANDS.md](MERGED_LANDS.md). |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
@@ -482,7 +482,8 @@ It reads `Morrowind.ini` and `Data Files` from the folder it runs in, as tes3cmd
   once for a plugin: `.premaster.bak`, `.preedit.bak`, `.premerge.bak`, `.preclean.bak`,
   `.precustom.bak` or `.masterfix.bak` (tes3cmd's `header` keeps its own, `Name~1.esp`).
 - **tes3cmd's working copies** go in `wraithguard_tes3cmd_staging` in the system's temporary
-  folder.
+  folder, with each of the last ten runs' plugins as they were before the run (its `results`), for
+  undo.
 - **Patches** go where you choose when you Build. **Merged Lands.esp** goes in the folder
   Setup names, or the one holding most of the load order.
 - **Exports** go to the customizations TOML (and the cfg, if you ask).
@@ -504,7 +505,7 @@ It reads `Morrowind.ini` and `Data Files` from the folder it runs in, as tes3cmd
   sources.
 - **tes3cmd works on copies.** `clean` and other commands change a copy of each plugin, copied
   back only if the command succeeded and changed it (`header` runs in the plugin's folder and
-  keeps tes3cmd's own backup). The built-in tes3cmd never writes a master: one it changes
+  keeps tes3cmd's own backup). Any record a run changed can be put back from the Tools page. The built-in tes3cmd never writes a master: one it changes
   (`fixit`'s header sync, `resetdates`) is changed on a private copy.
 - The MOMW team doesn't support customizations. This program helps you see and place
   them; it can't promise they're conflict-free.

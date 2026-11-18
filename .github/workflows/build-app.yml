@@ -59,7 +59,7 @@ jobs:
             exe: ""
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -68,7 +68,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo registry and build output
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -102,7 +102,7 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then 7z a "$out.zip" "$out" >/dev/null; else tar czf "$out.tar.gz" "$out"; fi
           ls -lh "$out"
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wraithguard-${{ matrix.name }}
           path: |
@@ -139,7 +139,7 @@ jobs:
       # linuxdeploy is itself an AppImage: run it unpacked, no FUSE needed on the runner.
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -148,7 +148,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo registry and build output
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -180,7 +180,7 @@ jobs:
           chmod +x ../Wraithguard_Toolkit-x86_64.AppImage
           ls -lh ../Wraithguard_Toolkit-x86_64.AppImage
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Wraithguard_Toolkit-x86_64-appimage
           path: Wraithguard_Toolkit-x86_64.AppImage
@@ -206,7 +206,7 @@ jobs:
     env:
       WEBVIEW2_URL: ${{ inputs.webview2_url != '' && inputs.webview2_url || vars.WEBVIEW2_FIXED_URL }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -215,7 +215,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo registry and build output
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -245,7 +245,7 @@ jobs:
           Write-Host "bundled WebView2: $($exe.DirectoryName)"
           Compress-Archive -Path "$out" -DestinationPath "$out.zip"
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wraithguard-windows-x86_64-webview2
           path: wraithguard-windows-x86_64-webview2.zip

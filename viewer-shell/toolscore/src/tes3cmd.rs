@@ -349,6 +349,50 @@ pub struct Run {
     /// New files a run made (multipatch.esp), put beside the plugins.
     pub made: usize,
     pub status: String,
+    /// This run's name, and the folder its plugins' "before" copies are kept in (`keep`).
+    pub id: String,
+    /// Each plugin the run changed: its record by record changes (`recdiff`), and where the
+    /// plugin as it was is kept, for undo.
+    pub files: Vec<Changed>,
+}
+
+/// A plugin a run changed: the file, its copy from before the run, and what changed.
+#[derive(Clone, Debug)]
+pub struct Changed {
+    pub path: PathBuf,
+    pub before: PathBuf,
+    pub changes: Vec<crate::recdiff::Change>,
+}
+
+/// The runs whose "before" copies are kept (the newest; older ones are deleted).
+pub const KEEP_RUNS: usize = 10;
+
+/// The folder a run keeps its plugins' "before" copies in: `staging/results/<id>`. The oldest
+/// runs past `KEEP_RUNS` are deleted when a new one starts.
+fn keep_dir(staging: &Path) -> (String, PathBuf) {
+    let root = staging.join("results");
+    let id = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0));
+    if let Ok(rd) = std::fs::read_dir(&root) {
+        let mut old: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        old.sort();
+        let drop = old.len().saturating_sub(KEEP_RUNS - 1);
+        for d in old.into_iter().take(drop) {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+    let dir = root.join(&id);
+    (id, dir)
+}
+
+/// `orig` changed from `before` to `after` by this run: its "before" copy kept under `keep`,
+/// and its changes listed.
+fn record_change(r: &mut Run, keep: &Path, orig: &Path, before: &[u8], after: &[u8]) {
+    let n = r.files.len();
+    let name = orig.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let copy = keep.join(format!("{n}_{name}"));
+    if std::fs::create_dir_all(keep).and_then(|()| std::fs::write(&copy, before)).is_ok() {
+        r.files.push(Changed { path: orig.to_path_buf(), before: copy, changes: crate::recdiff::diff(before, after) });
+    }
 }
 
 /// The commands that act on the whole active load order, run once over the plugins chosen
@@ -384,6 +428,8 @@ fn home_folder(files: &[PathBuf]) -> Option<PathBuf> {
 /// depends on them) and the staged load order.
 pub fn run(engine: &Engine, cmd: &str, extra: &[String], files: &[PathBuf], find: &Find<'_>, staging: &Path, order: &[String]) -> Run {
     let mut r = Run::default();
+    let (id, keep) = keep_dir(staging);
+    r.id = id;
     let (tokens, staged, bak_suffix): (Vec<String>, bool, &str) = match cmd {
         "clean" => (["clean", "--replace", "--hide-backups"].iter().map(|s| (*s).to_string()).chain(extra.iter().cloned()).collect(), true, ".preclean.bak"),
         "custom" => (extra.to_vec(), true, ".precustom.bak"),
@@ -438,9 +484,16 @@ pub fn run(engine: &Engine, cmd: &str, extra: &[String], files: &[PathBuf], find
                 let f = &group[0];
                 let mut args = tokens.clone();
                 args.push(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                let before = std::fs::read(f).ok();
                 let (code, out) = run_one(engine, &args, f.parent().unwrap_or(Path::new(".")), None)?;
                 r.lines.push(if out.is_empty() { "(no output)".into() } else { out });
                 if code == 0 { r.ok += 1 } else { r.failed += 1 }
+                if let (Some(before), Ok(after)) = (before, std::fs::read(f))
+                    && after != before
+                {
+                    r.changed += 1;
+                    record_change(&mut r, &keep, f, &before, &after);
+                }
                 return Ok(());
             }
             let s = stage_set(staging, &group, find, !builtin, order)?;
@@ -484,6 +537,7 @@ pub fn run(engine: &Engine, cmd: &str, extra: &[String], files: &[PathBuf], find
                     copy_with_time(orig, &bak)?;
                 }
                 std::fs::write(orig, &after)?;
+                record_change(&mut r, &keep, orig, &before, &after);
                 r.ok += 1;
                 r.changed += 1;
                 r.lines.push(format!(
@@ -496,7 +550,13 @@ pub fn run(engine: &Engine, cmd: &str, extra: &[String], files: &[PathBuf], find
             }
             // A plugin the run made (multipatch.esp), beside the plugins.
             let staged_names: std::collections::HashSet<String> = s.masters.keys().cloned().chain(s.copies.iter().map(|c| name(&c.1))).collect();
-            let mut made: Vec<String> = listed(&s.data_files).into_iter().filter(|f| !was_there.contains(f) && !staged_names.contains(f)).collect();
+            // Only plugins, and never tes3cmd's own backups (`Name~1.esp`, kept beside the plugin
+            // when a command is not told `--hide-backups`).
+            let plugin_made = |f: &String| {
+                let ext = f.rsplit_once('.').filter(|(_, e)| matches!(*e, "esp" | "esm" | "omwaddon" | "omwgame"));
+                ext.is_some_and(|(stem, _)| !stem.rsplit_once('~').is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+            };
+            let mut made: Vec<String> = listed(&s.data_files).into_iter().filter(|f| !was_there.contains(f) && !staged_names.contains(f) && plugin_made(f)).collect();
             made.sort();
             for low in made {
                 let Some(src) = std::fs::read_dir(&s.data_files)?.flatten().map(|e| e.path()).find(|p| name(p) == low) else { continue };
