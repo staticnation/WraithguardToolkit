@@ -23,6 +23,9 @@
      external one when "Use external" is ticked, run on each plugin staged with its masters
      (clean, custom) or in place (header); master sizes synced in-app. A command running Perl
      code (modify --run and the like) goes to an external tes3cmd when there is one.
+   - Merge objects (`tools_merge_objects`, editcore::mergeobjects): Merged Objects.esp, the records
+     two or more plugins change merged record by record (a port of NullCascade's TES3Merge), or
+     only the leveled lists into multipatch.esp.
    - Merge Lands (`land_merge_home`, `land_merge`, landcore::service): Merged Lands.esp built
      from the cfg's load order and data folders, into the folder chosen (the one holding most
      of the order by default), the progress as Wraithguard's log had it. Each plugin measured
@@ -45,9 +48,11 @@ const WgToolsPage={
     ['journal','Journal','Every quest\'s stages, and what sets each one'],
     ['tes3cmd','tes3cmd','Clean plugins, fix headers, sync master sizes'],
     ['mergelands','Merge Lands','Merged Lands.esp: the terrain of every mod that reshapes a cell, kept together'],
+    ['mergeobjects','Merge objects','Merged Objects.esp: every mod\'s changes to the same records kept, not only the last one\'s (TES3Merge)'],
     ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how'],
     ['m2m','Merge to master','A plugin folded into its master, or a whole load order into one master (merge_to_master)'],
-    ['meshopt','Mesh optimizer','Draw-order copies of the load order\'s meshes, only where it helps']],
+    ['meshopt','Mesh optimizer','Draw-order copies of the load order\'s meshes, only where it helps'],
+    ['meshcheck','Check meshes','The load order\'s meshes checked for the faults exporters write, and repaired copies of those that can be mended']],
   t3:{files:[], res:null},
   m2:{plugin:'', master:'', files:[]},
   jr:{data:null, quest:null},
@@ -55,6 +60,7 @@ const WgToolsPage={
   mg:{plugin:'', data:null},
   ml:{home:null, running:false},
   mo:{rows:[], stats:null, shown:0, running:false},
+  mc:{rows:[], head:null, running:false},
   bk:{rows:[]},
   lint:{warnings:[], stats:null, filter:'all'},
   KINDS:{'EVLGMST':'Evil GMSTs','FOGBUG':'Fog bug','NO PATHGRID':'No path grid','HEADER':'Headers','EXP-DEP':'Expansion calls','TWIN':'Twins'},
@@ -197,6 +203,26 @@ const WgToolsPage={
     <span>Write into</span><input type="text" id="tlMlFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px"><button class="btn dim" id="tlMlBrowse">Browse...</button></div>
   <div class="scroll"><div id="tlMlIntro" class="empty">Where two mods reshape different vertices of the same exterior cell, the load order keeps only the last one's LAND record and discards the other; this recovers both into a new plugin, Merged Lands.esp. Seams between cells are repaired and the terrain is conditioned so every height fits the format. Your mods are never modified, and deleting the merged plugin restores your previous behavior exactly. Load it LAST. Merge settings (a plugin's .mergedlands.toml) decide, per layer, what a mod contributes and how its edits resolve.</div>
   <pre id="tlMlOut" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
+<div class="col pane" id="tlObj" hidden><h3>Merge objects <span class="sp"></span>
+  <label title="Merge only the leveled lists (and fix summons and fogbugged cells), as TES3Merge's multipatch, into multipatch.esp"><input type="checkbox" id="tlObLists"> Leveled lists only</label>
+  <label title="Report what would be merged without writing anything"><input type="checkbox" id="tlObDry"> Dry run</label>
+  <button class="btn" id="tlObRun">Build Merged Objects.esp</button></h3>
+  <div class="acts" style="display:flex;gap:10px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span>Fixes</span>
+    <label title="Flag the known summoned creatures persistent (a crash when leaving a cell where one was summoned; the Morrowind Code Patch also fixes it)"><input type="checkbox" id="tlObSummons" checked> summons</label>
+    <label title="Give interiors with fog density 0 a small one (pitch-black interiors on some video cards)"><input type="checkbox" id="tlObFog" checked> fogbug</label>
+    <label title="Keep an exterior cell's new name when a later plugin reverts it to the old one (scripts that name the renamed cell break)"><input type="checkbox" id="tlObNames" checked> cellnames</label>
+    <label title="Merge NPC and creature inventories inclusively: every item any plugin gives them (off: the last plugin to change the inventory wins it whole)"><input type="checkbox" id="tlObIncl"> Inclusive inventories</label></div>
+  <div class="acts" id="tlObTypes" style="display:flex;gap:4px 10px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap"></div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span>Leave out</span><input type="text" id="tlObIgnore" placeholder="plugin names, comma separated" style="flex:1;min-width:200px" title="Plugins left out of the merge, by name (TES3Merge.ini's [FileFilters])"></div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:flex-start;flex-wrap:wrap">
+    <span title="Which ids are merged, as TES3Merge.ini's [ObjectFilters]: a regular expression over the id in lower case, then = true or = false; the last line that matches decides">Id filters</span>
+    <textarea id="tlObFilters" spellcheck="false" rows="2" placeholder="^ttm_ = false" style="flex:1;min-width:200px;font-family:var(--mono)"></textarea></div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span>Write into</span><input type="text" id="tlObFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px"><button class="btn dim" id="tlObBrowse">Browse...</button></div>
+  <div class="scroll"><div id="tlObIntro" class="empty">When two mods change the same record (an NPC, a potion, a leveled list), the game uses only the last one's version, so the other's changes are lost. This merges them record by record into a new plugin, Merged Objects.esp, loaded last: each mod's changes kept where they do not overlap, the later mod's where they do, and leveled lists combined. A port of NullCascade's TES3Merge, for OpenMW, Mod Organizer 2 and the game's own install alike. Your mods are never changed; delete the plugin to undo it. Run it again after changing the load order.</div>
+  <pre id="tlObOut" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
 <div class="col pane" id="tlM2m" hidden><h3>Merge to master <span class="sp"></span>
   <select id="tlM2Mode" title="What is merged"><option value="plugin">A plugin into its master</option><option value="order">Plugins into one master</option></select>
   <label title="Drop the records a plugin deletes instead of carrying the deletion"><input type="checkbox" id="tlM2Del"> Remove deleted</label>
@@ -226,8 +252,17 @@ const WgToolsPage={
     <input type="text" id="tlMoFolder" placeholder="only meshes from data folders containing..." style="flex:1;min-width:180px" title="Part of a data folder's path; empty: every mesh the load order provides"></div>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
     <span>Write into</span><input type="text" id="tlMoOut" placeholder="a new, empty folder (not one of your mods); add it last in the data= lines" style="flex:1;min-width:240px"><button class="btn dim" id="tlMoBrowse">Browse...</button></div>
-  <div class="scroll"><div id="tlMoIntro" class="empty">Puts the load order's meshes in the order a graphics card draws fastest (vertex cache, then overdraw, then vertex fetch), only the meshes where it pays: each shape is moved only if it really draws better, and a mesh only if the gain reaches the threshold above. Analyse measures the winning copy of every loose mesh (archives are not read); Write copies puts the ticked ones, optimized and checked to be the same mesh, into the folder above, at their own paths. Your mods are not modified; the folder goes last in the load order, or is deleted to undo. What was measured is remembered, so the next run measures only what changed.</div>
-  <div id="tlMoBody"></div></div></div>`;
+  <div class="scroll"><div id="tlMoIntro" class="empty">Puts the load order's meshes in the order a graphics card draws fastest (vertex cache, then overdraw, then vertex fetch), only the meshes where it pays: each shape is moved only if it really draws better, and a mesh only if the gain reaches the threshold above. Analyse measures the winning copy of every loose mesh (archives are not read); Write copies puts the ticked ones, optimized and checked to be the same mesh, into the folder above, at their own paths. Your mods are not modified; the folder goes last in the load order, or is deleted to undo. What was measured is remembered, so the next run measures only what changed. A mesh with a fault Check meshes proves it can mend (a UV flag left off) is measured and optimized from the repaired copy, and the copy written is repaired too.</div>
+  <div id="tlMoBody"></div></div>
+<div class="col pane" id="tlMc" hidden><h3>Check meshes <span class="sp"></span><span id="tlMcStats" class="empty"></span>
+  <button class="btn dim" id="tlMcWrite" disabled title="Write the ticked meshes, repaired, into the output folder">Write repaired</button><button class="btn" id="tlMcRun">Check</button></h3>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <label title="Also write the meshes that can be mended only by a guess: a node whose lists after its transform do not read is kept with no properties, children or effects. Nothing else in the mesh links to such a node, but what the garbage meant is lost."><input type="checkbox" id="tlMcGuess"> Also write guesses</label>
+    <input type="text" id="tlMcFolder" placeholder="only meshes from data folders containing..." style="flex:1;min-width:180px" title="Part of a data folder's path; empty: every mesh the load order provides"></div>
+  <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
+    <span>Write into</span><input type="text" id="tlMcOut" placeholder="a new, empty folder (not one of your mods); add it last in the data= lines" style="flex:1;min-width:240px"><button class="btn dim" id="tlMcBrowse">Browse...</button></div>
+  <div class="scroll"><div id="tlMcIntro" class="empty">Reads the winning copy of every loose mesh (archives are not read) and lists those that are not sound. Mendable: every fault is one an exporter is known to write, and the repair is proven to keep the mesh as it was (a UV flag left off where there are UV sets, which OpenMW and older tools misread). Mendable by a guess: a node whose lists do not read, which nothing else links to, emptied. Unreadable: another NIF version, a block type outside Morrowind's format, or not a NIF at all. Write repaired puts the ticked ones into the folder above, at their own paths. Your mods are not modified; the folder goes last in the load order, or is deleted to undo. The Mesh optimizer reads proven repairs the same way, so an optimized copy is repaired too.</div>
+  <div id="tlMcBody"></div></div></div>`;
     document.body.appendChild(el);
     for(const d of el.querySelectorAll('#tlNav [data-t]')) d.onclick=()=>this.show(d.dataset.t);
     $('#tlLintRun').onclick=()=>this.runLint();
@@ -239,6 +274,10 @@ const WgToolsPage={
     $('#tlMoRun').onclick=()=>this.moRun();
     $('#tlMoWrite').onclick=()=>this.moWrite();
     $('#tlMoAll').onclick=()=>{ const bx=[...document.querySelectorAll('#tlMoBody input[data-p]')]; const on=bx.some(b=>!b.checked); for(const b of bx) b.checked=on; this.moTicked(); };
+    $('#tlMcRun').onclick=()=>this.mcRun();
+    $('#tlMcWrite').onclick=()=>this.mcWrite();
+    $('#tlMcBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlMcOut').value=String(p); this.mcSave(); } };
+    this.mcLoad();
     $('#tlMoBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlMoOut').value=String(p); this.moSave(); } };
     for(const id of ['tlMoGain','tlMoTris','tlMoFolder','tlMoOut']) $('#'+id).onchange=()=>this.moSave();
     this.moLoad();
@@ -383,10 +422,54 @@ const WgToolsPage={
     $('#tlT3').hidden=tool!=='tes3cmd';
     $('#tlMerge').hidden=tool!=='mergesettings';
     $('#tlLands').hidden=tool!=='mergelands';
+    $('#tlObj').hidden=tool!=='mergeobjects';
     $('#tlMo').hidden=tool!=='meshopt';
+    $('#tlMc').hidden=tool!=='meshcheck';
     $('#tlM2m').hidden=tool!=='m2m';
     if(tool==='mergelands') this.landsHome();
+    if(tool==='mergeobjects') this.obInit();
     if(tool==='mergesettings') this.mergeMine();
+  },
+
+  /* ---- Merge objects (editcore::mergeobjects, TES3Merge's rules) ---- */
+  /** TES3Merge's record types (`DEFAULT_TYPES`; FACT off by default, as TES3Merge has it). */
+  OB_TYPES:['ACTI','ALCH','APPA','ARMO','BODY','BOOK','BSGN','CELL','CLAS','CLOT','CONT','CREA','DOOR','ENCH','FACT','GMST','INGR','LEVC','LEVI',
+    'LIGH','LOCK','MGEF','MISC','NPC_','PROB','RACE','REPA','SKIL','SNDG','SOUN','SPEL','STAT','WEAP'],
+  OB_KEEP:['tlObLists','tlObDry','tlObSummons','tlObFog','tlObNames','tlObIncl','tlObIgnore','tlObFilters','tlObFolder'],
+  obInit(){
+    if(this.ob) return;
+    this.ob={};
+    let kept={}; try{ kept=JSON.parse(localStorage.getItem('wgTools.mergeObjects')||'{}'); }catch(_){}
+    const off=new Set(kept.typesOff||['FACT']);
+    $('#tlObTypes').innerHTML='<span title="The record types merged; FACT is off as in TES3Merge">Types</span>'+this.OB_TYPES.map(t=>`<label style="font-family:var(--mono)"><input type="checkbox" data-obt="${t}"${off.has(t)?'':' checked'}> ${t}</label>`).join('');
+    for(const id of this.OB_KEEP){ const el=$('#'+id); if(!(id in kept)) continue; if(el.type==='checkbox') el.checked=!!kept[id]; else el.value=kept[id]; }
+    const save=()=>{ const k={typesOff:[...document.querySelectorAll('#tlObTypes [data-obt]')].filter(b=>!b.checked).map(b=>b.dataset.obt)};
+      for(const id of this.OB_KEEP){ const el=$('#'+id); k[id]=el.type==='checkbox'? el.checked : el.value; }
+      try{ localStorage.setItem('wgTools.mergeObjects', JSON.stringify(k)); }catch(_){} };
+    for(const el of document.querySelectorAll('#tlObj input, #tlObj textarea')) el.addEventListener('change', save);
+    $('#tlObBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlObFolder').value=String(p); save(); } };
+    $('#tlObRun').onclick=()=>this.obRun();
+    $('#tlObLists').onchange=()=>{ $('#tlObRun').textContent=$('#tlObLists').checked? 'Build multipatch.esp' : 'Build Merged Objects.esp'; save(); };
+    $('#tlObLists').onchange();
+  },
+  async obRun(){
+    const lists=$('#tlObLists').checked, dry=$('#tlObDry').checked;
+    const name=lists? 'multipatch.esp' : 'Merged Objects.esp';
+    if(!dry && !await wgConfirm(`Merge the load order's records into ${name}? A ${name} already there is replaced.`)) return;
+    const btn=$('#tlObRun'); btn.disabled=true;
+    $('#tlObIntro').hidden=true; $('#tlObOut').textContent='Reading the load order...';
+    try{
+      const patches=[['tlObSummons','summons'],['tlObFog','fogbug'],['tlObNames','cellnames']].filter(([id])=>$('#'+id).checked).map(x=>x[1]);
+      const types=[...document.querySelectorAll('#tlObTypes [data-obt]')].filter(b=>b.checked).map(b=>b.dataset.obt);
+      if(!lists && !types.length) throw new Error('Tick at least one record type.');
+      const r=unpackTables(await Engine.bytes('tools_merge_objects',{cfg:this.cfg(), folder:$('#tlObFolder').value.trim(), types, inclusive:$('#tlObIncl').checked,
+        patches, ignore:$('#tlObIgnore').value.split(',').map(s=>s.trim()).filter(Boolean), filters:$('#tlObFilters').value, listsOnly:lists, dryRun:dry}));
+      const head=(r.head||[])[0]||[], status=head[0]||'';
+      const kinds=(r.types||[]).map(x=>x[1]+' '+x[0]).join(', ');
+      $('#tlObOut').textContent=status+(kinds? '\n'+kinds : '')+'\n\n'+(r.lines||[]).map(x=>x[0]).join('\n');
+      toast(status,'ok',6000);
+    }catch(e){ $('#tlObOut').textContent=String(e.message||e); toast(String(e.message||e),'err',6000); }
+    finally{ btn.disabled=false; }
   },
 
   /* ---- Merge Lands (landcore::service) ---- */
@@ -517,7 +600,7 @@ const WgToolsPage={
       const ok=r.qualifies;
       return `<tr class="${ok?'':'no'}"><td>${ok?`<input type="checkbox" data-p="${i}" checked>`:''}</td><td class="p">${loEsc(r.path)}</td><td class="p" title="${loEsc(r.dir)}">${loEsc(tail(r.dir))}</td>`+
         `<td>${r.triangles.toLocaleString()}</td><td>${r.improvable?(r.gain*100).toFixed(1)+'%':''}</td>`+
-        `<td>${r.improvable?two(r.acmr):''}</td><td>${r.improvable?two(r.overdraw):''}</td><td>${r.improvable?two(r.overfetch):''}</td><td class="p">${loEsc(r.note||'')}</td></tr>`;
+        `<td>${r.improvable?two(r.acmr):''}</td><td>${r.improvable?two(r.overdraw):''}</td><td>${r.improvable?two(r.overfetch):''}</td><td class="p">${loEsc([r.note, (r.repaired&&r.repaired.length)? 'repaired first (Check meshes): '+r.repaired.join('; ') : ''].filter(Boolean).join(' · '))}</td></tr>`;
     }).join('');
     const more=s.meshes>this.mo.shown? `<div class="empty">The ${this.mo.shown.toLocaleString()} best of ${s.meshes.toLocaleString()} are listed; Write copies takes every mesh that qualifies when none is ticked.</div>` : '';
     $('#tlMoBody').innerHTML=`<table class="mo"><tr><th></th><th class="p">Mesh</th><th class="p">From</th><th>Triangles</th><th>Gain</th><th>Cache (ACMR)</th><th>Overdraw</th><th>Fetch</th><th class="p"></th></tr>${body}</table>${more}`;
@@ -555,6 +638,96 @@ const WgToolsPage={
       void saved;
     }catch(e){ stop(); toast(String(e.message||e),'err',6000); }
     finally{ stop(); this.mo.running=false; $('#tlMoRun').disabled=false; this.moTicked(); }
+  },
+
+  /* ---- Check meshes (conflictcore::nif_repair); progress is the optimizer's ---- */
+  MC_STATUS:['sound','mendable','mendable by a guess','unreadable'],
+  mcOpts(){ return {folder:$('#tlMcFolder').value.trim()}; },
+  mcSave(){
+    try{ localStorage.setItem('wgTools.meshcheck', JSON.stringify({folder:$('#tlMcFolder').value, out:$('#tlMcOut').value.trim(), guesses:$('#tlMcGuess').checked})); }catch(_){}
+  },
+  mcLoad(){
+    try{
+      const v=JSON.parse(localStorage.getItem('wgTools.meshcheck')||'{}');
+      if(v.folder!=null) $('#tlMcFolder').value=v.folder;
+      if(v.out!=null) $('#tlMcOut').value=v.out;
+      $('#tlMcGuess').checked=!!v.guesses;
+    }catch(_){}
+  },
+  mcTick(label){
+    let live=true; const t0=performance.now(), stat=$('#tlMcStats');
+    (async()=>{
+      while(live){
+        try{
+          let p=await Engine.call('meshopt_progress',{}); if(typeof p==='string') p=JSON.parse(p);
+          if(live && Array.isArray(p)) stat.textContent=`${label} ${p[0]} of ${p[1]} (${((performance.now()-t0)/1000).toFixed(0)} s)`;
+        }catch(_){}
+        await new Promise(r=>setTimeout(r,500));
+      }
+    })();
+    return ()=>{ live=false; };
+  },
+  /** `meshcheck_scan`'s tables (conflicts.rs) as rows: {path, dir, status, bytes, why, faults}. */
+  mcRead(tb){
+    const h=tb.head[0], dirs=tb.dirs.map(r=>r[0]);
+    const rows=tb.rows.map(r=>({path:r[0], dir:dirs[r[1]]||'', status:r[2], bytes:+r[3], why:r[4], faults:[]}));
+    for(const f of tb.faults) rows[f[0]].faults.push({label:f[1], name:f[2], block:f[3], certain:!!f[4], note:f[5]});
+    return {head:{meshes:h[0], sound:h[1], mendable:h[2], guesses:h[3], unreadable:h[4]}, rows};
+  },
+  async mcRun(){
+    if(this.mc.running) return;
+    this.mc.running=true; const btn=$('#tlMcRun'); btn.disabled=true; $('#tlMcWrite').disabled=true;
+    $('#tlMcBody').innerHTML='<div class="empty">Reading the load order\'s meshes...</div>';
+    const stop=this.mcTick('Checking');
+    try{
+      this.mcSave();
+      const got=this.mcRead(unpackTables(await Engine.bytes('meshcheck_scan',{cfg:this.cfg(), opts:this.mcOpts(), outDir:$('#tlMcOut').value.trim()})));
+      this.mc.rows=got.rows; this.mc.head=got.head;
+      stop(); this.mcDraw();
+    }catch(e){ stop(); $('#tlMcStats').textContent=''; $('#tlMcBody').innerHTML=`<div class="empty">${loEsc(String(e.message||e))}</div>`; toast(String(e.message||e),'err',6000); }
+    finally{ stop(); this.mc.running=false; btn.disabled=false; }
+  },
+  mcDraw(){
+    const h=this.mc.head, rows=this.mc.rows, guesses=$('#tlMcGuess').checked;
+    $('#tlMcStats').textContent=`${h.meshes} meshes · ${h.sound} sound · ${h.mendable} mendable · ${h.guesses} by a guess · ${h.unreadable} unreadable`;
+    if(!rows.length){ $('#tlMcBody').innerHTML=`<div class="empty">${h.meshes? 'Every mesh is sound.' : 'No meshes found in the load order\'s data folders.'}</div>`; this.mcTicked(); return; }
+    const tail=d=>String(d).replace(/[\\/]+$/,'').split(/[\\/]/).pop();
+    const body=rows.map((r,i)=>{
+      const can=r.status===1 || r.status===2;
+      const box=can? `<input type="checkbox" data-c="${i}"${r.status===1||guesses?' checked':''}>` : '';
+      const what=r.faults.map(f=>`<div>${loEsc(f.label)}${f.certain?'':' <b>(a guess)</b>'}: block ${f.block} (${loEsc(f.name)}): ${loEsc(f.note)}</div>`).join('')+(r.why? `<div>${loEsc(r.why)}</div>` : '');
+      return `<tr class="${can?'':'no'}"><td>${box}</td><td class="p">${loEsc(r.path)}</td><td class="p" title="${loEsc(r.dir)}">${loEsc(tail(r.dir))}</td><td>${this.MC_STATUS[r.status]}</td><td class="p">${what}</td></tr>`;
+    }).join('');
+    $('#tlMcBody').innerHTML=`<table class="mo"><tr><th></th><th class="p">Mesh</th><th class="p">From</th><th>Stands</th><th class="p">What was found</th></tr>${body}</table>`;
+    for(const b of document.querySelectorAll('#tlMcBody input[data-c]')) b.onchange=()=>this.mcTicked();
+    this.mcTicked();
+  },
+  mcTicked(){
+    $('#tlMcWrite').disabled=![...document.querySelectorAll('#tlMcBody input[data-c]')].some(b=>b.checked);
+  },
+  async mcWrite(){
+    if(this.mc.running) return;
+    const out=$('#tlMcOut').value.trim();
+    if(!out) return toast('Choose the folder the repaired meshes go to first','warn',3500);
+    const ticked=[...document.querySelectorAll('#tlMcBody input[data-c]')].filter(b=>b.checked).map(b=>this.mc.rows[+b.dataset.c]);
+    if(!ticked.length) return toast('Tick the meshes to write','warn',3000);
+    // A ticked guess is written only with guesses on: ticking one asks for it.
+    const guesses=ticked.some(r=>r.status===2);
+    const n=ticked.length, g=ticked.filter(r=>r.status===2).length;
+    const ok=await wgConfirm(`${n.toLocaleString()} repaired mesh(es) will be written into:\n${out}\n\n${g? `${g} of them are mended by a guess: a node that does not read is emptied.\n\n` : ''}Your mods are NOT modified. Add that folder LAST in your data= lines to use them, or delete it to undo.`);
+    if(!ok) return;
+    this.mc.running=true; $('#tlMcRun').disabled=true; $('#tlMcWrite').disabled=true;
+    const stop=this.mcTick('Writing');
+    try{
+      this.mcSave();
+      const tb=unpackTables(await Engine.bytes('meshcheck_write',{cfg:this.cfg(), opts:this.mcOpts(), outDir:out, paths:ticked.map(r=>r.path), guesses}));
+      stop();
+      const [written, failed]=tb.head[0];
+      $('#tlMcStats').textContent=`${written} written${failed?`, ${failed} failed`:''} to ${out}`;
+      toast(`${written} repaired mesh(es) written`+(failed?`; ${failed} failed`:''), failed?'warn':'ok', 6000);
+      if(tb.failures.length) $('#tlMcBody').insertAdjacentHTML('afterbegin', `<div class="warn">Not written:\n${tb.failures.map(f=>loEsc(f[0]+': '+f[1])).join('\n')}</div>`);
+    }catch(e){ stop(); toast(String(e.message||e),'err',6000); }
+    finally{ stop(); this.mc.running=false; $('#tlMcRun').disabled=false; this.mcTicked(); }
   },
 
   /** Your mods (`mine`) or the curated list's plugins (`list`), by name. A host that

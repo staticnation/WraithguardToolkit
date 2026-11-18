@@ -1,0 +1,478 @@
+//! Repairs for the faults exporters are known to write into NIF 4.0.0.2 files.
+//! Wraithguard (0024), for its Check meshes tool and its mesh optimizer.
+//!
+//! A NIF has no block sizes, so a fault in one block desyncs every block after it, and the
+//! proof of a repair is the same as the proof of a reading: the repaired file must read
+//! to the end, with the roots footer where it should be. Every repair here is tried on a
+//! copy and kept only when that holds; a file this cannot mend is left as it is, with the
+//! reason it does not read.
+//!
+//! The faults:
+//!
+//! - [`Kind::UvFlag`]: a geometry block with UV sets whose `Has UV` word is 0. nif.xml sizes
+//!   the UV sets by `Num UV Sets` alone and says the word may be 0, and this crate reads
+//!   them that way; a reader that trusts the word (OpenMW, older tools) takes the texture
+//!   coordinates as the triangles. The file reads here, so the repair is the word set to 1,
+//!   four bytes, and the file still means the same.
+//! - [`Kind::UvCount`]: the other way round, `Num UV Sets` counted with no UV sets after it
+//!   and `Has UV` 0. The repair is the count set to 0, which the rest of the file proves.
+//! - [`Kind::BrokenNode`]: a node whose lists after its transform do not read (an exporter
+//!   wrote garbage there), when nothing else in the mesh links to it. The repair keeps the
+//!   node, its name and transform, with no properties, children or effects, so every block
+//!   keeps its number. The rest of the file proves where the node ends (so the last block
+//!   of a file is not mended this way: the footer alone cannot place its end); what the
+//!   garbage meant is lost, so this one is a guess ([`Kind::certain`] is false).
+
+use std::fmt;
+
+use super::stream::{Stream, walk, walk_from};
+use super::types::NAMES;
+
+/// The kinds of fault mended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    UvFlag,
+    UvCount,
+    BrokenNode,
+}
+
+impl Kind {
+    /// Whether the repaired file is proven to mean what the original meant.
+    pub fn certain(self) -> bool {
+        !matches!(self, Kind::BrokenNode)
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::UvFlag => "UV flag off",
+            Kind::UvCount => "UV sets counted, none there",
+            Kind::BrokenNode => "unreadable node",
+        }
+    }
+}
+
+/// One fault mended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fix {
+    pub kind: Kind,
+    /// The block's index and type.
+    pub block: usize,
+    pub name: String,
+    /// Where the block starts in the original file.
+    pub at: usize,
+    /// What was done, in words.
+    pub note: String,
+}
+
+impl fmt::Display for Fix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "block {} ({}, byte {}): {}", self.block, self.name, self.at, self.note)
+    }
+}
+
+/// What [`repair`] found and did.
+#[derive(Clone, Debug)]
+pub struct Repair {
+    /// Whether the file as it is reads to the end here, or why not.
+    pub read: Result<(), String>,
+    /// The faults mended, in the order they were found.
+    pub fixes: Vec<Fix>,
+    /// The repaired file, when there was something to mend and the result reads to the end.
+    pub bytes: Option<Vec<u8>>,
+    /// Why the file still does not read, when it does not and could not be mended (no fix
+    /// is then kept).
+    pub left: Option<String>,
+}
+
+impl Repair {
+    /// Nothing wrong found.
+    pub fn clean(&self) -> bool {
+        self.read.is_ok() && self.fixes.is_empty()
+    }
+    /// Every fix is proven to keep the mesh's meaning.
+    pub fn certain(&self) -> bool {
+        self.fixes.iter().all(|f| f.kind.certain())
+    }
+}
+
+/// The geometry blocks: `NiGeometryData` and what derives from it.
+const GEOMETRY: [&str; 5] =
+    ["NiTriShapeData", "NiTriStripsData", "NiParticlesData", "NiAutoNormalParticlesData", "NiRotatingParticlesData"];
+
+/// The nodes that are an `NiNode` and nothing more (no fields after its lists).
+const NODES: [&str; 5] = ["NiNode", "NiBSParticleNode", "NiBSAnimationNode", "RootCollisionNode", "AvoidNode"];
+
+/// How many rounds a file gets: each mends one block that stops the reading.
+const ROUNDS: usize = 16;
+
+fn u16_at(b: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))
+}
+fn u32_at(b: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
+}
+fn i32_at(b: &[u8], at: usize) -> Option<i32> {
+    u32_at(b, at).map(|v| v as i32)
+}
+
+/// The type name of the block at `at`, and where its data starts.
+fn type_at(b: &[u8], at: usize) -> Option<(String, usize)> {
+    let n = u32_at(b, at)? as usize;
+    let name = b.get(at + 4..at + 4 + n)?;
+    Some((String::from_utf8_lossy(name).into_owned(), at + 4 + n))
+}
+
+/// A geometry block's UV fields: its vertex count, where `Num UV Sets` is, and that count
+/// and the `Has UV` word that follows it. The layout is `NiGeometryData::read`'s.
+fn uv_fields(b: &[u8], data: usize) -> Option<(usize, usize, u16, u32)> {
+    let nv = u16_at(b, data)? as usize;
+    let mut p = data + 2;
+    let has_vertices = u32_at(b, p)? != 0;
+    p += 4 + if has_vertices { 12 * nv } else { 0 };
+    let has_normals = u32_at(b, p)? != 0;
+    p += 4 + if has_normals { 12 * nv } else { 0 };
+    p += 16; // the bound
+    let has_colors = u32_at(b, p)? != 0;
+    p += 4 + if has_colors { 16 * nv } else { 0 };
+    Some((nv, p, u16_at(b, p)?, u32_at(b, p + 2)?))
+}
+
+/// Whether a block of the stream other than `i` links to block `i`.
+fn linked_to(stream: &Stream, i: usize) -> bool {
+    let mut hit = false;
+    for (j, b) in stream.blocks.iter().enumerate() {
+        if j != i {
+            b.clone().links(&mut |l| hit |= *l == i as i32);
+        }
+    }
+    hit
+}
+
+/// The blocks no root reaches, by index.
+fn unreached(stream: &Stream) -> Vec<usize> {
+    let n = stream.blocks.len();
+    let mut seen = vec![false; n];
+    let mut todo: Vec<usize> = stream.roots.iter().filter_map(|l| l.at()).collect();
+    while let Some(i) = todo.pop() {
+        if i >= n || seen[i] {
+            continue;
+        }
+        seen[i] = true;
+        stream.blocks[i].clone().links(&mut |l| {
+            if *l >= 0 {
+                todo.push(*l as usize);
+            }
+        });
+    }
+    (0..n).filter(|&i| !seen[i]).collect()
+}
+
+/// The block that stops the reading is a geometry block counting UV sets that are not there.
+fn try_uv_count(cur: &[u8], i: usize, start: usize, count: usize) -> Option<(Vec<u8>, Fix)> {
+    let (name, data) = type_at(cur, start)?;
+    if !GEOMETRY.contains(&name.as_str()) {
+        return None;
+    }
+    let (nv, at, nuv, has) = uv_fields(cur, data)?;
+    if nv == 0 || nuv & 63 == 0 || has != 0 {
+        return None;
+    }
+    let mut out = cur.to_vec();
+    out[at..at + 2].copy_from_slice(&0u16.to_le_bytes());
+    walk_from(&out, start, i, count).1.ok()?;
+    let note = format!("counted {} UV set(s) with none in the file; the count is now 0", nuv & 63);
+    Some((out, Fix { kind: Kind::UvCount, block: i, name, at: start, note }))
+}
+
+/// Where a node's extra data and controller links are, from where its data starts (after
+/// its name: a length word and the text).
+fn node_links(b: &[u8], data: usize) -> Option<usize> {
+    Some(data + 4 + u32_at(b, data)? as usize)
+}
+
+/// The block that stops the reading is a plain node whose lists do not read, and the rest
+/// of the file reads from some byte after its transform.
+fn try_node(cur: &[u8], i: usize, start: usize, count: usize) -> Option<(Vec<u8>, Fix)> {
+    let (name, data) = type_at(cur, start)?;
+    if !NODES.contains(&name.as_str()) {
+        return None;
+    }
+    // NiObjectNET: the name, the extra data and controller links; NiAVObject: the flags and
+    // the transform (translation, rotation, scale). The lists come after.
+    let head_end = node_links(cur, data)? + 8 + 2 + 12 + 36 + 4;
+    if head_end > cur.len() {
+        return None;
+    }
+    // Where the next block starts: the first byte with a block type's name from which the
+    // rest reads to the end, or failing that (the next block is broken too, and a later
+    // round mends it) the first byte with a block type's name at all. The whole file
+    // reading in the end is the proof.
+    let names = |q: usize| -> bool {
+        u32_at(cur, q).is_some_and(|n| {
+            let n = n as usize;
+            (2..=64).contains(&n)
+                && cur.get(q + 4..q + 4 + n).is_some_and(|s| NAMES.iter().any(|t| t.as_bytes() == s))
+        })
+    };
+    let tries: Vec<usize> = (head_end..cur.len().saturating_sub(4)).filter(|&q| names(q)).collect();
+    let whole = tries.iter().find_map(|&q| {
+        let (after, end) = walk_from(cur, q, i + 1, count);
+        end.ok().map(|()| (q, after))
+    });
+    let q = whole.map(|(q, _)| q).or_else(|| tries.first().copied())?;
+    let note = format!(
+        "{} byte(s) after its transform did not read as its lists; it now has no properties, children or effects",
+        q - head_end
+    );
+    let mut out = cur[..head_end].to_vec();
+    // Velocity, then the property, bound, child and effect words, all none.
+    out.extend_from_slice(&[0u8; 12 + 16]);
+    out.extend_from_slice(&cur[q..]);
+    Some((out, Fix { kind: Kind::BrokenNode, block: i, name, at: start, note }))
+}
+
+/// A file checked, and mended where it can be ([`Repair`]).
+pub fn repair(buf: &[u8]) -> Repair {
+    let mut rep = Repair { read: Ok(()), fixes: Vec::new(), bytes: None, left: None };
+    let first = match walk(buf) {
+        Ok(w) => w,
+        Err(e) => {
+            rep.read = Err(e.to_string());
+            rep.left = Some(e.to_string());
+            return rep;
+        }
+    };
+    rep.read = first.end.clone().map_err(|e| e.to_string());
+    let mut cur = buf.to_vec();
+    // Each round mends the block that stops the reading. The bytes before it are kept as
+    // they are, so a fix's offset in the original file is its offset in `cur` shifted by
+    // what earlier fixes removed before it (only a node fix changes a length).
+    let mut shift: isize = 0;
+    let mut w = first;
+    for _ in 0..ROUNDS {
+        let Err(e) = &w.end else { break };
+        let i = w.spans.len();
+        let start = w.spans.last().map_or(w.blocks_at, |s| s.end);
+        let tried = try_uv_count(&cur, i, start, w.count).or_else(|| try_node(&cur, i, start, w.count));
+        let Some((out, mut fix)) = tried else {
+            rep.fixes.clear();
+            rep.left = Some(e.to_string());
+            return rep;
+        };
+        fix.at = (start as isize - shift) as usize;
+        shift += out.len() as isize - cur.len() as isize;
+        rep.fixes.push(fix);
+        cur = out;
+        w = match walk(&cur) {
+            Ok(w) => w,
+            Err(e) => {
+                rep.fixes.clear();
+                rep.left = Some(e.to_string());
+                return rep;
+            }
+        };
+    }
+    if let Err(e) = &w.end {
+        rep.fixes.clear();
+        rep.left = Some(e.to_string());
+        return rep;
+    }
+    // The file reads. A node emptied keeps its extra data and controller links only where
+    // they point at extra data and a controller (the garbage may have started before them).
+    let mut cleared = false;
+    for f in rep.fixes.iter_mut().filter(|f| f.kind == Kind::BrokenNode) {
+        let Some(at) = w.spans.get(f.block).and_then(|s| type_at(&cur, s.start)).and_then(|(_, d)| node_links(&cur, d)) else {
+            continue;
+        };
+        for (slot, kind, ends) in [(at, "extra data", "ExtraData"), (at + 4, "controller", "Controller")] {
+            let Some(k) = i32_at(&cur, slot) else { continue };
+            let target = usize::try_from(k).ok().and_then(|k| w.spans.get(k)).map(|s| s.name.as_str());
+            if k >= 0 && !target.is_some_and(|n| n.ends_with(ends)) {
+                f.note.push_str(&format!("; its {kind} link to block {k} ({}) is cleared", target.unwrap_or("none")));
+                cur[slot..slot + 4].copy_from_slice(&(-1i32).to_le_bytes());
+                cleared = true;
+            }
+        }
+    }
+    if cleared {
+        if let Err(e) = walk(&cur).map_err(|e| e.to_string()).and_then(|w| w.end.map_err(|e| e.to_string())) {
+            rep.fixes.clear();
+            rep.left = Some(format!("the repaired file does not read: {e}"));
+            return rep;
+        }
+    }
+    // A node emptied must be one nothing else links to (emptying a node the scene holds
+    // would change the scene); the blocks no root reaches any more are named.
+    let before = Stream::parse(&cur).ok();
+    if let Some(stream) = &before {
+        let lost = unreached(stream);
+        for f in rep.fixes.iter_mut().filter(|f| f.kind == Kind::BrokenNode) {
+            if linked_to(stream, f.block) {
+                rep.left = Some(format!(
+                    "block {} ({}) does not read, and another block links to it, so it is not guessed at",
+                    f.block, f.name
+                ));
+                rep.fixes.clear();
+                return rep;
+            }
+            if !lost.is_empty() {
+                let names: Vec<String> = lost.iter().map(|&k| format!("{k} ({})", stream.blocks[k].name())).collect();
+                f.note.push_str(&format!("; no root reaches block(s) {}", names.join(", ")));
+            }
+        }
+    }
+    // Set every UV flag that is off where there are UV sets.
+    let mut flags = Vec::new();
+    for (i, s) in w.spans.iter().enumerate() {
+        if !GEOMETRY.contains(&s.name.as_str()) {
+            continue;
+        }
+        let Some((_, data)) = type_at(&cur, s.start) else { continue };
+        let Some((nv, at, nuv, has)) = uv_fields(&cur, data) else { continue };
+        if nv > 0 && nuv & 63 > 0 && has == 0 {
+            flags.push(at + 2);
+            let note = format!("has {} UV set(s) and its Has UV word was 0; it is now 1", nuv & 63);
+            rep.fixes.push(Fix { kind: Kind::UvFlag, block: i, name: s.name.clone(), at: s.start, note });
+        }
+    }
+    for at in flags {
+        cur[at..at + 4].copy_from_slice(&1u32.to_le_bytes());
+    }
+    if rep.fixes.is_empty() {
+        return rep;
+    }
+    // The proof: the repaired file reads, and the flags alone changed nothing it means.
+    match Stream::parse(&cur) {
+        Ok(after) if before.as_ref().is_none_or(|b| *b == after) => rep.bytes = Some(cur),
+        Ok(_) => {
+            rep.fixes.clear();
+            rep.left = Some("setting the UV flags changed what the file reads as".into());
+        }
+        Err(e) => {
+            rep.fixes.clear();
+            rep.left = Some(format!("the repaired file does not read: {e}"));
+        }
+    }
+    rep
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A root node with nothing in it, then a shape with three vertices, one UV set and one
+    /// triangle under a second root node; as the file has them.
+    fn mesh() -> Vec<u8> {
+        use super::super::types::*;
+        let mut s = Stream::new();
+        // The empty root first, as in dbs_meatstick.nif: a block after it shows where it ends.
+        let mut emitter = NiBSParticleNode::default();
+        emitter.base.base.base.name = "Emitter".into();
+        let emitter = s.push(emitter);
+        let data = NiTriShapeData {
+            base: NiTriBasedGeomData {
+                base: NiGeometryData {
+                    vertices: vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                    uv_sets: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                    ..Default::default()
+                },
+            },
+            triangles: vec![[0, 1, 2]],
+            ..Default::default()
+        };
+        let data = s.push(data);
+        let mut shape = NiTriShape::default();
+        shape.base.base.geometry_data = data.cast();
+        let shape = s.push(shape);
+        let mut root = NiNode::default();
+        root.children.push(shape.cast());
+        let root = s.push(root);
+        s.roots = vec![root.cast(), emitter.cast::<NiObject>()];
+        s.write().unwrap()
+    }
+
+    fn uv_word(b: &[u8]) -> usize {
+        let w = walk(b).unwrap();
+        let s = w.spans.iter().find(|s| s.name == "NiTriShapeData").unwrap();
+        uv_fields(b, type_at(b, s.start).unwrap().1).unwrap().1
+    }
+
+    #[test]
+    fn a_sound_mesh_needs_nothing() {
+        let r = repair(&mesh());
+        assert!(r.clean() && r.bytes.is_none() && r.left.is_none());
+    }
+
+    #[test]
+    fn a_uv_flag_off_is_set_and_the_mesh_means_the_same() {
+        let good = mesh();
+        let mut b = good.clone();
+        let at = uv_word(&b);
+        b[at + 2..at + 6].copy_from_slice(&0u32.to_le_bytes());
+        let r = repair(&b);
+        assert!(r.read.is_ok());
+        assert_eq!(r.fixes.len(), 1);
+        assert_eq!(r.fixes[0].kind, Kind::UvFlag);
+        assert_eq!(r.bytes.as_deref(), Some(&good[..]));
+    }
+
+    #[test]
+    fn uv_sets_counted_but_missing_are_uncounted() {
+        // The shape's UV set taken out of the file, its count left at 1 and its flag 0.
+        let good = mesh();
+        let at = uv_word(&good);
+        let mut b = good[..at].to_vec();
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&good[at + 6 + 3 * 8..]);
+        let r = repair(&b);
+        assert!(r.read.is_err());
+        assert_eq!(r.fixes.iter().map(|f| f.kind).collect::<Vec<_>>(), [Kind::UvCount]);
+        let fixed = r.bytes.unwrap();
+        assert!(Stream::parse(&fixed).is_ok());
+        assert_eq!(u16_at(&fixed, at), Some(0));
+    }
+
+    #[test]
+    fn an_unlinked_node_with_garbage_lists_is_emptied() {
+        // The second root's lists replaced by the words dbs_meatstick.nif has there.
+        let good = mesh();
+        let w = walk(&good).unwrap();
+        let s = w.spans.iter().find(|s| s.name == "NiBSParticleNode").unwrap();
+        let mut b = good[..s.end - 28].to_vec();
+        for v in [2i32, 2, 1, -1, 0, 0, 0] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(&good[s.end..]);
+        let r = repair(&b);
+        assert!(r.read.is_err());
+        assert_eq!(r.fixes.len(), 1, "{:?}", r.left);
+        assert_eq!(r.fixes[0].kind, Kind::BrokenNode);
+        assert!(!r.certain());
+        assert_eq!(r.bytes.as_deref(), Some(&good[..]));
+    }
+
+    #[test]
+    fn a_node_something_links_to_is_not_guessed_at() {
+        // A child node between two blocks, its lists broken: its parent links to it, so
+        // emptying it would change the scene, and it is left as it is.
+        use super::super::types::*;
+        let mut s = Stream::new();
+        let mut child = NiNode::default();
+        child.base.base.name = "Child".into();
+        let child = s.push(child);
+        let mut root = NiNode::default();
+        root.children.push(child.cast());
+        let root = s.push(root);
+        s.roots = vec![root.cast()];
+        let good = s.write().unwrap();
+        let w = walk(&good).unwrap();
+        let c = &w.spans[0];
+        let mut b = good[..c.end - 4].to_vec();
+        b.extend_from_slice(&[0xff; 4]);
+        b.extend_from_slice(&good[c.end..]);
+        let r = repair(&b);
+        assert!(r.read.is_err());
+        assert!(r.fixes.is_empty() && r.bytes.is_none());
+        assert!(r.left.is_some());
+    }
+}

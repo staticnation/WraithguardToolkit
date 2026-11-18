@@ -222,6 +222,100 @@ pub(super) fn meshopt_write(cfg: String, opts: serde_json::Value, out_dir: Strin
     serde_json::to_string(&res).map_err(|e| e.to_string())
 }
 
+/* Wraithguard: Check meshes (Tools), Static 2026-11-18. The optimizer's meshes (the winning
+   loose copy of each, `mo_candidates`) checked for the faults exporters write
+   (`conflictcore::nif_repair`); progress is the optimizer's, `meshopt_progress`.
+
+   `meshcheck_scan` answers `WGTB`:
+   - `head` `uuuuu` (meshes, sound, mendable, mendable by a guess, unreadable);
+   - `dirs` `s`, each data folder named once;
+   - `rows` `suuss` (path, its folder, status 1 mendable / 2 guess / 3 unreadable, the size
+     in bytes as text, why it does not read): every mesh that is not sound, worst first;
+   - `faults` `ussuus` (its row, the fault, the block type, the block, certain 0/1, the note).
+
+   `meshcheck_write` writes the mendable ones (and the guesses when `guesses`), each read
+   again and repaired, at its own path under `out_dir`, with `wraithguard-check-meshes.json`
+   beside them; `paths`, when not empty, limits it to those. Answers `head` `uudd` (written,
+   failed, bytes before, bytes after) and `failures` `ss` (path, why). Read by
+   `WgTools` (61_wg_tools.js) with `unpackTables`. */
+fn mc_opts(opts: &serde_json::Value) -> conflictcore::nif_batch::Options {
+    conflictcore::nif_batch::Options { folder: opts["folder"].as_str().unwrap_or("").trim().to_lowercase(), ..Default::default() }
+}
+
+#[tauri::command(async)]
+pub(super) fn meshcheck_scan(cfg: String, opts: serde_json::Value, out_dir: String) -> Result<tauri::ipc::Response, String> {
+    use conflictcore::nif_repair as nr;
+    let _gate = scan_gate();
+    let cands = mo_candidates(&cfg, &mc_opts(&opts), &out_dir)?;
+    let found = nr::check_all(scan_cache(), &cands);
+    let mut counts = [0u64; 4];
+    for f in &found {
+        counts[f.status.code() as usize] += 1;
+    }
+    let mut order: Vec<usize> = (0..cands.len()).filter(|&i| found[i].status != nr::Status::Sound).collect();
+    order.sort_by(|&x, &y| found[y].status.cmp(&found[x].status).then_with(|| cands[x].rel.to_lowercase().cmp(&cands[y].rel.to_lowercase())));
+    let mut dirs: Vec<String> = Vec::new();
+    let mut dir_at = std::collections::HashMap::new();
+    for &i in &order {
+        let d = cands[i].dir.to_string_lossy().into_owned();
+        if !dir_at.contains_key(&d) {
+            dir_at.insert(d.clone(), dirs.len());
+            dirs.push(d);
+        }
+    }
+    let mut tb = Tables::new();
+    tb.table("head", "uuuuu", 1);
+    tb.u(cands.len() as u64).u(counts[0]).u(counts[1]).u(counts[2]).u(counts[3]);
+    tb.table("dirs", "s", dirs.len());
+    for d in &dirs {
+        tb.s(d);
+    }
+    tb.table("rows", "suuss", order.len());
+    for &i in &order {
+        let (c, f) = (&cands[i], &found[i]);
+        tb.s(&c.rel).u(dir_at[&*c.dir.to_string_lossy()] as u64).u(f.status.code()).s(&f.bytes.to_string()).s(&f.why);
+    }
+    tb.table("faults", "ussuus", order.iter().map(|&i| found[i].faults.len()).sum());
+    for (row, &i) in order.iter().enumerate() {
+        for x in &found[i].faults {
+            tb.u(row as u64).s(&x.label).s(&x.name).u(x.block).u(u64::from(x.certain)).s(&x.note);
+        }
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
+}
+
+#[tauri::command(async)]
+pub(super) fn meshcheck_write(cfg: String, opts: serde_json::Value, out_dir: String, paths: Vec<String>, guesses: bool) -> Result<tauri::ipc::Response, String> {
+    use conflictcore::nif_repair as nr;
+    if out_dir.trim().is_empty() {
+        return Err("name the folder the repaired meshes go to".into());
+    }
+    let _gate = scan_gate();
+    let mut cands = mo_candidates(&cfg, &mc_opts(&opts), &out_dir)?;
+    if !paths.is_empty() {
+        let want: std::collections::HashSet<String> = paths.iter().map(|p| p.to_lowercase()).collect();
+        cands.retain(|c| want.contains(&c.rel.to_lowercase()));
+    }
+    let found = nr::check_all(scan_cache(), &cands);
+    let picked: Vec<(&conflictcore::nif_batch::Candidate, &nr::Found)> =
+        cands.iter().zip(&found).filter(|(_, f)| nr::writes(f, guesses)).collect();
+    let out = std::path::Path::new(&out_dir);
+    std::fs::create_dir_all(out).map_err(|e| format!("{out_dir} could not be made: {e}"))?;
+    let only: Vec<&conflictcore::nif_batch::Candidate> = picked.iter().map(|(c, _)| *c).collect();
+    let done = nr::write_all(&only, out, guesses);
+    nr::write_manifest(out, &done, &picked, guesses)?;
+    let ok: Vec<&conflictcore::nif_batch::Written> = done.iter().filter(|w| w.error.is_empty()).collect();
+    let bad: Vec<&conflictcore::nif_batch::Written> = done.iter().filter(|w| !w.error.is_empty()).collect();
+    let mut tb = Tables::new();
+    tb.table("head", "uudd", 1);
+    tb.u(ok.len() as u64).u(bad.len() as u64).d(ok.iter().map(|w| w.before).sum::<u64>() as f64).d(ok.iter().map(|w| w.after).sum::<u64>() as f64);
+    tb.table("failures", "ss", bad.len().min(200));
+    for w in bad.iter().take(200) {
+        tb.s(&w.rel).s(&w.error);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
+}
+
 /// Wraithguard: how far the optimizer's run has got, `[done, total]`.
 #[tauri::command(async)]
 pub(super) fn meshopt_progress() -> [usize; 2] {

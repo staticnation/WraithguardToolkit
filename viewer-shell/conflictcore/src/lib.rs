@@ -20,6 +20,8 @@
 //!   (`analyse_mesh_conflicts`, `wraithguard/nif/report.py`, `analysis.py`).
 //! - [`textures`]: the two providers a texture comparison shows and what comparing them
 //!   concludes (`wraithguard/images/compare.py`).
+//! - [`nif_batch`], [`nif_repair`]: the load order's meshes optimized, and checked for the
+//!   faults exporters write and mended.
 //! - [`vfs`]: the folders' files and the byte compare, on a few threads.
 //!
 //! Written from the retired Python's behaviour and OpenMW's
@@ -31,6 +33,7 @@ pub mod map;
 pub mod mesh;
 pub mod nif_batch;
 pub mod nif_order;
+pub mod nif_repair;
 pub mod nifedit;
 pub mod patch;
 pub mod records;

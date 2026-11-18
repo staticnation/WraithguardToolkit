@@ -12,9 +12,9 @@ viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of th
 | `src/main.rs` | Shell entry: the program on its own, URL mode, `--cell-viewer`, the mesh viewer; the Tauri context generated once | MIT |
 | `src/cellviewer/` | The window, its launch arguments, and `commands.rs` with `commands/` (the Conflicts, Tools, Load order, Merge Lands and Help pages' commands, a file each): every command the page calls (below) | MIT |
 | `viewcore/` | The viewer engine: the install, the merged world, meshes, textures, sound | MIT |
-| `editcore/` | The Editor: plugins as records, the queue and journal, edits, search, the Use Report, dialogue, MWScript, Verify, the patch build, Test in OpenMW | MIT |
+| `editcore/` | The Editor: plugins as records, the queue and journal, edits, search, the Use Report, dialogue, MWScript, Verify, the patch build, Test in OpenMW; Merge objects (TES3Merge's merge) | MIT |
 | `ordercore/` | The load order: openmw.cfg, mlox rules, the sort and export, MOMW lists, rule authoring, cells and references resolved as the game does | MIT |
-| `conflictcore/` | Conflicts: records, fields, resources, meshes, textures, the map; the mesh editor and draw order | MIT |
+| `conflictcore/` | Conflicts: records, fields, resources, meshes, textures, the map; the mesh editor and draw order; the Mesh optimizer and Check meshes over a load order | MIT |
 | `toolscore/` | The tools: Lint, Save Check, masters, Backups, tes3cmd, settings and Setup, the Help renderer | MIT |
 | `landcore/` | Merge Lands and its settings files; the Land view's encoder (not a workspace member) | MIT |
 | `luacore/` | OpenMW Lua read and checked: lexer, parser, checks, the API tables, Teal, charts | MIT |
@@ -166,10 +166,11 @@ names a command that is not defined, or one is left unregistered.
 - **scan**: `scan_cache_warm`
 - **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`
 - **meshopt**: `meshopt_analyse`, `meshopt_write`, `meshopt_progress`
+- **meshcheck**: `meshcheck_scan`, `meshcheck_write` (progress is `meshopt_progress`)
 - **conflicts**: `conflicts_scan`, `conflicts_fields`, `conflicts_land_surfaces`, `conflicts_resources`, `conflicts_texture`, `conflicts_report`, `conflicts_csv`, `conflicts_patch`, `conflicts_by_plugin`, `conflicts_plugin_group`, `conflicts_verdicts`, `conflicts_plugin_bulk`, `conflicts_plugin_bulk_apply`
 - **land**: `land_meta_read`, `land_meta_preview`, `land_meta_write`, `land_merge_home`, `land_merge`, `land_merge_cancel`, `land_merge_progress`
 - **help**: `help_docs`, `help_doc`, `help_open_link`
-- **tools**: `tools_lint`, `tools_backups`, `tools_backups_restore`, `tools_backups_delete`, `tools_masters`, `tools_remove_master`, `tools_merge_master`, `tools_rename_master`, `tools_save_check`, `tools_journal`, `tools_tes3cmd_find`, `tools_locate`, `tools_tes3cmd`, `tools_tes3cmd_undo`
+- **tools**: `tools_lint`, `tools_backups`, `tools_backups_restore`, `tools_backups_delete`, `tools_masters`, `tools_remove_master`, `tools_merge_master`, `tools_rename_master`, `tools_save_check`, `tools_journal`, `tools_tes3cmd_find`, `tools_locate`, `tools_tes3cmd`, `tools_tes3cmd_undo`, `tools_merge_objects`
 - **settings**: `settings_seed`, `settings_write`
 - **setup**: `setup_state`, `setup_check`, `setup_find_cfgs`, `setup_mark`
 - **app**: `app_restart`

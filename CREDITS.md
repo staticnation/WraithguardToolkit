@@ -164,6 +164,16 @@ and the license files of those whose code or data the program carries are in `Li
   Referenced for TES3 record handling and conflict-resolution UX.
 - **TES3Tool** - © 2019 SaintBahamut. MIT.
   Referenced for the TES3 binary record/subrecord layout.
+- **TES3Merge** ([`NullCascade/TES3Merge`](https://github.com/NullCascade/TES3Merge)) -
+  © 2019 NullCascade. MIT. License text at `License/TES3Merge`. The Tools page's **Merge
+  objects** and the command line's `--merge-objects` (`viewer-shell/editcore/src/mergeobjects.rs`)
+  are a port of its merge: the first version of a record is the base, the last the start, and
+  each field another plugin changed is kept; leveled lists combined, effects slot by slot, the AI
+  package, class and faction rules, its fog-bug, summons and cell-name fixes, the inclusive
+  inventory option and the lists-only multipatch, with the same default record types. Checked
+  against TES3Merge's own merge (its C# built here around a copy of `MergeAndPatchRecords`): its
+  test set comes out identical, and on a real load order every difference is one listed in the
+  changelog (5.0.5) as deliberate.
 - **MWEdit** - © Dave Humphrey and contributors. MIT.
   Its `data/Functions.dat` and `mwedit/script_defs.h` are the primary source
   for our script-bytecode opcode table (`viewer-shell/editcore/data/opcodes.json`): the
@@ -354,6 +364,10 @@ attach to it (the one GPL part, the cell viewer's page, is its own GPL-2.0 silo 
 see *The cell viewer page (GPL-2.0)*);
 the credit is one of gratitude and correctness.
 
+- **nif.xml** (NifTools, as NifSkope ships it). Read for one rule of the NIF 4.0.0.2 layout:
+  `NiGeometryData`'s UV sets are as many as `Num UV Sets` (its low six bits) says, whatever
+  the `Has UV` word that follows it holds. The reader and Check meshes' repairs
+  (`gardenfell-nif`, Wraithguard 0024) go by that.
 - **OpenMW** - GPLv3. The engine that makes modern Morrowind modding possible.
   Referenced for `openmw.cfg` semantics, the `.omwaddon`/`.omwscripts` Lua
   formats, and VFS (`data=`) resolution rules. Also read for the *math* two

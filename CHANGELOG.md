@@ -5,6 +5,10 @@
 
 ### Changed
 
+- **The Mesh optimizer reads proven repairs first** (`nif_batch`, `nif_repair::mended`). A mesh
+  with a fault Check meshes mends for certain (a UV flag left off) is measured and optimized from
+  the repaired copy, and the copy written is repaired too. Its row says so. Such meshes were listed
+  as unreadable before. The measurement cache's version moves to 2, so the next run measures again.
 - **tes3cmd is built in** (`toolscore::tes3cmd`, `tools_tes3cmd`, `61_wg_tools.js`, `cli/src/main.rs`).
   The Tools page's tes3cmd runs staticnation/tes3cmd-rs inside the app, now a git dependency of
   `toolscore`, so no tes3cmd.exe or Perl is needed. The external tes3cmd is an opt-in fallback:
@@ -257,6 +261,18 @@
 
 ### Fixed
 
+- **Meshes with UV sets and their `Has UV` word 0 did not read** (`gardenfell-nif`
+  `NiGeometryData`, Wraithguard patch 0024). The reader skipped the UV sets, took the texture
+  coordinates as the triangle count, and the mesh failed. The viewer showed nothing, and the
+  conflict and optimizer scans called it unreadable. nif.xml sizes the UV sets by `Num UV Sets`
+  alone, and the reader now does too. In a 765-mesh corpus this changes six blocks in three meshes
+  and nothing else, and each now ends exactly where the next block starts. OpenMW gates on the
+  word the same way, so Check meshes writes such meshes with it set.
+- **Two more bounds in the tes3 fork** (staticnation/tes3 `reserve-count-bounds`, with
+  `nif-uv-sets-by-count`). The NIF object and root counts, and a leveled list's `INDX` count, were
+  reserved as read. A damaged count of 4 billion asked for 34 to 137 GB, and the process aborted,
+  which no error handling can catch. They are now capped by the bytes left. These take effect when
+  `Cargo.lock` takes the fork's commit.
 - **tes3cmd's own backups were copied into your mod folder** (wg_fixes61, unreleased). A command
   not told `--hide-backups` (`delete`, `modify`) keeps tes3cmd's backup beside the plugin
   (`Conf_A~1.esp`), and the new-file step took those for plugins the run made. Only plugins are
@@ -300,6 +316,49 @@
 
 ### Added
 
+- **Merge objects** (Tools, `--merge-objects`; `editcore::mergeobjects`, `tools_merge_objects`).
+  TES3Merge's merge, ported: one `Merged Objects.esp` keeps every mod's changes to the records
+  two or more plugins change, not only the last one's. It works for an `openmw.cfg`, an MO2
+  profile or the game's own `Morrowind.ini`.
+  - **The rules are TES3Merge's.** The first version of a record is the base, and the merge
+    starts from the last. Each field a plugin in between changed from the base, and the last
+    did not, is kept. Leveled lists are combined (sorted by level, then id), effects merge slot
+    by slot, and only the Wander AI package merges. A class merges only its specialization and
+    flags, a faction only its flags, and a cell only its flags and name (written without its
+    references). Its fog-bug, summons and cell-name fixes apply. The inclusive inventory option
+    and the lists-only `multipatch.esp` are there too, with the same 32 default record types
+    (FACT off).
+  - **Where it differs from TES3Merge, on purpose:**
+    - its fixes apply to merged records too (TES3Merge skips them there);
+    - a record whose last version deletes it is not merged into;
+    - a record is written only when it differs from the last version;
+    - ids are compared without case;
+    - a plugin that doesn't read is left out and named.
+  - **Checked against TES3Merge itself**, its C# built here around a verbatim copy of its merge.
+    Its test set comes out identical (19 of 19). On a real load order it wrote 452 records and
+    this writes 442. The 10 are: deleted potions; records TES3Merge rewrites with no change but
+    its re-encoding; the summoned creatures its fix patches wrongly; and one NPC's flags, where
+    TES3Merge writes a blood type no plugin has. A run takes 0.5 to 0.8 s, against TES3Merge's
+    4 to 7 s.
+- **Check meshes** (Tools, `--check-meshes`; `conflictcore::nif_repair`, `meshcheck_scan`,
+  `meshcheck_write`, `gardenfell-nif`'s `netimmerse::repair`). It reads the winning loose copy of
+  every mesh in the load order and lists those that are not sound. Each repair is made on a copy
+  and kept only if the whole file then reads to its end:
+  - **A `Has UV` word left at 0 where there are UV sets** is set to 1. The file still reads as
+    the same mesh, so OpenMW, older tools and the tes3 crate, which trust the word, read it too.
+  - **UV sets counted that aren't there** has the count set to 0.
+  - **A node whose lists after its transform are garbage**, when nothing else links to it, is
+    kept with no properties, children or effects, and every block keeps its number. This one is
+    a guess, marked as one, and written only when ticked (`--check-meshes-guesses`).
+  - **Unreadable** for any other reason, with the reason: another NIF version, a block type
+    outside Morrowind's format, or not a NIF at all.
+
+  **Write repaired** puts the ticked ones, at their own paths, into a folder added last in the
+  load order, with `wraithguard-check-meshes.json` saying what came from where and what was
+  mended. Over a 765-mesh corpus: 715 sound and 5 mended (The Unhatched's `nf_x_temple_main.nif`,
+  Baths of Vvardenfell's two bath-steam meshes and its `dbs_meatstick.nif`, by a guess). The other
+  45 were outside these: 40 are NIF 4.0.0.0, 3 use block types outside Morrowind's format, and
+  2 aren't NIFs. No sound mesh was changed.
 - **The viewer wears Wraithguard's own theme from its old settings** (`log_theme`) where
   nothing else names one: a profile written before themes were kept in it, or a first start
   with no theme remembered. A theme chosen since stands.

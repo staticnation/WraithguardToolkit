@@ -365,9 +365,11 @@ Each tool is a section on the left with its work on the right.
 | **Journal** | Every quest's stages in index order, each with the scripts and responses that set it, and their conditions. |
 | **tes3cmd** | tes3cmd built in ([tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs), no tes3cmd.exe or Perl needed) on each plugin: clean, header or any command, on a copy with its masters read from your data folders and never changed, a backup kept; master sizes synced in-app. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and `diff` on two; a multipatch.esp made goes beside them. Every record a run removed, added or changed is listed under it, filtered by plugin, kind or text, and **Undo selected** puts the ticked records back as they were. Tick *Use external* to run your own tes3cmd instead; commands that run Perl code (`modify --run`) use it either way. |
 | **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against the load order before it (the default, as OpenMWMergedLands does) or against its masters (contested vertices blended, as the original Merged Lands does). Seams are repaired along the cells plugins changed, and optionally the seams the terrain already had. Plugins can be left out by name or folder, and cells for every plugin or for one (Tamriel Rebuilt's Hunza Camp by default). **Import from OpenMWMergedLands** reads its `merged_lands.toml`. *Dry run*, *Verbose* (with each step's time and the peak memory) and *Cancel* are beside **Build**. See [MERGED_LANDS.md](MERGED_LANDS.md). |
+| **Merge objects** | One `Merged Objects.esp` holding every mod's changes to the records two or more plugins change, not only the last one's: [TES3Merge](https://github.com/NullCascade/TES3Merge)'s merge, ported. Each field another plugin changed is kept, leveled lists are combined, and effects merge slot by slot. TES3Merge's fog-bug, summons and cell-name fixes apply. The record types are ticked (TES3Merge's list by default), and plugins can be left out and ids filtered. *Inclusive inventories* gives an NPC every item any plugin gives it, *Leveled lists only* writes `multipatch.esp`, and *Dry run* writes nothing. It reads the load order as the setup has it, for OpenMW, MO2 or the game's own. Load the plugin last. |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
-| **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. |
+| **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. A mesh that Check meshes can mend with a proven repair is optimized from the repaired copy. |
+| **Check meshes** | The winning copy of every loose mesh read for the faults exporters write. **Mendable** means every fault has a repair that is proven to keep the mesh the same: a `Has UV` flag left off where there are UV sets, which OpenMW and older tools misread as the triangles, or UV sets counted that aren't there. **Mendable by a guess** means a node whose lists don't read, which nothing else links to, kept with no children (written only when you tick it). **Unreadable** names why: another NIF version, a block type outside Morrowind's format, or not a NIF. **Write repaired** puts the ticked ones, at their own paths, into a folder you add last in the load order; your mods aren't touched. |
 
 ### Help, Report and Settings
 
@@ -382,7 +384,7 @@ Each tool is a section on the left with its work on the right.
 
 ## The command line
 
-`wraithguard` does the sort, the export, the read-only scans, Merge Lands and tes3cmd with
+`wraithguard` does the sort, the export, the read-only scans, Merge Lands, Merge objects, Check meshes and tes3cmd with
 no window, so it runs in scripts, CI and on a headless machine. It takes the same inputs as
 the Load order page:
 
@@ -394,6 +396,19 @@ wraithguard --cfg openmw.cfg --rules mlox_base.txt mlox_user.txt \
 ```
 
 By default it prints the plan and writes nothing.
+
+It also runs the Tools page's Merge objects and Check meshes over the setup's load order:
+
+```
+wraithguard --cfg openmw.cfg --merge-objects
+wraithguard --mo2 "C:\Modding\MO2" --merge-objects "C:\Modding\MO2\mods\Merged Objects"
+wraithguard --cfg openmw.cfg --check-meshes "E:\OpenMW\Repaired meshes"
+```
+
+`--merge-objects` writes `Merged Objects.esp` and prints the records it merged, by type. Load
+it last. `--check-meshes` lists every mesh that isn't sound, with what was found in it, and
+with a folder writes the mendable ones there. `--dry-run` writes nothing for either. Given with
+`--rules`, both run after the sort.
 
 It also runs Merge Lands, the Tools page's merge, over the cfg's load order:
 
@@ -411,7 +426,7 @@ yourself, last, as you would after the Tools page's merge.
 
 | Flag | What it does |
 |---|---|
-| `--cfg PATH`, `--rules ...` | The cfg and the rule files (required; `--rules` not for `--merge-lands` alone). |
+| `--cfg PATH`, `--rules ...` | The cfg and the rule files (required; `--rules` not for `--merge-lands`, `--merge-objects` or `--check-meshes` alone). |
 | `--mo2 DIR [--profile NAME]`, `--data-files DIR` | An MO2 install or the game's own in place of `--cfg`, sorted by the mlox rules alone. |
 | `--plain-mlox` | With `--cfg`: the whole `content=` list by the mlox rules alone, no MOMW list. |
 | `--customizations PATH`, `--subset ...`, `--subset-file PATH` | Where the subset comes from. |
@@ -438,6 +453,14 @@ yourself, last, as you would after the Tools page's merge.
 | `--merge-cell-ignore-by-plugin PLUGIN=X,Y;X,Y ...` | One plugin's terrain left out at those cells (default: Tamriel Rebuilt's Hunza Camp; with no value, none). |
 | `--merge-no-clamp` | Stop, writing nothing, if a height step is left that a record cannot store and the slope limiter could not repair (default: clamp it and say so). |
 | `--merge-ignore ...` | Plugins Merge Lands leaves out, by name or by folder; replaces the default list (generated plugins such as `delta-merged.omwaddon`). |
+| `--merge-objects [FOLDER]` | Merge objects: `Merged Objects.esp` (TES3Merge's merge) written into FOLDER (default: the folder holding most of the load order). |
+| `--merge-objects-types TYPE ...` | The record types merged, as tags (`NPC_ LEVI ...`; default TES3Merge's list, `FACT` not in it). |
+| `--merge-objects-ignore PLUGIN ...` | Plugins Merge objects leaves out, by file name. |
+| `--merge-objects-patches fogbug\|summons\|cellnames\|all\|none ...` | The fixes applied (default all). |
+| `--merge-objects-inclusive` | NPC and creature inventories merged inclusively (every item any plugin gives). |
+| `--merge-objects-lists-only` | Only the leveled lists, into `multipatch.esp` (TES3Merge's multipatch). |
+| `--check-meshes [FOLDER]` | Check meshes: the meshes that are not sound listed with what was found. With FOLDER, the mendable ones are written there repaired, at their own paths. FOLDER is left out of the meshes read, so add it last to your data folders. |
+| `--check-meshes-guesses` | With `--check-meshes FOLDER`: also write the meshes mendable only by a guess. |
 | `--no-predicate-warnings`, `-v`/`-vv`, `--trace` | Quieter, louder, or a trace log. |
 | `tes3cmd <command> ...` | tes3cmd itself, built in (below). |
 

@@ -431,7 +431,7 @@ In order, from the repository root: `for p in patches/0*.patch; do patch -p1 < $
 Checked: the series on your 18hu source gives exactly the tree Wraithguard vendors, and
 your whole workspace (all ten crates, the CLI and the Tauri check) builds with it. Your
 full suite, with your fixture: 1553 pass / 0 fail, against 1541 / 0 without the
-patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet. The same goes for 0015-0022: written against the vendored tree, which is your 18hu with 0001-0016 on it, and checked by their own tests here; not yet run through your suite.
+patches; the 12 more are the tests we add. That check was made with 0001-0010; 0011 (2026-10-13) and 0012-0014 (2026-10-19) came after. 0011 and 0012 only add functions; 0013 adds timers, fields to `LoadStats` (built with `..Default::default()` everywhere we could find) and three `reserve`/capacity sizings; 0014 asks the twin questions ahead of the loop with the same answers. None of them should break a caller, but they have not been through your full suite yet. The same goes for 0015-0024: written against the vendored tree, which is your 18hu with 0001-0016 on it, and checked by their own tests here; not yet run through your suite.
 
 ## Your page: three fixes to the shadow receiver (`page/`)
 
@@ -539,3 +539,36 @@ the plain record. 0023 calls it there too (guarded by `where_is.is_empty()`, so 
 looked up until something has moved). The rule is the Construction Set's: the later plugin's
 record is the reference. Not checked in the game; a `GF_D3`-style test (a rock moved, then a
 later plain record with another scale) would settle it.
+
+## 0024 nif: UV sets go by their count, and repairs for what exporters write
+
+`NiGeometryData::read` skipped the UV sets when the `Has UV` word was 0. Some exporters write
+the UV sets with that word 0: The Unhatched's `nf_x_temple_main.nif` (four shapes) and Baths of
+Vvardenfell's `s3_bath_steam_02.nif` and `_03.nif`. The reader then took the texture
+coordinates as the triangle count and the file did not read. nif.xml sizes the UV sets as
+`Num UV Sets & 63` with no condition on the word, and its note says to write the word as 0
+or 0xFFFFFFFF "for compatibility with NifTexture". 0024 reads them by the count, low six bits.
+Over our 765-mesh corpus that changes nothing else: those six blocks are the only ones with
+UV sets counted and the word 0, and read by the count each ends exactly where the next block
+starts. OpenMW (`components/nif/data.cpp`) gates on the word the same way for Morrowind
+files, so it should misread them too; not tried in OpenMW. Greatness7's `tes3` had the same
+gate; our fork reads by the count now as well.
+
+0024 also adds `stream::walk` / `walk_from`, which read a file as `Stream::parse` does and keep
+each block's byte span, and `netimmerse::repair`, which mends three faults on a copy and keeps
+a repair only when the whole file then reads:
+
+- the UV word off where there are UV sets: set to 1, four bytes, and the file reads as the
+  same `Stream` (so strict readers read it);
+- UV sets counted with none there: the count set to 0 (none in our corpus; tested);
+- a plain node whose lists after its transform are garbage, when nothing else links to it:
+  kept with no properties, children or effects, so every block keeps its number. This one is
+  a guess and is marked as one. Baths of Vvardenfell's `dbs_meatstick.nif` has two such roots,
+  "Emitter", whose last 28 bytes read `2, 2, 1, -1, 0, 0, 0`. Their extra data link also
+  points at an `NiBSParticleNode`, and 0024 clears it.
+
+Wraithguard uses it in a Check meshes tool, which writes repaired copies into a folder the
+person adds last, and in its mesh optimizer, which reads proven repairs first. Tests: five
+in `repair.rs`, and the corpus run (715 sound, 5 mended, 45 outside these: 40 are NIF
+4.0.0.0, 3 have block types outside Morrowind's format, and 2 are not NIFs).
+

@@ -3,7 +3,7 @@
 //!
 //! The layout: a `u16` vertex count, then four has-flag words each followed by its array
 //! when set (positions, normals, after the bound the colors, then a `u16` UV set count
-//! and the sets). Every array is `vertices.len()` long, so the has-flags are the lengths
+//! and the sets; the UV sets go by their count, whatever their has-flag says, 0024). Every array is `vertices.len()` long, so the has-flags are the lengths
 //! here: an empty array is written as "has none".
 
 use super::*;
@@ -34,9 +34,12 @@ impl Block for NiGeometryData {
         let bound = NiBound::read(r)?;
         let has_colors = r.bool_u32()?;
         let vertex_colors = r.vec4s_n(if has_colors { num_vertices } else { 0 })?;
-        let num_uv_sets = r.u16()? as usize;
-        let has_uv = r.bool_u32()?;
-        let uv_sets = r.vec2s_n(if has_uv { num_vertices * num_uv_sets } else { 0 })?;
+        // Wraithguard (0024): the UV sets are as many as `num_uv_sets` says (its low 6 bits, as nif.xml reads them),
+        // whatever `has_uv` says: exporters write meshes with UV sets and the flag 0, and
+        // skipping them read the texture coordinates as the triangles that follow.
+        let num_uv_sets = r.u16()? as usize & 63;
+        let _has_uv = r.bool_u32()?;
+        let uv_sets = r.vec2s_n(num_vertices * num_uv_sets)?;
         Ok(NiGeometryData { base, vertices, normals, bound, vertex_colors, uv_sets })
     }
 

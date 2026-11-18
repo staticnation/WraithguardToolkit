@@ -250,6 +250,8 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "loadorder_update_rules" => Reply::Json(t::loadorder_update_rules(strs(a, "rules"), s(a, "stamp"))?),
         "loadorder_update_yml" => Reply::Json(t::loadorder_update_yml(s(a, "path"), s(a, "stamp"))?),
         "loadorder_fetch_data_paths" => Reply::Json(t::loadorder_fetch_data_paths(s(a, "path"), s(a, "listName"), s(a, "stamp"))?),
+        "meshcheck_scan" => Reply::Bytes(t::meshcheck_scan(s(a, "cfg"), val(a, "opts"), s(a, "outDir"))?.0),
+        "meshcheck_write" => Reply::Bytes(t::meshcheck_write(s(a, "cfg"), val(a, "opts"), s(a, "outDir"), strs(a, "paths"), b(a, "guesses"))?.0),
         "meshopt_analyse" => Reply::Json(t::meshopt_analyse(s(a, "cfg"), val(a, "opts"), s(a, "outDir"), u(a, "limit"))?),
         "meshopt_write" => Reply::Json(t::meshopt_write(s(a, "cfg"), val(a, "opts"), s(a, "outDir"), strs(a, "paths"))?),
         "meshopt_progress" => {
@@ -339,6 +341,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "tools_tes3cmd_find" => Reply::Text(t::tools_tes3cmd_find(s(a, "cfg"), s(a, "explicit"))),
         "tools_locate" => Reply::Json(t::tools_locate(s(a, "cfg"), strs(a, "names"))?),
         "tools_tes3cmd" => Reply::Bytes(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"), Some(b(a, "external")))?.0),
+        "tools_merge_objects" => Reply::Bytes(t::tools_merge_objects(s(a, "cfg"), s(a, "folder"), strs(a, "types"), b(a, "inclusive"), strs(a, "patches"), strs(a, "ignore"), s(a, "filters"), b(a, "listsOnly"), b(a, "dryRun"))?.0),
         "tools_tes3cmd_undo" => Reply::Bytes(t::tools_tes3cmd_undo(s(a, "run"), u(a, "file"), nums(a, "rows"))?.0),
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),

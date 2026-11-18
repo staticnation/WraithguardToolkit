@@ -404,3 +404,57 @@ pub(super) fn tools_tes3cmd_undo(run: String, file: usize, rows: Vec<usize>) -> 
     t3_tables(&mut tb, held);
     Ok(tauri::ipc::Response::new(tb.done()))
 }
+
+/// Wraithguard: Merged Objects (`editcore::mergeobjects`, a port of NullCascade's TES3Merge,
+/// Static 2026-11-18): the setup's load order merged record by record into `Merged Objects.esp`
+/// (`lists_only`: only the leveled lists, as TES3Merge's `multipatch`, into `multipatch.esp`),
+/// written into `folder` (empty: the data folder holding most of the load order, as Merge Lands
+/// picks) unless `dry_run`. `types` the record tags merged (empty: TES3Merge's default list),
+/// `patches` any of `fogbug`, `summons`, `cellnames`, `ignore` plugins left out by name, `filters`
+/// lines of `regex = true|false` over ids in lower case (TES3Merge.ini's `[ObjectFilters]`).
+///
+/// Answers bytes (WGTB, as `tools_tes3cmd`): `head` `ssu` (the status, the file written, how
+/// many records), `lines` `s` (the log) and `types` `su` (records merged per type). Read by
+/// `61_wg_tools.js` (`moRun`).
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)] // a command's arguments are the page's keys, one each
+pub(super) fn tools_merge_objects(
+    cfg: String,
+    folder: String,
+    types: Vec<String>,
+    inclusive: bool,
+    patches: Vec<String>,
+    ignore: Vec<String>,
+    filters: String,
+    lists_only: bool,
+    dry_run: bool,
+) -> Result<tauri::ipc::Response, String> {
+    use editcore::mergeobjects::{lists_only as lists, run, Options, DEFAULT_TYPES};
+    let mut opts = Options::default();
+    if !types.is_empty() {
+        opts.types = types.iter().map(|t| t.trim().to_uppercase()).filter(|t| DEFAULT_TYPES.contains(&t.as_str()) || t == "FACT").collect();
+    }
+    if lists_only {
+        opts = lists(opts);
+    }
+    opts.inclusive = inclusive;
+    let has = |p: &str| patches.iter().any(|x| x.eq_ignore_ascii_case(p) || x.eq_ignore_ascii_case("all"));
+    (opts.fogbug, opts.summons, opts.cellnames) = (has("fogbug"), has("summons"), has("cellnames"));
+    opts.ignore = ignore.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    let folder = folder.trim();
+    let r = run(&cfg, (!folder.is_empty()).then(|| std::path::Path::new(folder)), opts, &filters, dry_run)?;
+    let (status, lines, n) = (r.status, r.lines, r.outcome.records.len());
+    let written = r.written.map(|p| p.display().to_string()).unwrap_or_default();
+    let mut tb = Tables::new();
+    tb.table("head", "ssu", 1);
+    tb.s(&status).s(&written).u(n as u64);
+    tb.table("lines", "s", lines.len());
+    for l in &lines {
+        tb.s(l);
+    }
+    tb.table("types", "su", r.outcome.by_type.len());
+    for (t, n) in &r.outcome.by_type {
+        tb.s(t).u(*n as u64);
+    }
+    Ok(tauri::ipc::Response::new(tb.done()))
+}

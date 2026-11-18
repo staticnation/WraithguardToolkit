@@ -30,7 +30,7 @@ use crate::vfs::par_map;
 
 /// The cache tag of a mesh's measurement.
 pub const TAG: &str = "~WGMO1";
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 
 /// How far a run has got (meshes done of meshes to do), for a progress readout.
 pub static DONE: AtomicUsize = AtomicUsize::new(0);
@@ -140,6 +140,9 @@ pub struct Analysis {
     pub overfetch: [f64; 2],
     /// Why the other shapes are left alone.
     pub skipped: Vec<String>,
+    /// The faults mended before measuring (`nif_repair::mended`): the mesh is optimized
+    /// from the repaired copy, and the written copy is repaired too.
+    pub repaired: Vec<String>,
 }
 
 impl Analysis {
@@ -147,7 +150,7 @@ impl Analysis {
         json!({"v": VERSION, "unreadable": self.unreadable, "bytes": self.bytes, "triangles": self.triangles,
             "shapes": self.shapes, "improvable": self.improvable, "improvable_triangles": self.improvable_triangles,
             "gain": self.gain, "acmr": self.acmr, "overdraw": self.overdraw, "overfetch": self.overfetch,
-            "skipped": self.skipped})
+            "skipped": self.skipped, "repaired": self.repaired})
     }
 
     fn from_json(v: &Value) -> Option<Analysis> {
@@ -170,14 +173,18 @@ impl Analysis {
             overdraw: pair("overdraw")?,
             overfetch: pair("overfetch")?,
             skipped: v["skipped"].as_array()?.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+            repaired: v["repaired"].as_array()?.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
         })
     }
 }
 
-/// A mesh measured: `nif_order`'s dry run, summed over its shapes.
+/// A mesh measured: `nif_order`'s dry run, summed over its shapes, on the mesh with the
+/// faults mended that `nif_repair` proves (a UV flag left off, say), which it notes.
 pub fn analyse_bytes(bytes: &[u8]) -> Analysis {
     let mut a = Analysis { bytes: bytes.len() as u64, ..Default::default() };
-    let rep = match nif_order::report_bytes(bytes) {
+    let (bytes, repaired) = crate::nif_repair::mended(bytes.to_vec());
+    a.repaired = repaired;
+    let rep = match nif_order::report_bytes(&bytes) {
         Ok(r) => r,
         Err(e) => {
             a.unreadable = e;
@@ -274,7 +281,7 @@ pub fn row_json(c: &Candidate, a: &Analysis, opts: &Options) -> Value {
     };
     json!({"path": c.rel, "dir": c.dir.to_string_lossy(), "bytes": a.bytes, "triangles": a.triangles,
         "shapes": a.shapes, "improvable": a.improvable, "gain": a.gain, "acmr": a.acmr, "overdraw": a.overdraw,
-        "overfetch": a.overfetch, "qualifies": qualifies(a, opts), "note": note})
+        "overfetch": a.overfetch, "qualifies": qualifies(a, opts), "note": note, "repaired": a.repaired})
 }
 
 /// What writing one mesh came to.
@@ -299,6 +306,7 @@ pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
         }
     };
     w.before = bytes.len() as u64;
+    let (bytes, _) = crate::nif_repair::mended(bytes);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         nif_order::optimise_checked(&bytes)
     }));

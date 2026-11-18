@@ -91,7 +91,7 @@ fn command() -> Command {
         .arg(
             Arg::new("rules")
                 .long("rules")
-                .required_unless_present("merge-lands")
+                .required_unless_present_any(["merge-lands", "merge-objects", "check-meshes"])
                 .num_args(1..)
                 .value_name("RULES")
                 .help("mlox rule file(s) or directories, in increasing priority order (mlox_base.txt first, mlox_user.txt last)"),
@@ -235,6 +235,49 @@ fn command() -> Command {
                      Replaces the default list (generated plugins such as delta-merged.omwaddon); given empty, leaves nothing out",
                 ),
         )
+        .arg(
+            Arg::new("merge-objects")
+                .long("merge-objects")
+                .num_args(0..=1)
+                .default_missing_value("")
+                .value_name("FOLDER")
+                .help(
+                    "Merge the records two or more plugins change into Merged Objects.esp (TES3Merge's merge: each \
+                     plugin's changes kept, leveled lists combined), written into FOLDER (default: the data folder holding \
+                     most of the load order). With --rules, after the sort; --dry-run writes nothing",
+                ),
+        )
+        .arg(
+            Arg::new("merge-objects-types")
+                .long("merge-objects-types")
+                .num_args(1..)
+                .value_name("TYPE")
+                .help("With --merge-objects: the record types merged, as tags (NPC_ LEVI ...; default: TES3Merge's list, FACT not in it)"),
+        )
+        .arg(Arg::new("merge-objects-ignore").long("merge-objects-ignore").num_args(0..).value_name("PLUGIN").help("With --merge-objects: plugins left out, by file name"))
+        .arg(
+            Arg::new("merge-objects-patches")
+                .long("merge-objects-patches")
+                .num_args(0..)
+                .value_name("PATCH")
+                .value_parser(["fogbug", "summons", "cellnames", "all", "none"])
+                .help("With --merge-objects: the fixes applied (default all): fogbug, summons, cellnames; none for none"),
+        )
+        .arg(flag("merge-objects-inclusive", "With --merge-objects: NPC and creature inventories merged inclusively (every item any plugin gives)"))
+        .arg(flag("merge-objects-lists-only", "With --merge-objects: only the leveled lists merged, into multipatch.esp (TES3Merge's multipatch)"))
+        .arg(
+            Arg::new("check-meshes")
+                .long("check-meshes")
+                .num_args(0..=1)
+                .default_missing_value("")
+                .value_name("FOLDER")
+                .help(
+                    "Check the load order's meshes (the winning loose copy of each) for the faults exporters write, and \
+                     list those that are not sound. With FOLDER, the mendable ones are written there repaired, at their own \
+                     paths, for a data folder added last (your mods are not modified); --dry-run writes nothing",
+                ),
+        )
+        .arg(flag("check-meshes-guesses", "With --check-meshes FOLDER: also write the meshes mendable only by a guess (a node whose lists do not read, emptied)"))
         .arg(Arg::new("verbose").short('v').long("verbose").action(ArgAction::Count).help("Show run diagnostics on stderr (-v, -vv)"))
 }
 
@@ -279,6 +322,16 @@ struct Args {
     merge_no_clamp: bool,
     /// `--merge-ignore`, when given (else the default list).
     merge_ignore: Option<Vec<String>>,
+    /// `--merge-objects [FOLDER]` (empty: the default folder) and its options.
+    merge_objects: Option<String>,
+    merge_objects_types: Vec<String>,
+    merge_objects_ignore: Vec<String>,
+    merge_objects_patches: Option<Vec<String>>,
+    merge_objects_inclusive: bool,
+    merge_objects_lists_only: bool,
+    /// `--check-meshes`: `Some("")` to report only, else the folder the repaired copies go to.
+    check_meshes: Option<String>,
+    check_meshes_guesses: bool,
     unused: Vec<&'static str>,
     verbose: u8,
 }
@@ -354,6 +407,14 @@ impl Args {
             merge_keep_world_map: on("merge-keep-world-map"),
             merge_no_clamp: on("merge-no-clamp"),
             merge_ignore: m.contains_id("merge-ignore").then(|| list("merge-ignore")),
+            merge_objects: m.get_one::<String>("merge-objects").map(|v| if v.is_empty() { String::new() } else { py_path(v) }),
+            merge_objects_types: list("merge-objects-types"),
+            merge_objects_ignore: list("merge-objects-ignore"),
+            merge_objects_patches: m.contains_id("merge-objects-patches").then(|| list("merge-objects-patches")),
+            merge_objects_inclusive: on("merge-objects-inclusive"),
+            merge_objects_lists_only: on("merge-objects-lists-only"),
+            check_meshes: m.get_one::<String>("check-meshes").map(|v| if v.is_empty() { String::new() } else { py_path(v) }),
+            check_meshes_guesses: on("check-meshes-guesses"),
             unused,
             verbose,
         }
@@ -557,6 +618,91 @@ fn scan_with(args: &Args, input: &ScanInput, log: &Log, trace: &Trace) {
     }
 }
 
+// ---------------------------------------------------------------- Merge objects
+
+/// `--merge-objects`: the Tools page's Merge objects (`editcore::mergeobjects::run`, TES3Merge's
+/// merge) over the setup's load order, what it did printed.
+fn merge_objects(args: &Args, folder: &str) -> Result<(), String> {
+    use editcore::mergeobjects::{lists_only, run, Options};
+    let mut opts = Options::default();
+    if !args.merge_objects_types.is_empty() {
+        opts.types = args.merge_objects_types.iter().map(|t| t.trim().to_uppercase()).collect();
+    }
+    if args.merge_objects_lists_only {
+        opts = lists_only(opts);
+    }
+    opts.inclusive = args.merge_objects_inclusive;
+    if let Some(p) = &args.merge_objects_patches {
+        let has = |x: &str| p.iter().any(|v| v == x || v == "all");
+        (opts.fogbug, opts.summons, opts.cellnames) = (has("fogbug"), has("summons"), has("cellnames"));
+    }
+    opts.ignore = args.merge_objects_ignore.clone();
+    section(if opts.lists_only { "MERGE OBJECTS (LEVELED LISTS)" } else { "MERGE OBJECTS" });
+    let r = run(&args.setup, (!folder.is_empty()).then(|| std::path::Path::new(folder)), opts, "", args.dry_run)?;
+    for l in &r.lines {
+        println!("  {l}");
+    }
+    println!("  {}", r.status);
+    Ok(())
+}
+
+// ---------------------------------------------------------------- Check meshes
+
+/// `--check-meshes`: the Tools page's Check meshes (`conflictcore::nif_repair`) over the
+/// setup's loose meshes: every mesh that is not sound printed with its faults, and with a
+/// folder (not `--dry-run`) the mendable ones written there repaired.
+fn check_meshes(args: &Args, folder: &str) -> Result<(), String> {
+    use conflictcore::{nif_batch, nif_repair as nr};
+    let setup = ordercore::install::read(&args.setup)?;
+    let out = std::path::Path::new(folder);
+    let fold = |p: &str| p.trim_end_matches(['/', '\\']).to_lowercase();
+    let skip = fold(folder);
+    let data: Vec<std::path::PathBuf> =
+        setup.data.iter().filter(|d| skip.is_empty() || fold(&d.to_string_lossy()) != skip).cloned().collect();
+    section("CHECK MESHES");
+    let cands = nif_batch::collect(&data);
+    let found = nr::check_all(None, &cands);
+    let mut counts = [0usize; 4];
+    for f in &found {
+        counts[f.status.code() as usize] += 1;
+    }
+    println!(
+        "  {} mesh(es): {} sound, {} mendable, {} mendable by a guess, {} unreadable",
+        cands.len(),
+        counts[0],
+        counts[1],
+        counts[2],
+        counts[3]
+    );
+    let mut order: Vec<usize> = (0..cands.len()).filter(|&i| found[i].status != nr::Status::Sound).collect();
+    order.sort_by(|&x, &y| found[y].status.cmp(&found[x].status).then_with(|| cands[x].rel.to_lowercase().cmp(&cands[y].rel.to_lowercase())));
+    for &i in &order {
+        let (c, f) = (&cands[i], &found[i]);
+        println!("  [{}] {}  ({})", f.status.label(), c.rel, c.dir.display());
+        for x in &f.faults {
+            println!("      {}: block {} ({}): {}", x.label, x.block, x.name, x.note);
+        }
+        if !f.why.is_empty() {
+            println!("      {}", f.why);
+        }
+    }
+    if folder.is_empty() || args.dry_run {
+        return Ok(());
+    }
+    let picked: Vec<(&nif_batch::Candidate, &nr::Found)> =
+        cands.iter().zip(&found).filter(|(_, f)| nr::writes(f, args.check_meshes_guesses)).collect();
+    std::fs::create_dir_all(out).map_err(|e| format!("{folder} could not be made: {e}"))?;
+    let only: Vec<&nif_batch::Candidate> = picked.iter().map(|(c, _)| *c).collect();
+    let done = nr::write_all(&only, out, args.check_meshes_guesses);
+    nr::write_manifest(out, &done, &picked, args.check_meshes_guesses)?;
+    let failed: Vec<&nif_batch::Written> = done.iter().filter(|w| !w.error.is_empty()).collect();
+    println!("  {} repaired mesh(es) written into {folder}; add it LAST in the data folders to use them", done.len() - failed.len());
+    for w in failed {
+        println!("  not written: {}: {}", w.rel, w.error);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- Merge Lands
 
 /// `--merge-lands`: the Tools page's merge (`land_merge`) over the cfg's load order and data
@@ -661,8 +807,21 @@ fn run(args: &Args) -> Result<(), String> {
         log.warning(&format!("--{k} is not used: plugins are read by the built-in reader"));
     }
     if args.plan.rules.is_empty() {
-        // --merge-lands alone: no sort.
-        let r = merge_lands(args, args.merge_lands.as_deref().unwrap_or_default(), &log, &trace);
+        // --merge-lands, --merge-objects or --check-meshes alone: no sort.
+        let mut r = Ok(());
+        if let Some(folder) = &args.merge_lands {
+            r = merge_lands(args, folder, &log, &trace);
+        }
+        if r.is_ok()
+            && let Some(folder) = &args.merge_objects
+        {
+            r = merge_objects(args, folder);
+        }
+        if r.is_ok()
+            && let Some(folder) = &args.check_meshes
+        {
+            r = check_meshes(args, folder);
+        }
         trace.line("done");
         return r;
     }
@@ -670,6 +829,12 @@ fn run(args: &Args) -> Result<(), String> {
         plain_run(args, &log, &trace)?;
         if let Some(folder) = &args.merge_lands {
             merge_lands(args, folder, &log, &trace)?;
+        }
+        if let Some(folder) = &args.merge_objects {
+            merge_objects(args, folder)?;
+        }
+        if let Some(folder) = &args.check_meshes {
+            check_meshes(args, folder)?;
         }
         trace.line("done");
         return Ok(());
@@ -705,6 +870,12 @@ fn run(args: &Args) -> Result<(), String> {
     say(&done.report, &log, || {});
     if let Some(folder) = &args.merge_lands {
         merge_lands(args, folder, &log, &trace)?;
+    }
+    if let Some(folder) = &args.merge_objects {
+        merge_objects(args, folder)?;
+    }
+    if let Some(folder) = &args.check_meshes {
+        check_meshes(args, folder)?;
     }
     trace.line("done");
     Ok(())

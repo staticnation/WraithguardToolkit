@@ -18,9 +18,10 @@
 //!
 //! A NIF has no subrecord sizes, so there is no lenient layer under this one: a file
 //! either reads to the end or it does not, and [`check`] reports which, and whether the
-//! bytes come back the same. `GardenfellCLI roundtrip --meshes` runs it over every mesh
+//! bytes come back the same. [`repair`] mends the faults exporters are known to write. `GardenfellCLI roundtrip --meshes` runs it over every mesh
 //! of an install.
 
 pub mod check;
+pub mod repair;
 pub mod stream;
 pub mod types;

@@ -272,6 +272,88 @@ pub const VERSION: u32 = 0x0400_0002;
 /// The header line the game's files carry, newline included.
 pub const HEADER: &str = "NetImmerse File Format, Version 4.0.0.2\n";
 
+/// Wraithguard (0024): one block where the file holds it: its type name, and its bytes
+/// `start..end` (the type name's length word included). For [`walk`] and the repairs
+/// (`super::repair`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub name: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A file read the way [`Stream::parse`] reads it, keeping where each block is.
+#[derive(Clone, Debug)]
+pub struct Walk {
+    /// Where block 0 starts (the header line and version end).
+    pub blocks_at: usize,
+    /// The blocks the header says there are.
+    pub count: usize,
+    /// The blocks read, in order: all of them, or those before the one that failed.
+    pub spans: Vec<Span>,
+    /// Read to the end with the roots footer, or why not (naming the block and the byte).
+    pub end: Result<()>,
+}
+
+/// The header line, the version and the block count: where block 0 starts, and the count.
+fn header(buf: &[u8]) -> Result<(usize, usize)> {
+    let Some(line_end) = buf.iter().take(64).position(|&b| b == b'\n') else {
+        return Err(Error { at: 0, what: "no header line: not a NIF".into() });
+    };
+    let mut r = Reader::new(buf);
+    let header = crate::bytes::decode(r.bytes(line_end + 1)?);
+    if !header.starts_with("NetImmerse File Format") {
+        return Err(Error { at: 0, what: format!("header line {header:?} is not a NIF's") });
+    }
+    let version = r.u32()?;
+    if version != VERSION {
+        return Err(Error { at: line_end + 1, what: format!("version {version:#010x} is not 4.0.0.2 ({VERSION:#010x})") });
+    }
+    let n = r.count(0)?;
+    Ok((r.pos(), n))
+}
+
+/// The whole file walked; an error only when the header is not a NIF 4.0.0.2's.
+pub fn walk(buf: &[u8]) -> Result<Walk> {
+    let (blocks_at, count) = header(buf)?;
+    let (spans, end) = walk_from(buf, blocks_at, 0, count);
+    Ok(Walk { blocks_at, count, spans, end })
+}
+
+/// Blocks `first..count` read from byte `at`, then the roots, which must end the file.
+pub fn walk_from(buf: &[u8], at: usize, first: usize, count: usize) -> (Vec<Span>, Result<()>) {
+    let mut spans = Vec::new();
+    let Some(rest) = buf.get(at..) else {
+        return (spans, Err(Error { at, what: "past the end of the file".into() }));
+    };
+    let mut r = Reader::new(rest);
+    let moved = |e: Error| Error { at: e.at + at, what: e.what };
+    for i in first..count {
+        let start = at + r.pos();
+        let name = match r.string() {
+            Ok(n) => n,
+            Err(e) => {
+                let e = moved(e);
+                return (spans, Err(Error { at: e.at, what: format!("block {i}: type name: {}", e.what) }));
+            }
+        };
+        if let Err(e) = NiType::read(&name, &mut r) {
+            let e = moved(e);
+            return (spans, Err(Error { at: e.at, what: format!("block {i} ({name}, starts at byte {start}): {}", e.what) }));
+        }
+        spans.push(Span { name, start, end: at + r.pos() });
+    }
+    if let Err(e) = r.links::<NiObject>() {
+        let e = moved(e);
+        return (spans, Err(Error { at: e.at, what: format!("roots: {}", e.what) }));
+    }
+    if !r.at_end() {
+        return (spans, Err(Error { at: at + r.pos(), what: format!("{} bytes after the roots", r.remaining()) }));
+    }
+    (spans, Ok(()))
+}
+
+
 /// A file: the header line as read (newline included), the version word, the blocks in
 /// file order, and the roots.
 #[derive(Clone, Debug, Default, PartialEq)]

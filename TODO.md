@@ -212,8 +212,17 @@ the vanilla CS, so then:
 
 - Send Robin `subset sort\Gardenfell-offering-2026-10-19.zip` (0001-0014). His `fixture/`
   stays out of the repo; put it in `viewer-shell/gardenfell/fixture` locally to run his suite.
-- Tell Greatness7: his crate refuses an NPC_ with a FILL subrecord that Robin's reads; one
-  corpus mesh panics inside `bytemuck` (caught, falls back).
+- Offer Greatness7 our tes3 fork's four fixes, each with its write-up in
+  `subset sort\tes3-patches`. Our fork has them since 7912cc2:
+  - `bytes_io-length-bounds`: the `bytemuck` panic on a misread length;
+  - `esp-lenient-unknown-subrecords`: an NPC_ with a FILL;
+  - `nif-uv-sets-by-count`: the corpus meshes that failed, which had their `Has UV` word 0;
+  - `reserve-count-bounds`: counts that aborted the process.
+- After the fork's push: `cargo update -p tes3 -p bytes_io` in `viewer-shell`, then set
+  `Reader::lenient` in `editcore::plugin::reader`, so a plugin with a subrecord its record type
+  doesn't know is read past it rather than refused.
+- Send Robin 0024 (UV sets by their count, `stream::walk`, `netimmerse::repair`) with the next
+  offering.
 - `gardenfell-g7`'s differential tests on a full install (`GARDENFELL_G7_PLUGINS`,
   `GARDENFELL_G7_NIFS`): ARMO, CLOT, BOOK, ALCH, APPA, INGR, CONT, LOCK, PROB, REPA have no
   fixture.
@@ -222,6 +231,12 @@ the vanilla CS, so then:
 ## Meshes and distant view
 
 - "Optimize draw order": compare with G7's Blender exporter's output on the same mesh.
+- Check meshes, like the optimizer, reads loose meshes only: read the archives too, and write
+  an archived mesh's repair as a loose file (a loose file wins).
+- 40 corpus meshes are NIF 4.0.0.0 (most from Properly Smoothed Meshes). Find out what the game
+  and OpenMW do with them, and read them if they load.
+- Check meshes' guess repair (`dbs_meatstick.nif`'s two "Emitter" roots): see the mesh in
+  OpenMW before and after, and whether the game loads the original.
 - From MGE XE, not taken yet: VRAM streaming with eviction, a frame-budgeted upload pump,
   horizon culling of terrain, static texture atlases, building classification.
 

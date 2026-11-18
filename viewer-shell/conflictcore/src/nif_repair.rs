@@ -1,0 +1,355 @@
+//! A load order's meshes checked for the faults exporters are known to write, and the
+//! ones that can be mended written as repaired copies.
+//!
+//! The meshes are the optimizer's ([`nif_batch::collect`]): the winning copy of each
+//! `meshes/` path across the data folders, loose files only. Each is put through
+//! `gardenfell_nif::netimmerse::repair`, which finds a mesh sound, mendable (every fix
+//! proven to keep what the mesh means), mendable only by a guess (a node whose lists are
+//! garbage, emptied), or unreadable for a reason no repair covers (another NIF version,
+//! a block type outside Morrowind's format, not a NIF at all). Nothing is written into a
+//! mod: the repaired copies go to one output folder, laid out as a data folder, which the
+//! person adds last in the load order, as the optimizer's does. A guess is written only
+//! when asked for.
+//!
+//! What was found in a mesh is kept in the scan cache (tag [`TAG`], valid while the
+//! file's size and time are unchanged), so a second run reads only what changed.
+
+use std::path::Path;
+use std::sync::atomic::Ordering;
+
+use editcore::cache::Cache;
+use gardenfell_nif::netimmerse::repair::{Kind, repair};
+use serde_json::{Value, json};
+
+use crate::nif_batch::{Candidate, DONE, TOTAL, Written};
+use crate::vfs::par_map;
+
+/// The cache tag of a mesh's check.
+pub const TAG: &str = "~WGNR1";
+const VERSION: u64 = 1;
+
+/// Where a mesh stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Status {
+    /// Reads, and nothing to mend.
+    Sound,
+    /// Every fault found is mended, each proven to keep what the mesh means.
+    Mendable,
+    /// Mendable only by emptying a node whose lists do not read.
+    Guess,
+    /// Does not read, and no repair covers why.
+    Unreadable,
+}
+
+impl Status {
+    pub fn code(self) -> u64 {
+        self as u64
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Sound => "sound",
+            Status::Mendable => "mendable",
+            Status::Guess => "mendable by a guess",
+            Status::Unreadable => "unreadable",
+        }
+    }
+}
+
+/// One fault found, as listed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fault {
+    pub label: String,
+    pub certain: bool,
+    pub block: u64,
+    pub name: String,
+    pub note: String,
+}
+
+/// What was found in one mesh.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Found {
+    pub status: Status,
+    pub bytes: u64,
+    pub faults: Vec<Fault>,
+    /// Why it does not read, when it is unreadable.
+    pub why: String,
+}
+
+impl Found {
+    fn to_json(&self) -> Value {
+        json!({"v": VERSION, "status": self.status.code(), "bytes": self.bytes, "why": self.why,
+            "faults": self.faults.iter().map(|f| json!({"label": f.label, "certain": f.certain, "block": f.block,
+                "name": f.name, "note": f.note})).collect::<Vec<_>>()})
+    }
+
+    fn from_json(v: &Value) -> Option<Found> {
+        if v["v"].as_u64()? != VERSION {
+            return None;
+        }
+        let status = match v["status"].as_u64()? {
+            0 => Status::Sound,
+            1 => Status::Mendable,
+            2 => Status::Guess,
+            3 => Status::Unreadable,
+            _ => return None,
+        };
+        let faults = v["faults"]
+            .as_array()?
+            .iter()
+            .map(|f| {
+                Some(Fault {
+                    label: f["label"].as_str()?.to_string(),
+                    certain: f["certain"].as_bool()?,
+                    block: f["block"].as_u64()?,
+                    name: f["name"].as_str()?.to_string(),
+                    note: f["note"].as_str()?.to_string(),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Found { status, bytes: v["bytes"].as_u64()?, faults, why: v["why"].as_str()?.to_string() })
+    }
+}
+
+/// A mesh checked: what [`repair`] makes of its bytes, and the repaired bytes when there are
+/// any.
+pub fn check_bytes(bytes: &[u8]) -> (Found, Option<Vec<u8>>) {
+    let r = std::panic::catch_unwind(|| repair(bytes));
+    let Ok(r) = r else {
+        let found = Found {
+            status: Status::Unreadable,
+            bytes: bytes.len() as u64,
+            faults: Vec::new(),
+            why: "the check failed on this mesh".into(),
+        };
+        return (found, None);
+    };
+    let faults = r
+        .fixes
+        .iter()
+        .map(|f| Fault {
+            label: f.kind.label().to_string(),
+            certain: f.kind.certain(),
+            block: f.block as u64,
+            name: f.name.clone(),
+            note: f.note.clone(),
+        })
+        .collect();
+    let status = if r.clean() {
+        Status::Sound
+    } else if r.bytes.is_none() {
+        Status::Unreadable
+    } else if r.fixes.iter().any(|f| f.kind == Kind::BrokenNode) {
+        Status::Guess
+    } else {
+        Status::Mendable
+    };
+    let why = r.left.clone().unwrap_or_default();
+    (Found { status, bytes: bytes.len() as u64, faults, why }, r.bytes)
+}
+
+/// The bytes a mesh should be read from by tools that rewrite it: repaired, when every
+/// fault found is mended and proven ([`Status::Mendable`]); otherwise as they are. The
+/// optimizer reads through this, so a mesh with its UV flag off is optimized too.
+pub fn mended(bytes: Vec<u8>) -> (Vec<u8>, Vec<String>) {
+    match check_bytes(&bytes) {
+        (f, Some(fixed)) if f.status == Status::Mendable => {
+            (fixed, f.faults.iter().map(|x| format!("block {} ({}): {}", x.block, x.name, x.note)).collect())
+        }
+        _ => (bytes, Vec::new()),
+    }
+}
+
+/// A candidate checked; from the cache when it holds the mesh as it is now.
+pub fn check(cache: Option<&Cache>, c: &Candidate) -> Found {
+    let kept = cache
+        .and_then(|cc| cc.get(&c.path, TAG))
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| Found::from_json(&v));
+    if let Some(f) = kept {
+        return f;
+    }
+    let bytes = match std::fs::read(&c.path) {
+        Ok(b) => b,
+        Err(e) => return Found { status: Status::Unreadable, bytes: 0, faults: Vec::new(), why: e.to_string() },
+    };
+    let (f, _) = check_bytes(&bytes);
+    if let Some(cc) = cache {
+        cc.put(&c.path, TAG, f.to_json().to_string().as_bytes(), None);
+    }
+    f
+}
+
+/// Every candidate checked, on a few threads, in the candidates' order. The optimizer's
+/// [`DONE`] counts.
+pub fn check_all(cache: Option<&Cache>, cands: &[Candidate]) -> Vec<Found> {
+    DONE.store(0, Ordering::Relaxed);
+    TOTAL.store(cands.len(), Ordering::Relaxed);
+    par_map(cands, |c| {
+        let f = check(cache, c);
+        DONE.fetch_add(1, Ordering::Relaxed);
+        f
+    })
+}
+
+/// Whether a checked mesh is written: mendable, or a guess when guesses are asked for.
+pub fn writes(f: &Found, guesses: bool) -> bool {
+    f.status == Status::Mendable || (guesses && f.status == Status::Guess)
+}
+
+/// One mesh read again, repaired, and written under `out_dir` at its own path.
+pub fn write_one(c: &Candidate, out_dir: &Path, guesses: bool) -> Written {
+    let mut w = Written { rel: c.rel.clone(), from: c.path.clone(), before: 0, after: 0, error: String::new() };
+    let bytes = match std::fs::read(&c.path) {
+        Ok(b) => b,
+        Err(e) => {
+            w.error = e.to_string();
+            return w;
+        }
+    };
+    w.before = bytes.len() as u64;
+    let (found, fixed) = check_bytes(&bytes);
+    let Some(fixed) = fixed.filter(|_| writes(&found, guesses)) else {
+        w.error = match found.status {
+            Status::Sound => "nothing to mend".into(),
+            Status::Guess => "mendable only by a guess, and guesses were not asked for".into(),
+            _ => found.why,
+        };
+        return w;
+    };
+    let dest = out_dir.join(&c.rel);
+    if let Some(parent) = dest.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        w.error = e.to_string();
+        return w;
+    }
+    match std::fs::write(&dest, &fixed) {
+        Ok(()) => w.after = fixed.len() as u64,
+        Err(e) => w.error = e.to_string(),
+    }
+    w
+}
+
+/// The candidates written, on a few threads, in their order. [`DONE`] counts.
+pub fn write_all(cands: &[&Candidate], out_dir: &Path, guesses: bool) -> Vec<Written> {
+    DONE.store(0, Ordering::Relaxed);
+    TOTAL.store(cands.len(), Ordering::Relaxed);
+    par_map(cands, |c| {
+        let w = write_one(c, out_dir, guesses);
+        DONE.fetch_add(1, Ordering::Relaxed);
+        w
+    })
+}
+
+/// A record of a run, written beside the meshes: what came from where, and what was mended.
+pub fn manifest(written: &[Written], found: &[(&Candidate, &Found)], guesses: bool) -> Value {
+    let faults_of = |rel: &str| -> Vec<Value> {
+        found
+            .iter()
+            .find(|(c, _)| c.rel == rel)
+            .map(|(_, f)| {
+                f.faults
+                    .iter()
+                    .map(|x| json!({"fault": x.label, "certain": x.certain, "block": x.block, "type": x.name, "note": x.note}))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    json!({
+        "tool": "Wraithguard check meshes",
+        "guesses": guesses,
+        "meshes": written.iter().filter(|w| w.error.is_empty()).map(|w| json!({
+            "path": w.rel, "from": w.from.to_string_lossy(), "bytes_before": w.before, "bytes_after": w.after,
+            "faults": faults_of(&w.rel),
+        })).collect::<Vec<_>>(),
+        "failed": written.iter().filter(|w| !w.error.is_empty()).map(|w| json!({"path": w.rel, "why": w.error})).collect::<Vec<_>>(),
+    })
+}
+
+/// The file [`manifest`] is written to, beside the meshes.
+pub const MANIFEST: &str = "wraithguard-check-meshes.json";
+
+/// [`manifest`] written into `out_dir` as [`MANIFEST`].
+pub fn write_manifest(out_dir: &Path, written: &[Written], found: &[(&Candidate, &Found)], guesses: bool) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(&manifest(written, found, guesses)).map_err(|e| e.to_string())?;
+    std::fs::write(out_dir.join(MANIFEST), text).map_err(|e| format!("the record could not be written: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nif_batch::collect;
+    use std::path::PathBuf;
+
+    const FIX: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/gardenfell_anim/");
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("wg_repair_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// The first geometry block's `Has UV` word, in a mesh that has UV sets.
+    fn uv_word(b: &[u8]) -> Option<usize> {
+        let w = gardenfell_nif::netimmerse::stream::walk(b).ok()?;
+        for s in &w.spans {
+            if s.name != "NiTriShapeData" {
+                continue;
+            }
+            let mut p = s.start + 4 + s.name.len();
+            let rd = |p: usize, n: usize| -> u32 {
+                let mut v = [0u8; 4];
+                v[..n].copy_from_slice(&b[p..p + n]);
+                u32::from_le_bytes(v)
+            };
+            let nv = rd(p, 2) as usize;
+            p += 2;
+            for size in [12, 12] {
+                let has = rd(p, 4) != 0;
+                p += 4 + if has { size * nv } else { 0 };
+            }
+            p += 16;
+            let has = rd(p, 4) != 0;
+            p += 4 + if has { 16 * nv } else { 0 };
+            if nv > 0 && rd(p, 2) > 0 {
+                return Some(p + 2);
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_uv_flag_off_is_found_cached_and_written_mended() {
+        let root = tmp("uv");
+        let data = root.join("data");
+        let good = std::fs::read(format!("{FIX}uvsets.nif")).unwrap();
+        let at = uv_word(&good).expect("a shape with UV sets");
+        let mut bad = good.clone();
+        bad[at..at + 4].copy_from_slice(&0u32.to_le_bytes());
+        for (rel, b) in [("meshes/a/bad.nif", &bad), ("meshes/a/good.nif", &good)] {
+            let p = data.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b).unwrap();
+        }
+        let cands = collect(&[data]);
+        let cache = Cache::new(root.join("c.sqlite3"), "t", 1 << 20);
+        let found = check_all(Some(&cache), &cands);
+        assert_eq!(found, check_all(Some(&cache), &cands));
+        let by = |name: &str| &found[cands.iter().position(|c| c.rel.ends_with(name)).unwrap()];
+        assert_eq!(by("good.nif").status, Status::Sound);
+        assert_eq!(by("bad.nif").status, Status::Mendable);
+        assert_eq!(by("bad.nif").faults[0].label, Kind::UvFlag.label());
+        let picked: Vec<&Candidate> = cands.iter().zip(&found).filter(|(_, f)| writes(f, false)).map(|(c, _)| c).collect();
+        assert_eq!(picked.len(), 1);
+        let out = root.join("out");
+        let done = write_all(&picked, &out, false);
+        assert!(done[0].error.is_empty(), "{}", done[0].error);
+        assert_eq!(std::fs::read(out.join(&done[0].rel)).unwrap(), good);
+        // And what the optimizer reads is the mended mesh.
+        assert_eq!(mended(bad.clone()).0, good);
+        assert_eq!(mended(good.clone()), (good, Vec::new()));
+        cache.close();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

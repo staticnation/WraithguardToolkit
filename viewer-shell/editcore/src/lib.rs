@@ -43,6 +43,7 @@ pub mod fields;
 pub mod frames;
 pub mod inplace;
 pub mod journal;
+pub mod mergeobjects;
 pub mod key;
 pub mod links;
 pub mod mwscript;
