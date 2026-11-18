@@ -1,25 +1,27 @@
 # Wraithguard Toolkit
 
-A desktop program for building, checking and editing a Morrowind load order on
-[OpenMW](https://openmw.org/).
+One program for keeping a modded Morrowind in order: sort it, see it, find what fights, fix
+it. It reads an OpenMW install (`openmw.cfg`), a Mod Organizer 2 install, or the game's own
+(`Data Files` and `Morrowind.ini`), and runs on Windows, macOS and Linux, with a command line
+beside it for scripts and headless machines.
 
-It started as one job, and that job is still at its center: sort **only the mods you added**
-into a curated [Modding-OpenMW.com](https://modding-openmw.com/) (MOMW) list without ever
-reordering the list itself, and save the result as a `momw-customizations.toml` that
-survives every MOMW Configurator rebuild. Around it, the program now holds the rest of what
-a modded setup needs:
+- **Load order.** Sorts by the mlox rules. On a curated
+  [Modding-OpenMW.com](https://modding-openmw.com/) (MOMW) list it places only the mods you
+  added and never reorders the list, saving the result as a `momw-customizations.toml` that
+  survives every MOMW Configurator rebuild. Without a list, it sorts the whole order as mlox
+  does.
+- **Cell Preview.** Any cell of the load order in 3D, drawn as the game draws it, with its
+  MWScript and OpenMW Lua running, and a way to see what one mod changed.
+- **Conflicts.** Which plugins change the same records and the same files, and who wins.
+- **Editor.** The Construction Set's windows around the Preview: records, references,
+  dialogue, scripts and path grids, written into one new patch plugin, or into a plugin you
+  choose to edit.
+- **Land.** Sculpt, paint and tint the terrain with a brush, into the same patch.
+- **Tools.** Lint, backups, broken masters, save checks, the quest journal, tes3cmd (built
+  in, no Perl), Merged Lands, merge to master and a mesh optimizer.
 
-- a **3D Cell Preview** of any cell in your load order, with its scripts running;
-- **Conflicts**, record by record and file by file;
-- an **Editor** in the Construction Set's mold that writes its changes into one new patch
-  plugin, or into a plugin of the load order you choose to edit;
-- a **Land** view for sculpting and painting terrain;
-- **Tools** for linting, backups, broken masters, save checks, tes3cmd (built in), Merged
-  Lands and more.
-
-It reads an OpenMW install (`openmw.cfg`), a Mod Organizer 2 install, or the game's own
-(`Data Files` and `Morrowind.ini`). One program for Windows, macOS and Linux, with a command
-line beside it for headless use.
+Nothing is written until you ask, and your `openmw.cfg`, customizations and plugins are
+backed up before they change.
 
 **New here? [QUICKSTART.md](QUICKSTART.md) is the five-minute version.** Writing your own
 sort rules? See [MLOX_RULES.md](MLOX_RULES.md). Both also open from **Help** inside the
