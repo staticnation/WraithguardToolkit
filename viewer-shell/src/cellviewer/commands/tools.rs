@@ -226,8 +226,20 @@ pub(super) fn tools_locate(cfg: String, names: Vec<String>) -> Result<String, St
 /// (`extra` the whole command) or `sync` (master sizes, done here). `clean` and `custom` run on
 /// a copy staged with the plugin's masters and copy back what changed, a backup kept. Answers
 /// `{lines, status}`.
+///
+/// Wraithguard: the tes3cmd built in (`Engine::Builtin`, tes3cmd-rs) unless `external` is set
+/// and a tes3cmd is found (`exe`, else beside the setup), or the command runs Perl code
+/// (`needs_perl`: `modify --run` and the like), which goes to an external one when there is
+/// one (Static 2026-11-17: built in by default, the external an opt-in fallback).
 #[tauri::command(async)]
-pub(super) fn tools_tes3cmd(cfg: String, exe: String, cmd: String, extra: Vec<String>, files: Vec<String>) -> Result<String, String> {
+pub(super) fn tools_tes3cmd(
+    cfg: String,
+    exe: String,
+    cmd: String,
+    extra: Vec<String>,
+    files: Vec<String>,
+    external: Option<bool>,
+) -> Result<String, String> {
     let setup = cf_setup(&cfg)?;
     let files: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
     let mut dirs = setup.data.clone();
@@ -259,15 +271,29 @@ pub(super) fn tools_tes3cmd(cfg: String, exe: String, cmd: String, extra: Vec<St
         let status = format!("Resync: {fixed} plugin(s) updated, {} already in sync, {fail} error(s).", ok - fixed);
         return Ok(serde_json::json!({"lines": lines, "status": status}).to_string());
     }
-    let exe_path = PathBuf::from(&exe);
-    if !exe_path.is_file() {
-        return Err(if exe.is_empty() { "tes3cmd not found. Browse to the compiled tes3cmd.exe (MOMW Tools Pack).".into() } else { format!("'{exe}' does not exist.") });
-    }
     if cmd == "custom" && extra.is_empty() {
-        return Err("Type a tes3cmd command first, e.g. 'dump --type CELL' or 'fixcells'.".into());
+        return Err("Type a tes3cmd command first, e.g. 'dump --type CELL' or 'clean'.".into());
     }
-    let argv = toolscore::tes3cmd::invocation(&exe_path)?;
+    let perl = cmd == "custom" && toolscore::tes3cmd::needs_perl(&extra);
+    let engine = if external.unwrap_or(false) || perl {
+        // The external one: the path given (a wrong one is said, not looked past), else one
+        // on PATH or beside the setup.
+        if !exe.is_empty() && !std::path::Path::new(&exe).is_file() {
+            return Err(format!("'{exe}' does not exist."));
+        }
+        let dirs: Vec<PathBuf> = std::path::Path::new(&cfg).parent().map(|p| vec![p.to_path_buf()]).unwrap_or_default();
+        match toolscore::tes3cmd::find(Some(&exe), &dirs) {
+            Some(p) => toolscore::tes3cmd::Engine::External(toolscore::tes3cmd::invocation(&p)?),
+            // Perl code with no external tes3cmd: the built-in one says it needs Perl.
+            None if perl => toolscore::tes3cmd::Engine::Builtin,
+            None => {
+                return Err("No external tes3cmd found. Browse to tes3cmd (the MOMW Tools Pack's tes3cmd.exe, or the Perl script), or untick it to use the built-in one.".into());
+            }
+        }
+    } else {
+        toolscore::tes3cmd::Engine::Builtin
+    };
     let staging = std::env::temp_dir().join("wraithguard_tes3cmd_staging");
-    let r = toolscore::tes3cmd::run(&argv, &cmd, &extra, &files, &find, &staging, &setup.plugins());
+    let r = toolscore::tes3cmd::run(&engine, &cmd, &extra, &files, &find, &staging, &setup.plugins());
     Ok(serde_json::json!({"lines": r.lines, "status": r.status}).to_string())
 }

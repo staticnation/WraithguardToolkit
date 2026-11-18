@@ -89,4 +89,43 @@ pub mod ipc {
             Response(bytes)
         }
     }
+
+    /// Wraithguard: a request whose body is raw bytes (the page's `Engine.send`), as Tauri
+    /// hands it to a command: the body, and the headers that name what it is for. Tauri's
+    /// own `Request`, `InvokeBody` and header map by the same names, so a command reads it
+    /// the same way here and in the shell.
+    pub struct Request<'a> {
+        body: InvokeBody,
+        headers: HeaderMap,
+        _life: std::marker::PhantomData<&'a ()>,
+    }
+    impl Request<'_> {
+        /// The headless engine's request: the bytes and `(name, value)` headers.
+        pub fn new(body: Vec<u8>, headers: Vec<(String, String)>) -> Request<'static> {
+            let headers = headers.into_iter().map(|(k, v)| (k, HeaderValue(v))).collect();
+            Request { body: InvokeBody::Raw(body), headers: HeaderMap(headers), _life: std::marker::PhantomData }
+        }
+        pub fn body(&self) -> &InvokeBody {
+            &self.body
+        }
+        pub fn headers(&self) -> &HeaderMap {
+            &self.headers
+        }
+    }
+    pub enum InvokeBody {
+        Json(()),
+        Raw(Vec<u8>),
+    }
+    pub struct HeaderMap(Vec<(String, HeaderValue)>);
+    impl HeaderMap {
+        pub fn get(&self, name: &str) -> Option<&HeaderValue> {
+            self.0.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v)
+        }
+    }
+    pub struct HeaderValue(String);
+    impl HeaderValue {
+        pub fn to_str(&self) -> Result<&str, ()> {
+            Ok(&self.0)
+        }
+    }
 }

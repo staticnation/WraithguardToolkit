@@ -423,10 +423,13 @@ the credit is one of gratitude and correctness.
   Customizations are not supported by the MOMW team.
 - **tes3cmd** - © 2016 John Moonsugar. MIT.
   ([github.com/john-moonsugar/tes3cmd](https://github.com/john-moonsugar/tes3cmd/))
-  The plugin-maintenance Swiss-army knife distributed with the MOMW Tools Pack. Our
-  **tes3cmd** tool (`viewer-shell/toolscore/src/tes3cmd.rs`) is a front-end that stages
-  plugins with their masters so tes3cmd works correctly on a multi-folder OpenMW VFS; we
-  drive the real binary for `clean`, and reimplement master-size resync in-app (tes3cmd's
+  The plugin-maintenance Swiss-army knife distributed with the MOMW Tools Pack. Its Perl
+  (0.40-PRE-RELEASE-2) is ported to Rust as **tes3cmd-rs**
+  ([github.com/staticnation/tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs)), its MIT
+  notice kept, and Wraithguard runs that port built in: the Tools page's **tes3cmd**
+  (`viewer-shell/toolscore/src/tes3cmd.rs`) and `wraithguard tes3cmd`. The Tools page stages
+  plugins with their masters so tes3cmd works correctly on a multi-folder OpenMW VFS, can still
+  drive an external tes3cmd instead, and reimplements master-size resync in-app (tes3cmd's
   own sync corrupts headers on this layout). The safe-cleaning workflow (never
   cleaning the vanilla masters, cleaning masters before dependents) is adapted
   from the community "drag-and-drop" cleaning batch by RMWChaos, Pinkertonius,

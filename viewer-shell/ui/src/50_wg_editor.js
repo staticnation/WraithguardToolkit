@@ -80,9 +80,10 @@
 
 /* Wraithguard: the lists as bytes (WGTB), here rather than in Gardenfell's 03_core.js: the
    page is one script, so 13_mo2.js's connect reads the cells through these as well. */
-/** Wraithguard: `WGTB` bytes (`Tables` in commands.rs) -> `{name: [[...row]...]}`.
- *  Column letters: `s` string, `u` u32, `i` i32, `d` f64. Throws on anything malformed -
- *  a list that did not read is an error, never an empty list (Static, 2026-10-13). */
+/** Wraithguard: `WGTB` bytes (`viewcore::wgtb`) -> `{name: [[...row]...]}`.
+ *  Column letters: `s` string, `u` u32, `i` i32, `d` f64, `F` a list of f32 (a
+ *  Float32Array). Throws on anything malformed - a list that did not read is an error,
+ *  never an empty list (Static, 2026-10-13). */
 function unpackTables(buf){
   const dv=new DataView(buf), td=new TextDecoder('utf-8'), u8=new Uint8Array(buf);
   let at=0;
@@ -91,7 +92,8 @@ function unpackTables(buf){
   const str=()=>{ const n=u32(); need(n); const s=td.decode(u8.subarray(at,at+n)); at+=n; return s; };
   const read={s:str, u:u32,
     i:()=>{ need(4); const v=dv.getInt32(at,true); at+=4; return v; },
-    d:()=>{ need(8); const v=dv.getFloat64(at,true); at+=8; return v; }};
+    d:()=>{ need(8); const v=dv.getFloat64(at,true); at+=8; return v; },
+    F:()=>{ const n=u32(); need(n*4); const v=new Float32Array(n); for(let k=0;k<n;k++) v[k]=dv.getFloat32(at+k*4,true); at+=n*4; return v; }};
   need(12);
   if(String.fromCharCode(u8[0],u8[1],u8[2],u8[3])!=='WGTB') throw new Error('the list is not WGTB bytes');
   at=4; if(u32()!==1) throw new Error('the list is a version this page does not read');
@@ -103,6 +105,27 @@ function unpackTables(buf){
     for(let r=u32(); r>0; r--) rows.push(cols.map(c=>read[c]()));
   }
   if(at!==buf.byteLength) throw new Error('the list has '+(buf.byteLength-at)+' bytes after its last table');
+  return out;
+}
+
+/** Wraithguard: `WGTB` bytes from `[[name, columns, rows]...]` - a request's bulk numbers
+ *  for `Engine.send`, read by `viewcore::wgtb::read` (which refuses anything malformed).
+ *  The column letters are `unpackTables`'; an `F` value is any list of numbers. */
+function packTables(tables){
+  const te=new TextEncoder(), parts=[];
+  let size=0;
+  const put=(n,set)=>{ const b=new Uint8Array(n); set(new DataView(b.buffer)); parts.push(b); size+=n; };
+  const u=v=>put(4,dv=>dv.setUint32(0,v>>>0,true));
+  const s=v=>{ const b=te.encode(String(v)); u(b.length); parts.push(b); size+=b.length; };
+  const w={s, u, i:v=>put(4,dv=>dv.setInt32(0,v|0,true)), d:v=>put(8,dv=>dv.setFloat64(0,+v,true)),
+    F:v=>{ const a=v||[]; u(a.length); put(a.length*4,dv=>{ for(let k=0;k<a.length;k++) dv.setFloat32(k*4,+a[k],true); }); }};
+  parts.push(te.encode('WGTB')); size+=4; u(1); u(tables.length);
+  for(const [name,cols,rows] of tables){
+    s(name); s(cols); u(rows.length);
+    for(const row of rows) [...cols].forEach((c,k)=>{ if(!w[c]) throw new Error('no such column kind: '+c); w[c](row[k]); });
+  }
+  const out=new Uint8Array(size); let at=0;
+  for(const b of parts){ out.set(b,at); at+=b.length; }
   return out;
 }
 

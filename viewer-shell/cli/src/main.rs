@@ -78,7 +78,8 @@ fn command() -> Command {
     Command::new("wraithguard")
         .about(
             "Sort an OpenMW load order with the mlox rules and write openmw.cfg / momw-customizations.toml; \
-             optionally scan it for record and loose-file conflicts, lint it, and draw a cell map.",
+             optionally scan it for record and loose-file conflicts, lint it, and draw a cell map. \
+             `wraithguard tes3cmd <command> ...` runs tes3cmd (built in, no Perl needed) with its own commands and flags.",
         )
         .args_override_self(true)
         .arg(path("cfg", "Path to openmw.cfg"))
@@ -799,6 +800,16 @@ fn plain_run(args: &Args, log: &Log, trace: &Trace) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    /* Wraithguard: `wraithguard tes3cmd <args>` is tes3cmd itself, built in (tes3cmd-rs):
+       its commands and flags as they are, so batch files only add `wraithguard` (Static
+       2026-11-17). Before the flags are read, which would take tes3cmd's for this program's. */
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("tes3cmd") {
+        let (mut out, mut err) = (std::io::stdout().lock(), std::io::stderr().lock());
+        let code = toolscore::tes3cmd_rs::cli::run(&argv[2..], &mut out, &mut err);
+        let _ = out.flush();
+        return ExitCode::from(code.clamp(0, 255) as u8);
+    }
     local_offset();
     let matches = command().get_matches();
     let args = Args::read(&matches);

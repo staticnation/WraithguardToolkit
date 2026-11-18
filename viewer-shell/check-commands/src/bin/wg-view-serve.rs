@@ -101,6 +101,19 @@ fn base64(data: &[u8]) -> String {
     out
 }
 
+/// Wraithguard: a request whose body is bytes (the page's `Engine.send`), as it comes down
+/// the pipe: the body as base64 under `body`, the headers as `{name: value}` under
+/// `headers` - the way binary replies go back up, under `b64`.
+fn raw(a: &Val) -> Result<wraithguard_viewer_check_commands::tauri::ipc::Request<'static>, String> {
+    let body = a.get("body").and_then(|v| v.as_str()).ok_or("a bytes command with no body")?;
+    let body = viewcore::json::base64_decode(body).ok_or("the body is not base64")?;
+    let headers = match a.get("headers") {
+        Some(Val::Obj(kv)) => kv.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect(),
+        _ => Vec::new(),
+    };
+    Ok(wraithguard_viewer_check_commands::tauri::ipc::Request::new(body, headers))
+}
+
 /// Runs one command. `Ok(Some(json))` is a JSON reply, `Ok(None)` a base64 one already
 /// wrapped by the caller.
 fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
@@ -166,11 +179,11 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "lua_run_step" => Reply::Json(t::lua_run_step(s(a, "frame"), st())?),
         "lua_run_stop" => Reply::Json(t::lua_run_stop()?),
         "dialogue_state_from_save" => Reply::Bytes(t::dialogue_state_from_save(s(a, "path"))?.0),
-        "phys_drop" => Reply::Bytes(t::phys_drop(s(a, "request"), st())?.0),
+        "phys_drop" => Reply::Bytes(t::phys_drop(raw(a)?, st())?.0),
         "lua_ui_font" => Reply::Bytes(t::lua_ui_font()?.0),
-        "write_b64" => {
-            t::write_b64(s(a, "path"), s(a, "data"))?;
-            Reply::Raw("true".into())
+        "write_bytes" => {
+            t::write_bytes(raw(a)?)?;
+            Reply::Raw("null".into())
         }
         // Text, not JSON: the caller wants the file's bytes.
         "texture_data" => Reply::Bytes(t::texture_data(s(a, "path"), Some(b(a, "bc")), a.get("maxSize").and_then(|v| v.as_i64()).map(|v| v.max(0) as u32), Some(strs(a, "bcx")), st())?.0),
@@ -320,7 +333,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "tools_journal" => Reply::Json(t::tools_journal(s(a, "cfg"))?),
         "tools_tes3cmd_find" => Reply::Text(t::tools_tes3cmd_find(s(a, "cfg"), s(a, "explicit"))),
         "tools_locate" => Reply::Json(t::tools_locate(s(a, "cfg"), strs(a, "names"))?),
-        "tools_tes3cmd" => Reply::Json(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"))?),
+        "tools_tes3cmd" => Reply::Json(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"), Some(b(a, "external")))?),
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),
         "mesh_collision" => Reply::Bytes(t::mesh_collision(s(a, "path"), st())?.0),
@@ -347,6 +360,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             opt(a, "encoding"),
         )?),
         "editor_link" => Reply::Text(t::editor_link(st(), s(a, "name"), s(a, "body"))?),
+        "editor_land_link" => Reply::Text(t::editor_land_link(raw(a)?)?),
         "cpu_threads" => Reply::Raw(t::cpu_threads().to_string()),
         // The settings file and the Setup page (port 4.5): the page's first start is driven
         // through these (ui/tests/boot.js, WG_SETUP=1).

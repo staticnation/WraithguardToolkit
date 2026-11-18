@@ -19,9 +19,10 @@
    - Journal (`tools_journal`, editcore::journal): every quest's stages in index order, each
      with the calls that set it - a stage's own script, a standalone script, an NPC's response -
      their conditions as written and what else they do; a call into another quest is a link.
-   - tes3cmd (`tools_tes3cmd`, toolscore::tes3cmd): the external tes3cmd, launched on each
-     plugin staged with its masters (clean, custom) or in place (header); master sizes synced
-     in-app. Its rewrite over the tes3 crate is planned in TES3CMD-REWRITE.md.
+   - tes3cmd (`tools_tes3cmd`, toolscore::tes3cmd): tes3cmd built in (tes3cmd-rs), or an
+     external one when "Use external" is ticked, run on each plugin staged with its masters
+     (clean, custom) or in place (header); master sizes synced in-app. A command running Perl
+     code (modify --run and the like) goes to an external tes3cmd when there is one.
    - Merge Lands (`land_merge_home`, `land_merge`, landcore::service): Merged Lands.esp built
      from the cfg's load order and data folders, into the folder chosen (the one holding most
      of the order by default), the progress as Wraithguard's log had it. Each plugin measured
@@ -159,9 +160,10 @@ const WgToolsPage={
   <select id="tlT3Cmd"><option value="clean">clean</option><option value="sync">sync master sizes</option><option value="header">header</option><option value="custom">custom command</option></select>
   <input type="text" id="tlT3Extra" placeholder="options, or the whole custom command" style="width:220px"><button class="btn" id="tlT3Run">Run</button></h3>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
-    <input type="text" id="tlT3Exe" placeholder="tes3cmd (found by itself when empty)" style="flex:1;min-width:200px"><button class="btn dim" id="tlT3Browse">Browse...</button>
+    <label title="Run an external tes3cmd (the MOMW Tools Pack's tes3cmd.exe, or the Perl script) instead of the one built in. Commands that run Perl code (modify --run, --program-file, a /.../e replacement) use it either way."><input type="checkbox" id="tlT3Ext"> Use external</label>
+    <input type="text" id="tlT3Exe" placeholder="external tes3cmd (found by itself when empty)" style="flex:1;min-width:200px"><button class="btn dim" id="tlT3Browse">Browse...</button>
     <button class="btn dim" id="tlT3Add" title="Add plugin files">Add files...</button><button class="btn dim" id="tlT3Mine" title="Your own mods: the ones the sort places into the curated list">Add your mods</button><button class="btn dim" id="tlT3List" title="The curated list's plugins (the Load order page's list name)">Add list mods</button><button class="btn dim" id="tlT3Clear">Clear</button></div>
-  <div class="scroll"><div id="tlT3Files" class="empty">Add the plugins to run on. clean and a custom command run on a copy staged with the plugin's masters, and copy back what changed (a one-time .preclean.bak / .precustom.bak kept); Morrowind.esm, Tribunal.esm and Bloodmoon.esm are never cleaned. sync rewrites only the master sizes (.masterfix.bak kept).</div>
+  <div class="scroll"><div id="tlT3Files" class="empty">Add the plugins to run on. clean and a custom command run on a copy of each plugin, its masters read from your data folders and never changed, and copy back what changed (a one-time .preclean.bak / .precustom.bak kept); fixit, multipatch and resetdates run once over all the plugins added, common and diff on two; Morrowind.esm, Tribunal.esm and Bloodmoon.esm are never cleaned. sync rewrites only the master sizes (.masterfix.bak kept).</div>
   <pre id="tlT3Out" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
 <div class="col pane" id="tlLands" hidden><h3>Merge Lands <span class="sp"></span>
   <label title="Report every plugin's settings and everything that could not be read"><input type="checkbox" id="tlMlVerbose"> Verbose</label>
@@ -232,6 +234,8 @@ const WgToolsPage={
     this.moLoad();
     try{ $('#tlT3Exe').value=localStorage.getItem('wgTools.tes3cmd')||''; }catch(_){}
     $('#tlT3Exe').onchange=()=>{ try{ localStorage.setItem('wgTools.tes3cmd', $('#tlT3Exe').value.trim()); }catch(_){} if(typeof WgSettings==='object') WgSettings.write({tes3cmd:$('#tlT3Exe').value.trim()}); };
+    try{ $('#tlT3Ext').checked=localStorage.getItem('wgTools.tes3cmdExternal')==='1'; }catch(_){}
+    $('#tlT3Ext').onchange=()=>{ try{ localStorage.setItem('wgTools.tes3cmdExternal', $('#tlT3Ext').checked?'1':'0'); }catch(_){} };
     $('#tlT3Browse').onclick=async()=>{ const p=await Engine.pick('open',{}); if(p){ $('#tlT3Exe').value=String(p); $('#tlT3Exe').onchange(); } };
     $('#tlT3Add').onclick=async()=>{
       const p=await Engine.pick('open',{multiple:true, filters:[{name:'Plugins', extensions:['esp','esm','omwaddon','omwgame','ESP','ESM']}]});
@@ -674,9 +678,10 @@ const WgToolsPage={
     const btn=$('#tlT3Run'); btn.disabled=true;
     $('#tlT3Out').textContent='Running...';
     try{
-      let exe=$('#tlT3Exe').value.trim();
-      if(cmd!=='sync' && !exe) exe=await Engine.call('tools_tes3cmd_find',{cfg:this.cfg(), explicit:''});
-      let r=await Engine.call('tools_tes3cmd',{cfg:this.cfg(), exe:String(exe||''), cmd, extra, files:this.t3.files});
+      // The engine picks the tes3cmd: built in, or the external one (found by itself when
+      // the path is empty) when ticked or when the command runs Perl code.
+      const exe=$('#tlT3Exe').value.trim(), external=$('#tlT3Ext').checked;
+      let r=await Engine.call('tools_tes3cmd',{cfg:this.cfg(), exe, cmd, extra, files:this.t3.files, external});
       if(typeof r==='string') r=JSON.parse(r);
       $('#tlT3Out').textContent=r.lines.join('\n')+'\n\n'+r.status;
       toast(r.status,'ok',5000);

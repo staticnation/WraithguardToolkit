@@ -882,12 +882,13 @@ const WgTools={
     catch(e){ toast(String(e),'err',4000); return; }
     if(!out) return;
     const png=String(out).replace(/\.md$/i,'')+'.png';
-    let shot='';
-    try{ R.draw(); shot=R.cv.toDataURL('image/png'); }catch(_){ shot=''; }
+    // The view as PNG bytes, sent as they are (`write_bytes`; it was base64 inside JSON).
+    let shot=null;
+    try{ R.draw(); const blob=await new Promise(res=>R.cv.toBlob(res,'image/png')); shot=blob? new Uint8Array(await blob.arrayBuffer()) : null; }catch(_){ shot=null; }
     const text=this.reportText().replace('# Wraithguard Cell Preview report\n','# Wraithguard Cell Preview report\n\n![view]('+png.split(/[\\/]/).pop()+')\n');
     try{
       await Engine.call('write_text',{path:String(out), text});
-      if(shot && shot.length>30) await Engine.call('write_b64',{path:png, data:shot});
+      if(shot && shot.length>30) await Engine.send('write_bytes', shot, {'x-path':png});
       toast('Report saved','ok',3000);
     }catch(e){ toast(String(e.message||e),'err',5000); }
   },

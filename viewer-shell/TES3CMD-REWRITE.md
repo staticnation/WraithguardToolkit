@@ -14,13 +14,26 @@ as duplicates, a rebuilt cell's header flags lost). Not yet: the master cache (P
 files; the port reads the masters each run). Every option of those commands is ported too (`dump --format`, `--raw`, `--wrap`, savegame
 records), but `modify --run` and `--program-file`, which run Perl and stay the Perl's. Activating a patch (`active --on/--off`,
 `multipatch`, `fixit`) is where the port does what the Perl means rather than what it does (the
-released script dies there). Wraithguard does not take it as a
-dependency until the Tools page's clean is switched over. (Planned 2026-11-09: its own crate,
-see the end.) For now (port step 4.4, slice 8, option a) the Tools page launches the
-external tes3cmd (`toolscore::tes3cmd`): `clean` and a custom command on a copy staged with the
-plugin's masters, `header` in place, and the master-size sync done in-app. This file is the plan
-for option b: the commands Wraithguard uses rewritten over the tes3 crate, so the app no longer
-needs tes3cmd, or Perl when only the script is installed.
+released script dies there).
+
+**Wraithguard runs it built in** (2026-11-17): `toolscore` takes tes3cmd-rs as a git dependency
+and the Tools page's tes3cmd runs it inside the app (`toolscore::tes3cmd::Engine::Builtin`,
+`tes3cmd::cli::run_in` in the staged folder, no process started), the same staging, backups and
+copy-back as before. The external tes3cmd stays as an opt-in fallback ("Use external" on the
+page, the path field beside it), and a command running Perl code (`modify --run`,
+`--program-file`, a `/.../e` replacement: `needs_perl`) goes to it when one is found. The command
+line runs it too: `wraithguard tes3cmd <command> ...`, tes3cmd's own commands and flags.
+Compared through the engine against the Perl on the fixture (`header`, `clean`, `dump`,
+`delete`, `modify --replace`, `fixit`, `esp`, `common`): the same log and the same files but
+for the master cache's line, the Perl's `at FILE line N.` on its errors, and `fixit`, where the
+released script dies (`TES3::Util::move` undefined) and the port finishes. Doing it found the
+staging hard-linking the masters: a command writing masters (`fixit`'s header sync and date
+reset) wrote the person's own Morrowind.esm through the link, with either tes3cmd. The masters
+are copied now for the external one, and dropped after a custom command. The built-in one copies
+none (2026-11-18): `tes3cmd_rs::cli::run_over` reads them where the setup has them and sends any
+write to one to a private copy (tes3cmd-rs's `fsx` overlay), so only the plugins worked on are
+staged. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and
+`diff` once on two. Left: per-record results in place of tes3cmd's text.
 
 ## Why
 

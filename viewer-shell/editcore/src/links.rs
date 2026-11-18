@@ -670,22 +670,7 @@ impl Links {
         {
             return out;
         }
-        let t_lock = std::time::Instant::now();
-        let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
-        let lock_ms = t_lock.elapsed().as_millis();
-        let t_check = std::time::Instant::now();
-        let before = self.sync(&mut ed);
-        let revision = ed.queue.revision;
-        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| answer(&mut ed, name, body, ctx))).unwrap_or_else(|p| {
-            let said = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
-            Err(format!("the viewer's Editor failed on {name}: {said}"))
-        });
-        // A change of this side's: the journal as it wrote it is the one it has seen. No
-        // change: what it saw before stays, so a write by another side meanwhile is read
-        // next time.
-        let journal = ed.journal.clone();
-        *self.seen.lock().unwrap_or_else(|p| p.into_inner()) = if ed.queue.revision != revision { journal.as_deref().and_then(stamp) } else { before };
-        let check_ms = t_check.elapsed().as_millis();
+        let (out, lock_ms, check_ms) = self.answered(name, |ed| answer(ed, name, body, ctx));
         out.map(|a| {
             let text = a.text();
             // Verify is the one link that takes minutes: where they go is said in its answer
@@ -706,6 +691,37 @@ impl Links {
             }
             text
         })
+    }
+
+    /// One answer under the Editor's lock: the journal read again first when another side
+    /// changed it (`sync`), the answer, and what this side has seen of the journal after.
+    /// Answers how long the lock was waited for and how long the answer took (ms).
+    fn answered(&self, name: &str, f: impl FnOnce(&mut Editor) -> Res<Answer>) -> (Res<Answer>, u128, u128) {
+        let t_lock = std::time::Instant::now();
+        let mut ed = self.editor.lock().unwrap_or_else(|p| p.into_inner());
+        let lock_ms = t_lock.elapsed().as_millis();
+        let t_check = std::time::Instant::now();
+        let before = self.sync(&mut ed);
+        let revision = ed.queue.revision;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut ed))).unwrap_or_else(|p| {
+            let said = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+            Err(format!("the viewer's Editor failed on {name}: {said}"))
+        });
+        // A change of this side's: the journal as it wrote it is the one it has seen. No
+        // change: what it saw before stays, so a write by another side meanwhile is read
+        // next time.
+        let journal = ed.journal.clone();
+        *self.seen.lock().unwrap_or_else(|p| p.into_inner()) = if ed.queue.revision != revision { journal.as_deref().and_then(stamp) } else { before };
+        (out, lock_ms, t_check.elapsed().as_millis())
+    }
+
+    /// Wraithguard: a land link whose body came as bytes (`LandBody`, read by the command
+    /// layer; Static 2026-11-17: JSON only where it is needed), answered exactly as its JSON
+    /// form is: the same reads first, the same lock and journal, the same edit.
+    pub fn call_land(&self, body: &LandBody) -> Res<String> {
+        let name = body.link();
+        self.warm_for(name);
+        self.answered(name, |ed| answer_land(ed, body)).0.map(|a| a.text())
     }
 }
 
@@ -843,6 +859,62 @@ fn opt_text(req: &Value, key: &str, what: &str) -> Res<Option<String>> {
         Some(Value::String(s)) => Ok(Some(s.clone())),
         _ => Err(format!("bad {what}")),
     }
+}
+
+/// Wraithguard: the land links' bodies as values rather than JSON text - what the page
+/// sends as bytes (`editor_land_link` in the command layer): a cell's heights (65 x 65),
+/// its vertex colors (65 x 65 x 3), its texture ids (16 x 16), or its path grid.
+pub enum LandBody {
+    /// `editLandSet`.
+    Heights { cell: String, heights: Vec<f64> },
+    /// `editLandColors`.
+    Colors { cell: String, colors: Vec<f64> },
+    /// `editLandTextures`.
+    Textures { cell: String, ids: Vec<String> },
+    /// `editPathgridSet`: the points (`[x, y, z]`) and links (`[a, b]`), or back to the load
+    /// order's (`revert`).
+    Pathgrid { cell: String, revert: bool, points: Vec<[f64; 3]>, edges: Vec<[f64; 2]> },
+}
+
+impl LandBody {
+    /// The link it is.
+    pub fn link(&self) -> &'static str {
+        match self {
+            LandBody::Heights { .. } => "editLandSet",
+            LandBody::Colors { .. } => "editLandColors",
+            LandBody::Textures { .. } => "editLandTextures",
+            LandBody::Pathgrid { .. } => "editPathgridSet",
+        }
+    }
+}
+
+/// A land link answered from its values: the edit its JSON form makes (`answer`).
+fn answer_land(ed: &mut Editor, body: &LandBody) -> Res<Answer> {
+    use Answer::Json;
+    let words = |cell: &str| if cell.trim().is_empty() { Err("bad cell".to_string()) } else { Ok(()) };
+    Ok(match body {
+        LandBody::Heights { cell, heights } => {
+            words(cell)?;
+            Json(edit(ed.set_land(cell, heights))?)
+        }
+        LandBody::Colors { cell, colors } => {
+            words(cell)?;
+            Json(edit(ed.set_land_colors(cell, colors))?)
+        }
+        LandBody::Textures { cell, ids } => {
+            words(cell)?;
+            Json(edit(ed.set_land_textures(cell, ids))?)
+        }
+        LandBody::Pathgrid { cell, revert, points, edges } => {
+            words(cell)?;
+            if *revert {
+                return Ok(Json(ed.revert_pathgrid(cell)));
+            }
+            let points: Vec<Value> = points.iter().map(|p| json!(p)).collect();
+            let edges: Vec<Value> = edges.iter().map(|e| json!(e)).collect();
+            Json(edit(ed.set_pathgrid(cell, &points, &edges))?)
+        }
+    })
 }
 
 /// One link answered against the Editor.

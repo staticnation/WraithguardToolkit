@@ -46,6 +46,16 @@ module.exports = async (t) => {
   try { await w.listCellRefs('7,-3'); } catch (e) { refused = e; }
   t.ok(refused && refused.message === 'no exterior cell 7,-3' && asked.length === 0, 'a refusal is said as it is, and not asked again: ' + (refused && refused.message));
 
+  // packTables (a request's bulk numbers, for Engine.send) reads back through unpackTables,
+  // every column kind - an F list as a Float32Array - and an unknown kind is refused.
+  const packed = w.packTables([['a', 'suidF', [['x', 7, -3, 1.5, [1, -2.5, 250]], ['', 0, 0, 0, []]]], ['empty', 's', []]]);
+  const back = w.unpackTables(packed.buffer.slice(packed.byteOffset, packed.byteOffset + packed.byteLength));
+  t.ok(back.a.length === 2 && back.a[0].slice(0, 4).join() === 'x,7,-3,1.5' && Array.from(back.a[0][4]).join() === '1,-2.5,250' &&
+    back.a[1][4].length === 0 && back.empty.length === 0, 'packTables reads back: ' + JSON.stringify(back));
+  let kind = null;
+  try { w.packTables([['q', 'x', [[1]]]]); } catch (e) { kind = e; }
+  t.ok(kind && /no such column kind/.test(kind.message), 'an unknown column kind is refused');
+
   // The JSON commands are retired (2026-11-17): bytes that do not read are an error naming
   // the list - never an empty one, and never asked a second way.
   w.Engine.bytes = async () => Uint8Array.from([1, 2, 3]).buffer;

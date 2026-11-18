@@ -183,6 +183,21 @@ function page(opts = {}) {
         }
         return __engine(c,a||{});
       },
+      // A raw request (Engine.send): the stand-in gets {body, headers} and answers as for bytes.
+      // A land link's bytes (editor_land_link) are read back into its JSON body and asked as
+      // editor_link, so the contract checks it and the test's links answer it as before.
+      async send(c,body,headers){
+        if(c==='editor_land_link'){
+          const name=decodeURIComponent((headers||{})['x-link']||''), tb=unpackTables(body.buffer.slice(body.byteOffset, body.byteOffset+body.byteLength));
+          const b={cell:tb.cell[0][0]};
+          if(tb.heights) b.heights=Array.from(tb.heights[0][0]);
+          if(tb.colors) b.colors=Array.from(tb.colors[0][0]);
+          if(tb.ids) b.ids=tb.ids.map(r=>r[0]);
+          if(tb.pathgrid){ if(tb.pathgrid[0][0]) b.revert=true; else { b.points=tb.points; b.edges=tb.edges; } }
+          return this.call('editor_link',{name, body:JSON.stringify(b)});
+        }
+        return this.bytes(c,{body, headers:headers||{}});
+      },
       async pick(){ return null; },
     };`);
   /* The Editor's links are the engine's own (editor_open names them, editor_link answers):

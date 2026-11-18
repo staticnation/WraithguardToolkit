@@ -26,3 +26,6 @@ pub mod save;
 pub mod settings;
 pub mod setup;
 pub mod tes3cmd;
+/// The tes3cmd built in (staticnation/tes3cmd-rs): the Tools page runs it (`tes3cmd::Engine`),
+/// and the command line passes `wraithguard tes3cmd ...` straight to it.
+pub use tes3cmd_rs;

@@ -5,6 +5,28 @@
 
 ### Changed
 
+- **tes3cmd is built in** (`toolscore::tes3cmd`, `tools_tes3cmd`, `61_wg_tools.js`, `cli/src/main.rs`).
+  The Tools page's tes3cmd runs staticnation/tes3cmd-rs inside the app, now a git dependency of
+  `toolscore`, so no tes3cmd.exe or Perl is needed. The external tes3cmd is an opt-in fallback:
+  tick "Use external" and give its path, or leave the path empty to have it found. A command that
+  runs Perl code (`modify --run`, `--program-file`, a `/.../e` replacement) uses the external one
+  when there is one. The log's `Engine:` line names which ran. The command line has it too:
+  `wraithguard tes3cmd <command> ...` takes tes3cmd's own commands and flags, so a batch file only
+  adds `wraithguard`. Compared through the engine with the Perl on the fixture, the logs and files
+  match, apart from the Perl's master-cache line, its `at FILE line N.` on errors, and `fixit`,
+  where the released script dies and the port finishes.
+- **The built-in tes3cmd reads the masters where they are** (`tes3cmd_rs::cli::run_over`,
+  `toolscore::tes3cmd::stage_set`). Only the plugins being worked on are copied for a run; the
+  masters are read from the setup's data folders, never copied and never written. When a command
+  writes one (`fixit` synchronizing every header, `resetdates`), the write goes to a private copy
+  in the staging folder. The external tes3cmd still gets copies of the masters.
+- **tes3cmd's whole-order and two-plugin commands run once** (`WHOLE_ORDER`, `PAIR`). `fixit`,
+  `multipatch` and `resetdates` run once over the plugins added, staged as that load order,
+  instead of once per plugin (so `fixit` over 8 plugins built the multipatch 8 times). `common`
+  and `diff` run once on the two plugins added, and say so when there are not two. A plugin such a
+  run makes (multipatch.esp) is put in the folder holding most of the plugins, a backup kept of one
+  already there, and the log says to add it to the load order.
+
 - **A cell reaches the page as bytes** (`cell_data` and `interior_data` answer `WGCD`, `pack_cell`
   in `viewer-shell/src/cellviewer/commands.rs`). After the cell's few other fields as JSON come
   its ground and its references:
@@ -109,6 +131,28 @@
   the lists against each other on the fixture (each cell's reference count against its own
   reference list, the scopes' cells among the cells) instead of against the JSON.
 
+- **Requests can be bytes too** (`Engine.send(cmd, bytes, headers)`, `03_core.js`): the page
+  sends a raw body, the command reads it as Tauri's `ipc::Request` (`raw_body`, `header` in
+  `commands.rs`), and header values are percent-encoded so a path in any script crosses. Bulk
+  numbers go as WGTB (`packTables`, `50_wg_editor.js`, read by `viewcore::wgtb::read`). The
+  headless engine takes them as base64 under `body`, with `headers` (`wg-view-serve`; its
+  Tauri stub has the request types).
+  - **The Physics drop's request is bytes** (`WgPhysics.pack`, read by `PhysRequest`): the
+    bodies' matrices and drawn triangles, the statics, and the page's 65 x 65 heights per
+    square, as f32, where they were JSON text the engine parsed back. Checked against the
+    engine before the change on twelve drops, the page's own ground among them: every fall the
+    same.
+  - **`write_b64` is `write_bytes`**: the report's screenshot goes as its PNG bytes, the path in
+    a header, where it was a base64 data URL inside JSON.
+
+- **The Editor's land links send their numbers as bytes** (`editor_land_link`): `editLandSet`,
+  `editLandColors`, `editLandTextures` and `editPathgridSet` go as WGTB (`WgEditor.landTables`,
+  through `Engine.send`), where a cell's 4,225 heights and 12,675 color bytes were JSON numbers.
+  `editcore::links` answers them with `call_land` on the values (`LandBody`), under the same
+  lock, journal sync and edit as their JSON form (`answered`, shared with `call_with`). Callers
+  still ask `WgEditor.ask` as before. Checked against the engine before the change: the same
+  answers, pending patch, pending land and journal after each of eight edits, refusals included.
+
 - **American spelling for the mesh tools**: the mesh viewer's button reads "Optimize draw order"
   (it was "Optimise"), and the Tools page's Mesh optimiser is the Mesh optimizer, its messages
   "optimized". The manifest it writes keeps its name, `wraithguard-mesh-optimiser.json`, so an
@@ -181,6 +225,13 @@
   from the cleaning, and the plugin's encoding from its write to disk.
 
 ### Fixed
+
+- **tes3cmd no longer writes your masters** (`toolscore::tes3cmd::stage`). The staging hard-linked
+  each plugin's masters into its private `Data Files` when the drive allowed, as the Python did.
+  So a command that writes the masters it finds (`fixit`'s header sync and date reset,
+  `multipatch`, `resetdates`, a `modify` that matches a master) changed the real Morrowind.esm
+  through the link, with the external tes3cmd as much as the built-in one. The masters are copied
+  now, and dropped after a custom command so a changed one is never reused.
 
 - **The Land view's texture mask, "As drawn", where three textures meet.** The renderer lays
   each texture over the ones below it (the most painted the opaque base, as the engine orders

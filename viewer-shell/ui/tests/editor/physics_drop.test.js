@@ -14,7 +14,13 @@ module.exports = async (t) => {
     links: { editRecord: 'r', editPending: 'pend', editRefsSet: 'refs', editRefSet: 'ref1' },
     engine: (c, a) => {
       if (c !== 'phys_drop') return c === 'editor_tags' ? [] : {};
-      asked = JSON.parse(a.request);
+      // The request is bytes (WgPhysics.pack): read back into the shape it was packed from.
+      const b = a.body, tb = p.w.unpackTables(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+      const [g, fr, bo, se, only, hollow, ext, ox, oy] = tb.settings[0];
+      asked = { settings: { gravity: g, friction: fr, bounce: bo, seconds: se, dropOnly: !!only, hollow: !!hollow }, exterior: !!ext, origin: [ox, oy],
+        bodies: tb.bodies.map(([key, model, m, tris]) => ({ key, model, m: Array.from(m), tris: Array.from(tris) })),
+        statics: tb.statics.map(([model, m]) => ({ model, m: Array.from(m) })),
+        land: tb.land.map(([gx, gy, has, h]) => ({ gx, gy, h: has ? Array.from(h) : null })) };
       // Two frames: the crate falls 100 units and turns a quarter round about Z.
       return { frames: [[[4096 + 10, 20, 300, 0, 0, 0], [4096 + 500, 0, 0, 0, 0, 0]], [[4096 + 10, 20, 200, 0, 0, Math.PI / 2], [4096 + 500, 0, 0, 0, 0, 0]]], seconds: 1.5, settled: true, skipped: ['k2'] };
     },

@@ -713,6 +713,51 @@ pub(super) fn editor_link(state: State, name: String, body: String) -> Result<St
     links.call_with(&name, &body, &editcore::links::Ctx { file_exists, sound_problem })
 }
 
+/// Wraithguard: the Editor's land links with their bulk numbers as bytes (`Engine.send`, the
+/// link in the `x-link` header; Static 2026-11-17: JSON only where it is needed - a cell's
+/// heights and vertex colors were JSON numbers), answered by `editcore::links::call_land`
+/// exactly as `editor_link` answers their JSON form. The body is `WGTB`
+/// (`WgEditor.landTables`, 50_wg_editor_record.js), `cell` `s` and then:
+///
+/// - `editLandSet`: `heights` `F` (65 x 65)
+/// - `editLandColors`: `colors` `F` (65 x 65 x 3)
+/// - `editLandTextures`: `ids` `s` (16 x 16)
+/// - `editPathgridSet`: `pathgrid` `u` (revert 0/1), `points` `ddd`, `edges` `dd`
+#[tauri::command(async)]
+pub(super) fn editor_land_link(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let links = EDITOR.lock().unwrap_or_else(|p| p.into_inner()).clone().ok_or_else(|| "The viewer's Editor is not open".to_string())?;
+    let name = header(&request, "x-link").ok_or("no link named (x-link)")?;
+    links.call_land(&land_body(&name, raw_body(&request)?)?)
+}
+
+/// `editor_land_link`'s body, read; a table of the wrong columns is an error, not a guess.
+fn land_body(name: &str, b: &[u8]) -> Result<editcore::links::LandBody, String> {
+    use editcore::links::LandBody;
+    use viewcore::wgtb::{read, rows};
+    let t = read(b).map_err(|e| format!("{name}'s body: {e}"))?;
+    for (table, cols) in [("cell", "s"), ("heights", "F"), ("colors", "F"), ("ids", "s"), ("pathgrid", "u"), ("points", "ddd"), ("edges", "dd")] {
+        if let Some(x) = t.iter().find(|x| x.name == table).filter(|x| x.cols != cols) {
+            return Err(format!("{name}'s body: {table} has columns {}, not {cols}", x.cols));
+        }
+    }
+    let cell = rows(&t, "cell").first().map(|r| r[0].str().to_string()).ok_or_else(|| format!("{name}'s body names no cell"))?;
+    let floats = |table: &str| -> Result<Vec<f64>, String> {
+        rows(&t, table).first().map(|r| r[0].floats().iter().map(|v| *v as f64).collect()).ok_or_else(|| format!("{name}'s body has no {table}"))
+    };
+    Ok(match name {
+        "editLandSet" => LandBody::Heights { cell, heights: floats("heights")? },
+        "editLandColors" => LandBody::Colors { cell, colors: floats("colors")? },
+        "editLandTextures" => LandBody::Textures { cell, ids: rows(&t, "ids").iter().map(|r| r[0].str().to_string()).collect() },
+        "editPathgridSet" => LandBody::Pathgrid {
+            cell,
+            revert: rows(&t, "pathgrid").first().is_some_and(|r| r[0].num() != 0.0),
+            points: rows(&t, "points").iter().map(|r| [r[0].num(), r[1].num(), r[2].num()]).collect(),
+            edges: rows(&t, "edges").iter().map(|r| [r[0].num(), r[1].num()]).collect(),
+        },
+        _ => return Err(format!("{name} is not a land link")),
+    })
+}
+
 /// The Editor's "Preview it in a new Cell Preview" (`editPreviewPatch`, which Wraithguard
 /// used to answer; port step 4.1): a new viewer window on the setup with `path` loaded last,
 /// on the plugin's cells. The setup is written beside `cfg` (so its relative paths still

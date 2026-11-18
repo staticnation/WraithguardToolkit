@@ -54,8 +54,26 @@ const Engine={
     this.stats.calls++; this.stats.bytes+=ab.byteLength;
     return ab;
   },
-  /** Binary calls made and bytes received since start-up. */
-  stats:{calls:0, bytes:0},
+  /** Wraithguard: a command whose request is raw bytes (Static 2026-11-17: JSON only where it
+   *  is needed) - bulk numbers packed as WGTB (`packTables`), or a file's bytes - with
+   *  `headers` naming what they are for (each value percent-encoded, so a path in any script
+   *  crosses; the command decodes it). Answers bytes as `bytes` does, a command's text as
+   *  text (an Editor link's JSON, `editor_land_link`), or null. */
+  async send(cmd,body,headers){
+    if(!this.has()) throw new Error('the engine is not running');
+    const h={};
+    for(const [k,v] of Object.entries(headers||{})) h[k]=encodeURIComponent(String(v));
+    const raw=body instanceof Uint8Array? body : new Uint8Array(body);
+    const r=await window.__TAURI__.core.invoke(cmd,raw,{headers:h});
+    this.stats.calls++; this.stats.sent+=raw.byteLength;
+    if(r==null) return null;
+    if(typeof r==='string') return r;
+    const ab = r instanceof ArrayBuffer ? r : ArrayBuffer.isView(r) ? r.buffer.slice(r.byteOffset, r.byteOffset+r.byteLength) : new Uint8Array(r).buffer;
+    this.stats.bytes+=ab.byteLength;
+    return ab;
+  },
+  /** Binary calls made, bytes received and bytes sent since start-up. */
+  stats:{calls:0, bytes:0, sent:0},
 
   /** Asks the OS for a path. Returns null when the person backs out. */
   async pick(kind,opts){

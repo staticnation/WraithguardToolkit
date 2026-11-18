@@ -10,6 +10,19 @@
    StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 const WgPhysics={
+  /** The request (`request`) as `phys_drop` reads it (`PhysRequest`, commands.rs): WGTB
+   *  tables - `settings` [gravity, friction, bounce, seconds, drop only, hollow, exterior,
+   *  origin x, origin y], `bodies` [key, model, matrix, drawn triangles], `statics` [model,
+   *  matrix], `land` [gx, gy, has ground, 65 x 65 heights]. */
+  pack(q){
+    const st=q.settings||{}, o=q.origin||[0,0];
+    return [
+      ['settings','dddduuudd',[[+st.gravity||0, +st.friction||0, +st.bounce||0, +st.seconds||0, st.dropOnly? 1 : 0, st.hollow===false? 0 : 1, q.exterior? 1 : 0, +o[0]||0, +o[1]||0]]],
+      ['bodies','ssFF',(q.bodies||[]).map(b=>[b.key, b.model, b.m, b.tris||[]])],
+      ['statics','sF',(q.statics||[]).map(s=>[s.model, s.m])],
+      ['land','iiuF',(q.land||[]).map(l=>[l.gx, l.gy, l.h? 1 : 0, l.h||[]])],
+    ];
+  },
   /** `phys_drop`'s tables (WGTB, commands.rs) as the object its JSON was: {frames:[[[x, y, z,
    *  rx, ry, rz] per body] per frame], seconds, settled, skipped}. */
   readDrop(tb){
@@ -148,7 +161,7 @@ const WgPhysics={
     this.draw();
     this.tell('Falling…');
     let got;
-    try{ got=this.readDrop(unpackTables(await Engine.bytes('phys_drop', {request:JSON.stringify(this.request(list))}))); }
+    try{ got=this.readDrop(unpackTables(await Engine.send('phys_drop', packTables(this.pack(this.request(list)))))); }
     catch(e){ this.run=null; this.draw(); return this.tell(String(e.message||e)); }
     if(this.run!==run) return;
     run.busy=false;

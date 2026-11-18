@@ -327,7 +327,7 @@ Each tool is a section on the left with its work on the right.
 | **Remove / rename master** | A master OpenMW can't find: removed (references renumbered, a dry run first) or pointed at the file that replaced it. The original is kept once as `.premaster.bak`. |
 | **Save Check** | Whether a save loads with this order (the content files it needs that the order lacks), the space each mod takes in it and how to shrink it, and two saves compared. |
 | **Journal** | Every quest's stages in index order, each with the scripts and responses that set it, and their conditions. |
-| **tes3cmd** | Runs the external tes3cmd on each plugin (clean, header, custom), staged with its masters; master sizes synced in-app. |
+| **tes3cmd** | tes3cmd built in ([tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs), no tes3cmd.exe or Perl needed) on each plugin: clean, header or any command, on a copy with its masters read from your data folders and never changed, a backup kept; master sizes synced in-app. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and `diff` on two; a multipatch.esp made goes beside them. Tick *Use external* to run your own tes3cmd instead; commands that run Perl code (`modify --run`) use it either way. |
 | **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against its masters or against the load order before it, and plugins can be left out by name or folder. See [MERGED_LANDS.md](MERGED_LANDS.md). |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
@@ -418,6 +418,17 @@ cfg's `content=` lines), each file copied first. With `--plain-mlox`,
 The scans and `--merge-lands` read these installs too.
 
 `wraithguard --help` lists them all.
+
+It is tes3cmd too, built in, with tes3cmd's own commands and flags, so a batch file written
+for tes3cmd only needs `wraithguard` in front:
+
+```
+wraithguard tes3cmd clean --replace "My Mod.esp"
+wraithguard tes3cmd header --synchronize "My Mod.esp"
+```
+
+It reads `Morrowind.ini` and `Data Files` from the folder it runs in, as tes3cmd does.
+`wraithguard tes3cmd help` lists its commands.
 
 ---
 

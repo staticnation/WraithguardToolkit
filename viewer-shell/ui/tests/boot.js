@@ -190,7 +190,9 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,virtua
       for(const h of hits){ let p=h.parentElement; while(p && !p.id && !p.className) p=p.parentElement;
         tainted.add((p? (p.id? '#'+p.id : '.'+String(p.className).split(/\s+/)[0]) : '?')+': '+String((h.parentElement||h).textContent||'').replace(/\s+/g,' ').slice(0,80)); } } })
       .observe(w.document,{childList:true, subtree:true});
-    w.__TAURI__={core:{invoke:(cmd,args)=>{calls.push(cmd);
+    w.__TAURI__={core:{invoke:(cmd,args,opts)=>{calls.push(cmd);
+      // A raw request (Engine.send): its bytes go down the pipe as base64, with its headers.
+      if(args && ArrayBuffer.isView(args)) args={body:Buffer.from(args.buffer, args.byteOffset, args.byteLength).toString('base64'), headers:(opts && opts.headers)||{}};
       // The Editor's part of the run: the stand-in's links named beside the engine's, and answered.
       if(fakeOn && cmd==='editor_link' && FAKE_LINKS.has(args.name)){
         const r=fakeLink(args.name, args.body);
@@ -1199,7 +1201,8 @@ setTimeout(async ()=>{
     if(!req) errors.push('physics: no small object in the cell to drop');
     else{
       const z0=req.bodies[0].m[11];
-      const got=w.eval('WgPhysics').readDrop(w.eval('unpackTables')(await engineCall('phys_drop',{request:JSON.stringify(req)})));
+      const P=w.eval('WgPhysics'), body=w.eval('packTables')(P.pack(req));
+      const got=P.readDrop(w.eval('unpackTables')(await engineCall('phys_drop',{body:Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString('base64'), headers:{}})));
       const last=got.frames && got.frames[got.frames.length-1];
       console.log('physics:', req.bodies[0].model, req.statics.length+' statics,', got.frames.length+' frames,', (+got.seconds).toFixed(2)+' s, settled '+got.settled+', skipped '+got.skipped.length+', z', z0.toFixed(1), '->', last && (last[0][2]).toFixed(1));
       if(!got.skipped.length && !(last && last[0][2]<z0-50)) errors.push('physics: the object did not fall: '+JSON.stringify(last));

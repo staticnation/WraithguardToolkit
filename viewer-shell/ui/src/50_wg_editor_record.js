@@ -154,12 +154,31 @@ Object.assign(WgEditor, {
     }
   },
 
+  /** Wraithguard: the land links, whose bodies go as bytes (`editor_land_link`). */
+  LAND_LINKS:new Set(['editLandSet','editLandColors','editLandTextures','editPathgridSet']),
+  /** A land link's body as the tables `editor_land_link` reads (`land_body`, commands/editor.rs):
+   *  `cell`, then the heights or colors as one f32 list, the texture ids a row each, or the
+   *  path grid's revert flag, points and edges. */
+  landTables(link, b){
+    const t=[['cell','s',[[String(b.cell||'')]]]];
+    if(link==='editLandSet') t.push(['heights','F',[[b.heights||[]]]]);
+    else if(link==='editLandColors') t.push(['colors','F',[[b.colors||[]]]]);
+    else if(link==='editLandTextures') t.push(['ids','s',(b.ids||[]).map(i=>[String(i)])]);
+    else t.push(['pathgrid','u',[[b.revert? 1 : 0]]], ['points','ddd',(b.points||[]).map(p=>[+p[0]||0, +p[1]||0, +p[2]||0])],
+      ['edges','dd',(b.edges||[]).map(e=>[+e[0]||0, +e[1]||0])]);
+    return t;
+  },
+
   async _ask(link, body){
     /* The links the viewer's own Editor answers (editcore::links), asked of the engine, the
        same JSON in and out; the Editor opened first (`nativeLinks`), which names them. */
     const names=await this.nativeLinks();
     if(!names.has(link)) throw new Error(names.size? 'This Editor does not answer '+link : 'Editing needs the Editor open on the install (see Messages)');
-    const t=await Engine.call('editor_link',{name:link, body:JSON.stringify(body)});
+    /* The land links carry a cell's heights, colors, texture ids or path grid: sent as
+       bytes (`editor_land_link`, answered as `editor_link` answers them), not JSON numbers. */
+    const t=this.LAND_LINKS.has(link)
+      ? await Engine.send('editor_land_link', packTables(this.landTables(link, body||{})), {'x-link':link})
+      : await Engine.call('editor_link',{name:link, body:JSON.stringify(body)});
     if(typeof t!=='string' || !t.length) return t;
     try{ return JSON.parse(t); }catch(_){ return t; }      // `ok` and the like
   },

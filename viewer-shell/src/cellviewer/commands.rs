@@ -3660,11 +3660,73 @@ fn lua_collision(frame: &str, state: &State) {
     }
 }
 
+/// Wraithguard: `phys_drop`'s request, read from bytes (`WGTB`, `WgPhysics.pack` in
+/// 76_wg_physics.js; Static 2026-11-17: JSON only where it is needed - a body's triangles and
+/// the ground's 65 x 65 heights per square were JSON text):
+///
+/// - `settings` `dddduuudd`: gravity, friction, bounce, seconds, drop only, hollow, exterior,
+///   the scene's origin x y
+/// - `bodies` `ssFF`: key, model, its matrix (12), its drawn triangles (nine numbers each)
+/// - `statics` `sF`: model, matrix
+/// - `land` `iiuF`: gx, gy, the page has its ground 0/1 (0: none, the square is bare), the
+///   65 x 65 heights
+struct PhysRequest {
+    gravity: f32,
+    friction: f32,
+    bounce: f32,
+    seconds: f32,
+    drop_only: bool,
+    hollow: bool,
+    exterior: bool,
+    origin: [f32; 2],
+    bodies: Vec<(String, String, [f32; 12], Vec<f32>)>,
+    statics: Vec<(String, [f32; 12])>,
+    land: Vec<(i32, i32, Option<Vec<f32>>)>,
+}
+
+impl PhysRequest {
+    fn read(b: &[u8]) -> Result<PhysRequest, String> {
+        use viewcore::wgtb::{read, rows};
+        let t = read(b).map_err(|e| format!("the drop's request: {e}"))?;
+        // Each table with the columns this reads, or none: a different layout is an error,
+        // not a guess.
+        for (name, cols) in [("settings", "dddduuudd"), ("bodies", "ssFF"), ("statics", "sF"), ("land", "iiuF")] {
+            if let Some(x) = t.iter().find(|x| x.name == name).filter(|x| x.cols != cols) {
+                return Err(format!("the drop's request: {name} has columns {}, not {cols}", x.cols));
+            }
+        }
+        let mat = |v: &viewcore::wgtb::Val| {
+            let mut m = [0f32; 12];
+            for (i, x) in v.floats().iter().take(12).enumerate() {
+                m[i] = *x;
+            }
+            m
+        };
+        let s = rows(&t, "settings").first().ok_or("the drop's request has no settings")?;
+        let n = |i: usize| s.get(i).map_or(0.0, |v| v.num());
+        Ok(PhysRequest {
+            gravity: n(0) as f32,
+            friction: n(1) as f32,
+            bounce: n(2) as f32,
+            seconds: n(3) as f32,
+            drop_only: n(4) != 0.0,
+            hollow: n(5) != 0.0,
+            exterior: n(6) != 0.0,
+            origin: [n(7) as f32, n(8) as f32],
+            bodies: rows(&t, "bodies").iter().map(|r| (r[0].str().to_string(), r[1].str().to_string(), mat(&r[2]), r[3].floats().to_vec())).collect(),
+            statics: rows(&t, "statics").iter().map(|r| (r[0].str().to_string(), mat(&r[1]))).collect(),
+            land: rows(&t, "land")
+                .iter()
+                .map(|r| (r[0].num() as i32, r[1].num() as i32, (r[2].num() != 0.0).then(|| r[3].floats().to_vec())))
+                .collect(),
+        })
+    }
+}
+
 /// Wraithguard: the Editor's Physics drop (`physcore`): the `bodies` fall onto the
-/// `statics` and, outside, the land, until they rest or `settings.seconds` runs out.
-/// `request`: `{bodies: [{key, model, m, tris?}], statics: [{model, m}], origin: [x, y],
-/// exterior, land?: [{gx, gy, h}], settings: {gravity, friction, bounce, seconds, dropOnly,
-/// hollow}}`, each `m` the renderer's matrix (3x4, rows) in the scene's frame. A body's
+/// `statics` and, outside, the land, until they rest or `seconds` runs out. The request
+/// is bytes (`PhysRequest`, read from `WgPhysics.pack`): the bodies, statics, origin,
+/// exterior, land and settings, each `m` the renderer's matrix (3x4, rows) in the scene's frame. A body's
 /// `tris` (its drawn triangles, nine numbers each) stand in for a mesh with no collision;
 /// `land` is the ground as the page has it (the Land view's strokes not yet kept), a
 /// square's 65 x 65 heights, `null` for none - the load order's for squares not given. Answers `{frames: [[[x, y, z, rx,
@@ -3673,48 +3735,33 @@ fn lua_collision(frame: &str, state: &State) {
 /// (seconds, settled 0/1, frame count), `poses` `udddddd` (its frame, x y z, rx ry
 /// rz; a frame's bodies in order) and `skipped` `s`. Read by `WgPhysics.readDrop`.
 #[tauri::command(async)]
-fn phys_drop(request: String, state: State) -> Result<tauri::ipc::Response, String> {
+fn phys_drop(request: tauri::ipc::Request<'_>, state: State) -> Result<tauri::ipc::Response, String> {
     use viewcore::physcore::{self as pc, glam_mat3_from_rows};
-    let req: serde_json::Value = serde_json::from_str(&request).map_err(|e| e.to_string())?;
+    let req = PhysRequest::read(raw_body(&request)?)?;
     let (vfs, world) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.world.clone())
     };
-    let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
-    let origin = req.get("origin").and_then(serde_json::Value::as_array).map(|o| [o.first().map_or(0.0, f), o.get(1).map_or(0.0, f)]).unwrap_or([0.0, 0.0]);
-    let mat = |o: &serde_json::Value| -> Option<[f32; 12]> {
-        let a = o.get("m")?.as_array()?;
-        let mut m = [0f32; 12];
-        for (i, x) in a.iter().take(12).enumerate() {
-            m[i] = f(x);
-        }
-        Some(m)
-    };
-    let st = req.get("settings").cloned().unwrap_or_default();
-    let d = pc::Settings::default();
-    let num = |k: &str, def: f32| st.get(k).and_then(serde_json::Value::as_f64).map_or(def, |x| x as f32);
+    let origin = req.origin;
     let settings = pc::Settings {
-        gravity: num("gravity", d.gravity),
-        friction: num("friction", d.friction).clamp(0.0, 2.0),
-        restitution: num("bounce", d.restitution).clamp(0.0, 1.0),
-        max_seconds: num("seconds", d.max_seconds).clamp(0.1, 30.0),
-        drop_only: st.get("dropOnly").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        gravity: req.gravity,
+        friction: req.friction.clamp(0.0, 2.0),
+        restitution: req.bounce.clamp(0.0, 1.0),
+        max_seconds: req.seconds.clamp(0.1, 30.0),
+        drop_only: req.drop_only,
         fps: 30.0,
-        hollow: st.get("hollow").and_then(serde_json::Value::as_bool).unwrap_or(true),
+        hollow: req.hollow,
     };
     // The bodies: their collision's points, where they stand in the world, turned and scaled.
     let mut bodies = Vec::new();
     let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
-    for b in req.get("bodies").and_then(serde_json::Value::as_array).into_iter().flatten() {
-        let (Some(key), Some(model), Some(m)) = (b.get("key").and_then(serde_json::Value::as_str), b.get("model").and_then(serde_json::Value::as_str), mat(b)) else { continue };
+    for (key, model, m, tris) in &req.bodies {
+        let (key, model, m) = (key.as_str(), model.as_str(), *m);
         let scale = (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt().max(1e-6);
         let rot = pc::angles(glam_mat3_from_rows([[m[0] / scale, m[1] / scale, m[2] / scale], [m[4] / scale, m[5] / scale, m[6] / scale], [m[8] / scale, m[9] / scale, m[10] / scale]]));
         let pos = [m[3] + origin[0], m[7] + origin[1], m[11]];
         // Its collision; for a mesh with none (marked so, or nothing in it collides), what is drawn.
-        let points = collision_tris(&vfs, model).map(|t| t.to_vec()).unwrap_or_else(|| {
-            let f: Vec<f32> = b.get("tris").and_then(serde_json::Value::as_array).into_iter().flatten().map(f).collect();
-            f.as_chunks::<3>().0.to_vec()
-        });
+        let points = collision_tris(&vfs, model).map(|t| t.to_vec()).unwrap_or_else(|| tris.as_chunks::<3>().0.to_vec());
         for k in 0..2 {
             lo[k] = lo[k].min(pos[k]);
             hi[k] = hi[k].max(pos[k]);
@@ -3726,20 +3773,15 @@ fn phys_drop(request: String, state: State) -> Result<tauri::ipc::Response, Stri
     }
     // What they fall onto: the other objects' collision, placed, and the land around them.
     let mut statics = Vec::new();
-    for s in req.get("statics").and_then(serde_json::Value::as_array).into_iter().flatten() {
-        let (Some(model), Some(m)) = (s.get("model").and_then(serde_json::Value::as_str), mat(s)) else { continue };
+    for (model, m) in &req.statics {
         if let Some(t) = collision_tris(&vfs, model) {
-            statics.push(pc::Static { tris: viewcore::luarun::Shape::placed(&t, &m, origin, true).tris });
+            statics.push(pc::Static { tris: viewcore::luarun::Shape::placed(&t, m, origin, true).tris });
         }
     }
-    if req.get("exterior").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+    if req.exterior {
         // The page's ground first: the Land view's strokes are in it before they are kept.
-        let mut given: std::collections::HashMap<(i32, i32), Option<Vec<f32>>> = std::collections::HashMap::new();
-        for l in req.get("land").and_then(serde_json::Value::as_array).into_iter().flatten() {
-            let (Some(gx), Some(gy)) = (l.get("gx").and_then(serde_json::Value::as_i64), l.get("gy").and_then(serde_json::Value::as_i64)) else { continue };
-            let h = l.get("h").and_then(serde_json::Value::as_array).map(|a| a.iter().map(f).collect::<Vec<f32>>()).filter(|h| h.len() == 65 * 65);
-            given.insert((gx as i32, gy as i32), h);
-        }
+        let given: std::collections::HashMap<(i32, i32), Option<Vec<f32>>> =
+            req.land.iter().map(|(gx, gy, h)| ((*gx, *gy), h.clone().filter(|h| h.len() == 65 * 65))).collect();
         let reach = 8192.0;
         let cell = |v: f32| (v / 8192.0).floor() as i32;
         for gx in cell(lo[0] - reach)..=cell(hi[0] + reach) {
@@ -3825,11 +3867,46 @@ fn walk_player_from_save(path: String) -> Result<String, String> {
     Ok(serde_json::json!({"name": p.name, "skills": p.skills, "attributes": p.attributes, "fatigue": [p.fatigue.0, p.fatigue.1]}).to_string())
 }
 
-/// Wraithguard: writes base64 bytes (a screenshot for the report bundle) to `path`.
+/* Wraithguard: requests whose body is raw bytes (the page's `Engine.send`, Static 2026-11-17:
+   JSON only where it is needed), and the headers that say what the bytes are for -
+   percent-encoded by the page, so a path in any script survives a header. */
+
+/// A raw request's bytes; a JSON one is an error naming the way to call it.
+fn raw_body<'r>(request: &'r tauri::ipc::Request<'_>) -> Result<&'r [u8], String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => Ok(b),
+        _ => Err("this command takes bytes (Engine.send), not JSON".into()),
+    }
+}
+
+/// A raw request's header, percent-decoded (`encodeURIComponent` on the page).
+fn header(request: &tauri::ipc::Request<'_>, name: &str) -> Option<String> {
+    let v = request.headers().get(name)?.to_str().ok()?;
+    let b = v.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        match (b[i], b.get(i + 1).copied().and_then(hex), b.get(i + 2).copied().and_then(hex)) {
+            (b'%', Some(h), Some(l)) => {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+            }
+            (c, _, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Wraithguard: writes the request's bytes (a screenshot for the report bundle) to the path
+/// in its `x-path` header. It was `write_b64`, the bytes as base64 inside JSON.
 #[tauri::command(async)]
-fn write_b64(path: String, data: String) -> Result<(), String> {
-    let bytes = viewcore::json::base64_decode(&data).ok_or_else(|| "not base64".to_string())?;
-    write_path_whole(&path, &bytes)
+fn write_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let path = header(&request, "x-path").filter(|p| !p.is_empty()).ok_or("no path to write to (x-path)")?;
+    write_path_whole(&path, raw_body(&request)?)
 }
 
 /* ---- the viewer profile (Wraithguard) ---------------------------------------------
@@ -4089,9 +4166,10 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             dialogue_state_from_save,
             phys_drop,
             lua_ui_font,
-            write_b64,
+            write_bytes,
             editor_open,
             editor_link,
+            editor_land_link,
             editor_setup,
             loadorder_compute,
             loadorder_export,

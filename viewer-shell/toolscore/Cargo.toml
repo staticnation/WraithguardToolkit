@@ -16,6 +16,10 @@ editcore = { path = "../editcore" }
 # fork as editcore takes it.
 merge_to_master = { git = "https://github.com/staticnation/merge_to_master", default-features = false, features = ["strip-logs"] }
 anyhow = "1"
+# tes3cmd built in (src/tes3cmd.rs): staticnation/tes3cmd-rs, tes3cmd's commands without Perl or
+# tes3cmd.exe, held byte for byte to the Perl's output by its own tests. Named `tes3cmd_rs` here:
+# this crate's launcher module is `tes3cmd`.
+tes3cmd-rs = { package = "tes3cmd", git = "https://github.com/staticnation/tes3cmd-rs" }
 tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, features = ["esp"] }
 bytes_io = { git = "https://github.com/Greatness7/tes3", package = "bytes_io" }
 # Save Check: the setup's data folders (ordercore::cfg), `.omwscripts` lines and Python's repr
