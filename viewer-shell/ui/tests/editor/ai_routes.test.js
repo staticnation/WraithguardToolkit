@@ -166,20 +166,28 @@ module.exports = async (t) => {
   for (let i = 0; i < 2000 && R2.combat; i++) S.actorsFrame(0.1);
   t.ok(!R2.combat && !R2._fleeing && S.log.some(l => /rat stops fleeing/.test(l.text)) && S.dist(rat, guard) >= W.FLEE - 1, 'and stops once clear ' + S.dist(rat, guard));
 
-  // A greeting: Hello 30 within 30 x 6 of the player turns and stands, said once.
+  // A greeting, as OpenMW's: Hello 30 within 30 x 6 of the player for two quarter-second
+  // updates, then four seconds turned to the player, then on with its wander while the player
+  // is still there; not again until the player has been past 512.
   ctx.App.R.cam = { tx: 1000, ty: 1000, tz: 116, dist: 0.0001, az: 0, el: 0 };
-  A.rates = [30, 30, 0, 0]; A.combat = null;
+  A.rates = [30, 30, 0, 0]; A.combat = null; A._greet = null;
   S.place(guard, { pos: [1100, 1000, 0], rot: [0, 0, 0] });
   S.ai(guard, 'wander', [2000, 0, 0], {});
-  const before = S.posOf(guard);
-  S.actorsFrame(0.1); S.actorsFrame(0.1);
-  const after = S.posOf(guard);
-  t.ok(Math.abs(after[0] - before[0]) < 1e-6 && Math.abs(after[1] - before[1]) < 1e-6, 'it stands while it greets');
-  t.ok(Math.abs(S.rotOf(guard)[2] - Math.atan2(-100, 0)) < 1e-6, 'facing the player');
-  t.ok(S.log.filter(l => /guard_b greets the player/.test(l.text)).length === 1, 'and says so once');
-  ctx.App.R.cam.tx = 5000;
-  S.actorsFrame(0.1);
-  t.ok(!A._greeted, 'the player gone, it goes back to its wander');
+  const said = () => S.log.filter(l => /guard_b greets the player/.test(l.text)).reduce((n, l) => n + (l.n || 1), 0);
+  const before = said();
+  for (let i = 0; i < 6; i++) S.actorsFrame(0.1);   // 0.6 s: greeted
+  const at0 = S.posOf(guard);
+  for (let i = 0; i < 20; i++) S.actorsFrame(0.1);   // 2 s into the greeting
+  const at1 = S.posOf(guard);
+  t.ok(said() === before + 1 && Math.hypot(at1[0] - at0[0], at1[1] - at0[1]) < 1e-6, 'greeted once, standing while it greets');
+  t.ok(Math.abs(S.rotOf(guard)[2] - Math.atan2(-100, 0)) < 0.02 || A._greet.state === 'in', 'facing the player');
+  for (let i = 0; i < 40; i++){ now += 100; S.animsFrame(); S.actorsFrame(0.1); await tick(); }   // past the four seconds
+  t.ok(A._greet.state === 'done', 'done after iGreetDuration: ' + A._greet.state);
+  let walked = false; const at2 = S.posOf(guard);
+  for (let i = 0; i < 200 && !walked; i++){ now += 100; S.animsFrame(); S.actorsFrame(0.1); await tick(); const q = S.posOf(guard); walked = Math.hypot(q[0] - at2[0], q[1] - at2[1]) > 1; }
+  t.ok(walked && said() === before + 1, 'and wanders on, the player still near, without greeting again');
+  ctx.App.R.cam.tx = 5000; S.actorsFrame(0.1);
+  t.ok(A._greet.state === 'none', 'the player past 512: it may greet again');
 
   // Room: a moving actor keeps out of another's.
   A.ai = null; S.place(guard, { pos: [3000, 3000, 0] }); S.place(rat, { pos: [3000, 3100, 0] }); R2.combat = null; R2.ai = null;
@@ -252,4 +260,24 @@ module.exports = async (t) => {
   const second = ctx.previewSwapActor('n1', 'Idle3@1');
   open();
   t.ok((await first) === false && (await second) === true && L.model === '__npc/guard_b?group=Idle3@1', 'the newer ask wins ' + L.model);
+
+  // A play once whose length never comes does not hold a wanderer for ever.
+  S.anims.delete('n1');
+  const stuck = S.playAnim('n1', 'Idle9', 0, 1, 'AI', { quiet: true });
+  stuck.ends = null; stuck.len = null; stuck.t0 = now;
+  now += 6000; S.animsFrame();
+  t.ok(!S.anims.has('n1'), 'a play with no length is ended after five seconds');
+
+  // OpenMW's Lua controls: the AI taken off by a script, the actor moved by its controls.
+  const G2 = S.actors.get('n1');
+  G2.ai = null; G2.combat = null; G2.luaAI = false; G2.ctl = { m: 1, s: 0, y: 0, run: false };
+  S.place(guard, { pos: [1000, 1000, 0], rot: [0, 0, 0] });
+  S.actorsFrame(1);
+  const q2 = S.posOf(guard);
+  t.ok(Math.abs(q2[0] - 1000) < 1e-6 && q2[1] > 1100, 'movement 1, facing +y: a second\'s walk forward ' + JSON.stringify(q2));
+  G2.ctl = { m: 0, s: 0, y: Math.PI / 2, run: false }; S.actorsFrame(0.1);
+  t.ok(Math.abs(S.rotOf(guard)[2] - Math.PI / 2) < 1e-6, 'yawChange turns it');
+  G2.ctl = { m: 1, s: 0, y: 0, run: false }; const q3 = S.posOf(guard); S.actorsFrame(1);
+  t.ok(S.posOf(guard)[0] > q3[0] + 100, 'and forward is where it now faces');
+  G2.luaAI = true; G2.ai = null;
 };

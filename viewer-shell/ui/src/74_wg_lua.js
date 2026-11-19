@@ -301,6 +301,10 @@ const WgLua={
     },
     animStop(e){ WgScripts.stopAnim(e.key, e.group||''); },
     animClear(e){ WgScripts.clearQueue(e.key); },
+    // OpenMW's Lua controls: `self:enableAI(false)` takes the engine's AI off the actor, and
+    // `self.controls` moves it (73_wg_scripts.js `actorsFrame`).
+    aiEnable(e){ const t=this.thing(e.key); const A=t && WgScripts.actorOf(t, true); if(A){ A.luaAI=e.on!==false; this.say('', 'do', 'AI '+(A.luaAI? 'back on' : 'taken off')+' '+A.id+' by a Lua script'); } },
+    controls(e){ const t=this.thing(e.key); const A=t && WgScripts.actorOf(t, true); if(A) A.ctl={m:+e.m||0, s:+e.s||0, y:+e.y||0, run:!!e.run}; },
     music(e){ this.say('', 'do', 'music '+e.path); WgScripts.music(String(e.path)); },
     stopMusic(){ if(typeof WgSound==='object' && WgSound.musicStop) WgSound.musicStop(); },
     weather(e){

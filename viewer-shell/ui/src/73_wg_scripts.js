@@ -664,13 +664,36 @@ const WgScripts={
       const pace=W? W.speeds(A) : {walk, run};
       // One actor's failure is said once and does not stop the others' frame.
       if(!A.dead && !this.disabled.has(A.key)){
-        try{ this.actorStep(A, dt, pace.walk, pace.run, W); }
+        try{
+          // A Lua script that took the AI off drives it itself (`self.controls`); else the AI does.
+          if(A.luaAI===false){ if(A.ctl) this.byControls(A, dt, pace); }
+          else this.actorStep(A, dt, pace.walk, pace.run, W);
+        }
         catch(e){ const k='aierr|'+A.key; if(!this._logged.has(k)){ this._logged.add(k); this.say(A.id, 'error', 'AI: '+String(e && e.message || e)); } }
       }
       // The walk while it moves; its idle once it stops (a script's own group wins, `WgAI.loop`).
       // Only near the camera: farther off a walk is not seen, and each change is a new mesh.
       if(W && A.key && W.near(A)){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }
     }
+  },
+  /** An actor moved by its Lua script's controls, as OpenMW's character controller takes them:
+   *  `yawChange` turned (radians, this frame), then forward (`movement`) and to the right
+   *  (`sideMovement`), each -1 to 1 of its walk or run, on the ground. */
+  byControls(A, dt, pace){
+    const c=A.ctl; if(!c) return;
+    const r=this.rotOf(A.t);
+    if(c.y){ r[2]+=c.y; }
+    const sp=(c.run? pace.run : pace.walk)*dt, f=Math.max(-1, Math.min(1, c.m)), sd=Math.max(-1, Math.min(1, c.s));
+    if(!f && !sd){ if(c.y) this.place(A.t, {rot:r}); return; }
+    const p=this.posOf(A.t), yaw=r[2];
+    // Forward is +y turned by the yaw (as `stepTo` faces: atan2(dx, dy)); right is +x turned.
+    p[0]+=(Math.sin(yaw)*f+Math.cos(yaw)*sd)*sp; p[1]+=(Math.cos(yaw)*f-Math.sin(yaw)*sd)*sp;
+    const R=App.R, o=(App._scene && App._scene.origin)||[0,0];
+    const gz=R && R.groundZ? R.groundZ(p[0]-o[0], p[1]-o[1]) : null;
+    if(gz!=null) p[2]=gz;
+    if(typeof WgAI==='object' && A.key) WgAI.room(A.key, p);
+    this.place(A.t, {pos:p, rot:r});
+    A._moved=true; A._running=!!c.run;
   },
   actorStep(A, dt, walk, run, W){
     if(A.combat){
@@ -697,7 +720,7 @@ const WgScripts={
     if(A.ai && A.ai.done) this.nextPackage(A);
     const ai=A.ai;
     // A greeting: within its Hello's reach of the player, one standing or wandering turns to it and stands.
-    if(W && (!ai || ai.done || ai.kind==='wander') && W.greet(A)) return;
+    if(W && (!ai || ai.done || ai.kind==='wander') && W.greet(A, dt)){ A._state='greeting'; return; }
     if(!ai || ai.done) return;
     if(ai.left!=null && ai.left!==Infinity){ ai.left-=dt; if(ai.left<=0){ ai.done=true; A._route=null; return; } }
     switch(ai.kind){
@@ -705,9 +728,10 @@ const WgScripts={
       case 'wander': {
         // A wait, with the idle it chose playing out; then the next grid point in its range.
         const own=W && W.own(A.key);
-        if(ai.wait>0 || (own && own.loops!==Infinity)){ ai.wait-=dt; break; }
+        if(ai.wait>0 || (own && own.loops!==Infinity)){ ai.wait-=dt; A._state='waiting'; break; }
         if(!ai.range) { ai.wait=4+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); break; }
         if(!ai.goal) ai.goal=W? W.wanderPoint(ai.home, ai.range) : (()=>{ const r=Math.random()*ai.range, th=Math.random()*Math.PI*2; return [ai.home[0]+r*Math.cos(th), ai.home[1]+r*Math.sin(th), ai.home[2]]; })();
+        A._state='walking';
         if(this.go(A, ai.goal, walk, 32, dt, false)){ ai.goal=null; ai.wait=2+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); }
         break;
       }
@@ -954,7 +978,13 @@ const WgScripts={
   animsFrame(){
     if(!this.anims.size) return;
     const now=performance.now();
-    for(const [k, st] of [...this.anims]) for(const p of new Set(st.slots.filter(Boolean))) if(p.ends!=null && now>=p.ends) this.endPlay(k, st, p);
+    for(const [k, st] of [...this.anims]) for(const p of new Set(st.slots.filter(Boolean))){
+      if(p.ends!=null && now>=p.ends) this.endPlay(k, st, p);
+      /* A play once whose length never came (the model not known when it began, or the
+         engine not answering): ended after five seconds, rather than holding whatever waits
+         on it - a wanderer waiting out its idle - for ever. */
+      else if(p.ends==null && isFinite(p.loops) && now-p.t0>5000) this.endPlay(k, st, p);
+    }
   },
 
   /* ---- what the scene shows ------------------------------------------------------------ */
@@ -1220,6 +1250,7 @@ const WgScripts={
        started on each actor of the scene that has any, the rest after it in order - which is
        what has a town's people walk about. Once per reference; a script's own Ai* replaces it. */
     this._packed=this._packed||new Set();
+    const started={};
     for(const [, r] of refs){
       if(this._packed.has(r.key) || this.disabled.has(r.key)) continue;
       const d=this.actorDefs.get(String(r.id).toLowerCase());
@@ -1229,6 +1260,14 @@ const WgScripts={
       const A=this.actorOf(t, true); if(!A || A.ai) continue;
       A.packages=d.packages; A.pkg=0;
       this.ai(t, A.packages[0][0], A.packages[0][1], {self:t}, true);
+      if(A.ai){ const k=A.ai.kind+(A.ai.kind==='wander'? (A.ai.range>0? ' with a distance' : ' in place') : ''); started[k]=(started[k]||0)+1; }
+    }
+    // Said once a gathering: how many actors the AI took up, and how (the panel's Actors list has each).
+    const total=Object.values(started).reduce((a, b)=>a+b, 0);
+    if(total) this.say('', 'do', 'AI: '+total+' actor'+(total===1? '' : 's')+' on their own packages ('+Object.entries(started).map(([k, n])=>n+' '+k).join(', ')+')');
+    else if(!this._aiSaid && [...this.actorDefs.values()].some(d=>d.tag==='NPC_' || d.tag==='CREA') && ![...this.actorDefs.values()].some(d=>d.packages)){
+      this._aiSaid=true;
+      this.say('', 'warn', 'AI: no actor in the scene came with an AI package (an engine older than this page?)');
     }
     this.drawState(); this.drawWhich();
     if(typeof WgAI==='object') WgAI.load();
@@ -1440,8 +1479,14 @@ const WgScripts={
     const ab=this._el.querySelector('#wgScrActors');
     if(ab){
       const AIN={wander:'wandering', travel:'traveling', follow:'following', escort:'escorting', activate:'going to activate'};
-      const rows=[...this.actors.values()].filter(A=>A.key!=='player').slice(0, 40).map(A=>{
-        const what=A.dead? 'dead' : A.combat? 'fighting '+(A.combat.player? 'the player' : A.combat.id) : A.ai && !A.ai.done? AIN[A.ai.kind]+(A.ai.who? ' '+(A.ai.who.player? 'the player' : A.ai.who.id) : '') : A.ai? A.ai.kind+' done' : '';
+      // Those with an AI package first, nearest the camera first, with what each is doing now.
+      const cam=this.posOf({player:true}), far=A=>{ const p=this.posOf(A.t); return Math.hypot(p[0]-cam[0], p[1]-cam[1]); };
+      const all=[...this.actors.values()].filter(A=>A.key!=='player');
+      all.sort((a, b)=>(!!b.ai-!!a.ai) || (far(a)-far(b)));
+      const rows=all.slice(0, 40).map(A=>{
+        let what=A.dead? 'dead' : A.combat? 'fighting '+(A.combat.player? 'the player' : A.combat.id) : A.ai && !A.ai.done? AIN[A.ai.kind]+(A.ai.who? ' '+(A.ai.who.player? 'the player' : A.ai.who.id) : '') : A.ai? A.ai.kind+' done' : '';
+        if(A.ai && !A.ai.done && A.ai.kind==='wander') what+=' '+Math.round(A.ai.range)+(A._state? ' ('+A._state+')' : '');
+        if(A.ai){ const r=this.refOf(A.t), p=this.posOf(A.t); if(r && r.pos) what+=', moved '+Math.round(Math.hypot(p[0]-r.pos[0], p[1]-r.pos[1]))+(App._liveRefs && App._liveRefs.has(A.key)? '' : ' (not drawn live)'); }
         return '<div>'+escHtml(A.id)+(A.tag==='CONT'? '' : ': '+Math.max(0, Math.round(A.hp))+'/'+Math.round(A.max[0])+' health')+(what? ', '+escHtml(what) : '')+
           (A.anim? ', playing '+escHtml(A.anim.group) : '')+(A.spells && A.spells.size? ', '+A.spells.size+' spell'+(A.spells.size===1? '' : 's') : '')+(A.items.size? ', carries '+A.items.size+' kinds' : '')+'</div>';
       });

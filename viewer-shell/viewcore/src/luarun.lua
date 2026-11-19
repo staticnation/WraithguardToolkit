@@ -125,6 +125,7 @@ local S = {
   sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {}, keysDown = {}, exteriorsSeen = {},
   anims = {},
   gmst = {},
+  controls = {}, aiOff = {}, ctlSent = {},
 }
 local OUT, LOG = {}, {}
 local current          -- the script running now
@@ -873,8 +874,16 @@ packages['openmw.self'] = function(inst)
   if inst.ctx == 'global' then error('openmw.self is only for local scripts', 3) end
   local o = handle(inst.key)
   local extra = selfInternals(inst.key)
-  local s = setmetatable({ controls = { movement = 0, sideMovement = 0, yawChange = 0, pitchChange = 0, run = false, jump = false, sneak = false, use = 0 },
-    object = o, enableAI = function() end, ATTACK_TYPE = {} }, {
+  -- `self.controls` and `self:enableAI` (OpenMW's Lua controls, actors.cpp `mDisableAI`): one
+  -- table an actor's scripts share, and whether the engine's AI drives it; sent to the page
+  -- each frame they say anything (`__wg_step`), which moves the actor by them.
+  S.controls[inst.key] = S.controls[inst.key] or { movement = 0, sideMovement = 0, yawChange = 0, pitchChange = 0, run = false, jump = false, sneak = false, use = 0 }
+  local s = setmetatable({ controls = S.controls[inst.key],
+    object = o, ATTACK_TYPE = {},
+    enableAI = function(_, on)
+      local off = on == false
+      if (S.aiOff[inst.key] or false) ~= off then S.aiOff[inst.key] = off emit({ k = 'aiEnable', key = inst.key, on = not off }) end
+    end }, {
     __index = function(_, n) if extra[n] then return extra[n] end local f = Obj[n] if type(f) == 'function' then return function(_, ...) return f(o, ...) end end return o[n] end,
     __newindex = function(t, n, v) if n == 'enabled' then error('a local script cannot disable its own object; send a global event', 2) end rawset(t, n, v) end,
     __eq = function(a, b) return keyOf(a) == keyOf(b) end,
@@ -1451,6 +1460,16 @@ function __wg_step(arg)
   local live = {}
   for _, i in ipairs(scripts) do if not i.dead then live[#live + 1] = i end end
   scripts = live
+  -- The actors whose scripts move them (`self.controls`), what changed: the page moves them.
+  for k, c in pairs(S.controls) do
+    if k ~= 'player' then
+      local sig = string.format('%g|%g|%g|%s', c.movement or 0, c.sideMovement or 0, c.yawChange or 0, tostring(c.run == true))
+      if S.ctlSent[k] ~= sig and (sig ~= '0|0|0|false' or S.ctlSent[k]) then
+        S.ctlSent[k] = sig
+        emit({ k = 'controls', key = k, m = c.movement or 0, s = c.sideMovement or 0, y = c.yawChange or 0, run = c.run == true })
+      end
+    end
+  end
   return answer()
 end
 

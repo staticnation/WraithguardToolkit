@@ -3379,6 +3379,9 @@ fn game_settings(state: State) -> Result<String, String> {
     Ok(serde_json::json!({
         "activate": g("imaxactivatedist", 192.0),
         "greetMult": g("igreetdistancemultiplier", 6.0),
+        // The greeting's length and how far the player goes before another (77_wg_ai.js `greet`).
+        "greetDuration": g("igreetduration", 4.0),
+        "greetReset": g("fgreetdistancereset", 512.0),
         "move": movement,
     })
     .to_string())

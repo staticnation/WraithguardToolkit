@@ -1049,6 +1049,30 @@ mod tests {
         assert!(!a.contains("error"), "nothing failed: {a}");
     }
 
+    /// OpenMW's Lua controls: `self:enableAI(false)` and `self.controls` are sent to the page,
+    /// which moves the actor by them (actors.cpp's `mDisableAI`; MaxYari's mods drive NPCs so).
+    #[test]
+    fn lua_controls_reach_the_page() {
+        let script = "local self = require('openmw.self') local n = 0\n\
+            return { engineHandlers = { onUpdate = function() n = n + 1\n\
+              if n == 1 then self:enableAI(false) self.controls.movement = 1 self.controls.run = true end\n\
+              if n == 3 then self.controls.movement = 0 self.controls.run = false self:enableAI(true) end end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/m.lua","flags":["NPC"]}}],"sources":{{"scripts/t/m.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
+        let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
+        assert!(a.contains(r#""k":"aiEnable""#) && a.contains(r#""on":false"#), "{a}");
+        assert!(a.contains(r#""k":"controls""#) && a.contains(r#""m":1"#) && a.contains(r#""run":true"#), "{a}");
+        let b = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        assert!(!b.contains(r#""k":"controls""#), "said again only when it changes: {b}");
+        let c = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        assert!(c.contains(r#""m":0"#) && c.contains(r#""on":true"#), "{c}");
+    }
+
     #[test]
     fn scripts_turned_off_are_named_by_path_in_any_case() {
         let off = vec!["scripts/mod/a.lua".to_string(), OFF_BUILTINS.to_string()];

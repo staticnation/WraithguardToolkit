@@ -67,7 +67,7 @@ const WgAI={
       await this.loadNav(specs, key);
       if(!this._gsRead){
         this._gsRead=true;
-        try{ const g=await Engine.call('game_settings'); if(g){ if(g.greetMult!=null) this.gs.greetMult=+g.greetMult; Object.assign(this.gs.move, g.move||{}); } }catch(_){ }
+        try{ const g=await Engine.call('game_settings'); if(g){ if(g.greetMult!=null) this.gs.greetMult=+g.greetMult; if(g.greetReset!=null) this.gs.greetReset=+g.greetReset; if(g.greetDuration!=null) this.gs.greetDuration=+g.greetDuration; Object.assign(this.gs.move, g.move||{}); } }catch(_){ }
       }
       this._for=key; this._busy=null;
       return this.grid;
@@ -216,20 +216,30 @@ const WgAI={
     if(d<1e-3){ dx=1; dy=0; d=1; }
     return [p[0]+dx/d*this.FLEE, p[1]+dy/d*this.FLEE, p[2]];
   },
-  /** The greeting: an actor with Hello, the player within Hello x iGreetDistanceMultiplier
-   *  (and near its height), turns to the player and stands - said once each time the
-   *  player comes near. True while it greets. */
-  greet(A){
+  /** The greeting, as OpenMW's `Actors::updateGreetingState` has it: an actor with Hello and
+   *  no fight on, the player within Hello x iGreetDistanceMultiplier for two of its quarter-second
+   *  updates, greets - turns to the player and plays Idle2 for iGreetDuration seconds - and is
+   *  done: it goes back to what it was doing though the player is still there, and greets again
+   *  only once the player has been past fGreetDistanceReset. True while it greets (a wanderer
+   *  stands for it). */
+  greet(A, dt){
     const hello=(A.rates && A.rates[0])||0, S=WgScripts;
     if(!hello || A.key==='player') return false;
-    const p=S.posOf(A.t), pl=S.posOf({player:true}), d=Math.hypot(pl[0]-p[0], pl[1]-p[1]);
-    const range=hello*this.gs.greetMult;
-    if(d<=range && Math.abs(pl[2]-p[2])<256){
-      S.face(A.t, pl);
-      if(!A._greeted){ A._greeted=true; S.say(A.id, 'do', A.id+' greets the player'); }
-      return true;
+    const g=A._greet||(A._greet={state:'none', timer:0, t:0});
+    const p=S.posOf(A.t), pl=S.posOf({player:true}), d=Math.hypot(pl[0]-p[0], pl[1]-p[1], pl[2]-p[2]);
+    const reset=+(this.gs.greetReset||512), duration=+(this.gs.greetDuration||4);
+    if(g.state!=='none' && d>=reset){ g.state='none'; g.timer=0; }
+    if(g.state==='none'){
+      g.t+=dt||0;
+      if(g.t>=0.25){ g.t=0; if(d<=hello*this.gs.greetMult) g.timer++; }
+      if(g.timer>=2){ g.state='in'; g.timer=0; g.left=duration; S.say(A.id, 'do', A.id+' greets the player'); this.idle(A.key, 'Idle2'); }
     }
-    if(d>range*1.2) A._greeted=false;
+    if(g.state==='in'){
+      S.face(A.t, pl);
+      g.left-=dt||0;
+      if(g.left<=0) g.state='done';
+      return g.state==='in';
+    }
     return false;
   },
   /** Room: `p`, where a moving actor is about to stand, pushed out of every other actor's. */

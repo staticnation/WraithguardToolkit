@@ -287,6 +287,29 @@
 
 ### Fixed
 
+- **The AI checked against OpenMW's source** (`openmw-master/apps/openmw/mwmechanics`: aiwander.cpp,
+  actors.cpp; Static, 2026-11-19: "NPCs still dont wander ... what are we doing wrong").
+  - **A wanderer could wait for ever.** Its wait lasted until the idle it played ended, and an
+    idle whose length never came (the model not yet known when it began, or the engine not
+    answering) never ended. Now a play once with no length ends after five seconds
+    (`animsFrame`).
+  - **The greeting is OpenMW's** (`Actors::updateGreetingState`). The NPC greets after two
+    quarter-second updates within Hello x iGreetDistanceMultiplier, turns to the player and plays
+    Idle2 for `iGreetDuration`, then goes on with its wander though the player is still there.
+    It greets again only once the player has been past `fGreetDistanceReset`. It used to stand
+    for as long as the camera was near, which held still whoever was being looked at.
+    `game_settings` sends the two settings.
+  - **Lua can drive an actor, as in OpenMW.** `self:enableAI(false)` takes the AI off it
+    (actors.cpp's `mDisableAI`), and `self.controls` (movement, sideMovement, yawChange, run)
+    moves it: forward by its walk or run, turned by the yaw, on the ground (`byControls`).
+    Both were ignored before.
+  - **What the AI is doing is shown.** The Scripts panel's Actors list puts the actors with
+    packages first, nearest the camera first, each with its package, what it is doing
+    (walking, waiting, greeting), how far it has moved, and whether it is drawn live. The log
+    says at the start how many actors took up their own packages and of which kinds, or warns
+    when the scene's actors came with none.
+  - Tests: `ai_routes.test.js` (the greeting's course, a play with no length,
+    the controls) and `luarun::tests::lua_controls_reach_the_page`.
 - **Actors' AI moves them on screen** (`06_gl.js` `moveInstance`, `18_cellpreview.js`
   `previewMoveRef`; Static, 2026-11-19: "npcs dont wander ... the ai doesnt actually affect the
   scene").
