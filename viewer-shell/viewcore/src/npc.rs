@@ -431,7 +431,7 @@ fn loc_key(vfs: &Vfs, model: &str) -> String {
    a hundred and fifty people parsed the same half-dozen files a hundred and fifty times
    over, and the cell's load crawled. Read once per file as it resolves, and shared. */
 type Cache<T> = std::sync::Mutex<HashMap<String, std::sync::Arc<T>>>;
-static SKELETONS: std::sync::OnceLock<Cache<Option<nif::Skeleton>>> = std::sync::OnceLock::new();
+static SKELETONS: std::sync::OnceLock<Cache<Option<(nif::Skeleton, Option<[Option<(f32, f32)>; 4]>)>>> = std::sync::OnceLock::new();
 static PART_FILES: std::sync::OnceLock<Cache<Option<Vec<DrawPart>>>> = std::sync::OnceLock::new();
 
 fn cached<T>(cell: &'static std::sync::OnceLock<Cache<T>>, key: String, make: impl FnOnce() -> T) -> std::sync::Arc<T> {
@@ -463,7 +463,7 @@ fn part_file(vfs: &Vfs, model: &str) -> std::sync::Arc<Option<Vec<DrawPart>>> {
 
 /// The skeleton an NPC stands on, with the idle bound when there is one, read once per
 /// skeleton file and `.kf` pair.
-fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&str>) -> Option<std::sync::Arc<Option<nif::Skeleton>>> {
+fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&str>) -> Option<std::sync::Arc<Option<(nif::Skeleton, Option<[Option<(f32, f32)>; 4]>)>>> {
     let base = if !npc.model.is_empty() {
         npc.model.clone()
     } else if beast {
@@ -483,14 +483,14 @@ fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&
         loc_key(vfs, &base),
         twin.as_deref().map(|p| loc_key(vfs, &kf_of(p))).unwrap_or_default(),
         loc_key(vfs, &kf_of(shared)),
-        group.unwrap_or("").to_ascii_lowercase()
+        group.and_then(crate::anim::parse_spec).map(|s| crate::anim::spec_groups(&s)).unwrap_or_default()
     );
     let s = cached(&SKELETONS, key, || skeleton_read(t, vfs, npc, beast, group));
     if s.is_some() { Some(s) } else { None }
 }
 
 /// [`skeleton`], read from the files.
-fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&str>) -> Option<nif::Skeleton> {
+fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&str>) -> Option<(nif::Skeleton, Option<[Option<(f32, f32)>; 4]>)> {
     let base = if !npc.model.is_empty() {
         npc.model.clone()
     } else if beast {
@@ -510,19 +510,23 @@ fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Opt
         let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
         kf = crate::world::kf_beside(vfs, shared).filter(|k| k.idle().is_some());
     }
-    /* Wraithguard: a group a script plays (`crate::anim`): from the skeleton's own `.kf`
-       when it has the group, else from the shared one, else the idle stands. */
-    if let Some(g) = group {
-        let own = twin.as_deref().and_then(|p| crate::world::kf_beside(vfs, p)).and_then(|k| crate::anim::only(&k, g));
-        let picked = own.or_else(|| {
-            let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
-            crate::world::kf_beside(vfs, shared).and_then(|k| crate::anim::only(&k, g))
-        });
-        if picked.is_some() {
-            kf = picked;
+    /* Wraithguard: the groups a script plays (`crate::anim`, the spec in `group=`): laid out
+       from the skeleton's own `.kf` when it has the first group named, else from the shared
+       one. The windows go back with the skeleton; `assemble` times the parts by them and the
+       spec's own start times, which are not part of the cache's key. */
+    if let Some(slots) = group.and_then(crate::anim::parse_spec) {
+        let named = slots.iter().find(|s| !s.group.is_empty()).map(|s| s.group.clone()).unwrap_or_default();
+        let own = twin.as_deref().and_then(|p| crate::world::kf_beside(vfs, p)).filter(|k| k.clip(&named).is_some());
+        let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
+        let base = own.or_else(|| crate::world::kf_beside(vfs, shared)).or(kf.clone());
+        if let Some(base) = base {
+            let w = crate::anim::windows(&base, &slots);
+            if let Some(lk) = crate::anim::layout(&base, &w) {
+                return nif::Skeleton::read(&bytes, Some(&lk)).map(|s| (s, Some(w)));
+            }
         }
     }
-    nif::Skeleton::read(&bytes, kf.as_ref())
+    nif::Skeleton::read(&bytes, kf.as_ref()).map(|s| (s, None))
 }
 
 /// Picks the body part id for each part reference: what the NPC wears first, then its
@@ -681,7 +685,8 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
     let race = t.races.get(&npc.race.to_ascii_lowercase());
     let beast = race.map(|r| r.beast).unwrap_or(false);
     let skel_read = skeleton(t, vfs, npc, beast, opts.group.as_deref())?;
-    let skel: &nif::Skeleton = skel_read.as_ref().as_ref()?;
+    let (skel, windows) = skel_read.as_ref().as_ref()?;
+    let skel: &nif::Skeleton = skel;
     let kit = choose_kit(t, npc, beast);
     let chosen = &kit.chosen;
     let mut systems: Vec<nif::ParticleSystem> = Vec::new();
@@ -812,6 +817,10 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
                 l.at = [l.at[0] * w, l.at[1] * w, l.at[2] * h];
             }
         }
+    }
+    // The groups a script plays: each bone's link on its group's clock (`crate::anim::retime`).
+    if let (Some(w), Some(slots)) = (windows, opts.group.as_deref().and_then(crate::anim::parse_spec)) {
+        crate::anim::retime(&mut out, &crate::anim::bands(w, &slots));
     }
     Some(Assembled { parts: out, systems, light })
 }

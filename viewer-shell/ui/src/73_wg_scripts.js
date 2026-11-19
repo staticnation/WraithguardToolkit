@@ -525,9 +525,12 @@ const WgScripts={
       }
       case 'playgroup': case 'loopgroup': {
         // Played on the object's mesh (`playAnim`): once for PlayGroup, the count's times
-        // more for LoopGroup, then back to its idle.
+        // more for LoopGroup, then back to its idle. The flag: 0 (the default) after what a
+        // script already plays on it, 1 at once, 2 at once and looping until something else.
         if(!t || t.player) return;
-        this.playAnim(t.key, String(a[0]), fn==='loopgroup'? Math.max(0, this.num(a[1])|0) : 0, 1, fn==='playgroup'? 'PlayGroup' : 'LoopGroup');
+        const lg=fn==='loopgroup', flag=this.num(a[lg? 2 : 1])|0;
+        const loops=flag===2? Infinity : lg? Math.max(0, this.num(a[1])|0) : 0;
+        this.playAnim(t.key, String(a[0]), loops, 1, lg? 'LoopGroup' : 'PlayGroup', {queued:flag===0});
         did((fn==='playgroup'? 'PlayGroup ' : 'LoopGroup ')+a.join(' ')); this.drawLive(); return;
       }
       case 'skipanim': return;
@@ -750,48 +753,85 @@ const WgScripts={
     const m=pk && pk.model || '';
     return m.replace(/^__grp\/[^\/]+\//, '').replace(/([?&])group=[^&]*&?/, '$1').replace(/[?&]$/, '');
   },
-  /** A script plays `group` on the object `key`: drawn from the start of the group, `loops`
-   *  times more after the first (Infinity: until something else is played), at `speed`,
-   *  then back to the idle. The group's length comes from the `.kf`; one the file does not
-   *  have is reported and nothing changes. `by` names the caller for the log. */
-  playAnim(key, group, loops, speed, by){
-    const R=App.R, now=performance.now();
-    const a={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, at:(R && R._uvSecs)||0, t0:now, ends:null, len:null};
-    this.anims.set(key, a);
-    const A=this.actorOf(this.inst.get(key) || {key, id:''}); if(A) A.anim={group:a.group, loops:a.loops};
+  /** A script plays `group` on the object `key`, on the bone groups in `mask` (OpenMW's
+   *  BLEND_MASK: 1 lower body, 2 torso, 4 left arm, 8 right arm; 15, the default, the whole
+   *  body). Drawn from the group's first frame, `loops` times more after the first
+   *  (Infinity: until something else is played on those bones), at `speed`, then those
+   *  bones go back to the idle. `queued`: after what a script already plays on any of those
+   *  bones has ended (playQueued; PlayGroup's flag 0), else at once. The group's length comes
+   *  from the `.kf`; one the file does not have is reported and nothing changes. `by` names
+   *  the caller for the log. Returns the play, or null when it waits in the queue. */
+  playAnim(key, group, loops, speed, by, opt){
+    const o=opt||{}, mask=(o.mask|0)&15 || 15;
+    let st=this.anims.get(key);
+    if(!st){ st={slots:[null, null, null, null], queue:[]}; this.anims.set(key, st); }
+    const p={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, mask, by:by||'animation', at:0, t0:0, ends:null, len:null};
+    if(o.queued && st.slots.some((x, i)=>x && (mask>>i)&1)){ st.queue.push(p); return null; }
+    this.startPlay(key, st, p);
+    return p;
+  },
+  /** A play put on its bones now: the renderer's clock noted (the engine times the clip by
+   *  it), the actor told, the scene drawn again, and its length asked of the `.kf`. */
+  startPlay(key, st, p){
+    const R=App.R;
+    p.at=Math.round((((R && R._uvSecs)||0))*1000)/1000; p.t0=performance.now();
+    for(let i=0;i<4;i++) if((p.mask>>i)&1) st.slots[i]=p;
+    const A=this.actorOf(this.inst.get(key) || {key, id:''}); if(A) A.anim={group:p.group, loops:p.loops};
     this._dirtyScene=true;
     const model=this.modelOfKey(key);
-    if(!model) return a;
+    if(!model) return;
     this.groupsOf(model).then(list=>{
-      if(this.anims.get(key)!==a) return;
-      const g=list.find(x=>String(x[0]).toLowerCase()===a.group.toLowerCase());
+      if(!st.slots.includes(p)) return;
+      const g=list.find(x=>String(x[0]).toLowerCase()===p.group.toLowerCase());
       if(!g){
-        this.anims.delete(key); if(A) A.anim=null; this._dirtyScene=true;
-        this.say('', 'skip', (by||'animation')+': '+model+' has no group '+a.group+(list.length? ' (it has '+list.map(x=>x[0]).join(', ')+')' : ' (no .kf beside it)'));
+        this.endPlay(key, st, p);
+        this.say('', 'skip', p.by+': '+model+' has no group '+p.group+(list.length? ' (it has '+list.map(x=>x[0]).join(', ')+')' : ' (no .kf beside it)'));
         return;
       }
-      a.group=String(g[0]); a.len=Math.max(0, (+g[2])-(+g[1]));
-      if(isFinite(a.loops)) a.ends=a.t0+a.len*(a.loops+1)/a.speed*1000;
+      p.group=String(g[0]); p.len=Math.max(0, (+g[2])-(+g[1]));
+      if(A && A.anim) A.anim.group=p.group;   // the file's spelling
+      if(isFinite(p.loops)) p.ends=p.t0+p.len*(p.loops+1)/p.speed*1000;
+      this._dirtyScene=true;
     });
-    return a;
   },
-  /** Stop what a script plays on `key` (`group` given: only that one), back to the idle. */
+  /** A play off its bones (they go back to the idle), and whatever waited for them started. */
+  endPlay(key, st, p){
+    for(let i=0;i<4;i++) if(st.slots[i]===p) st.slots[i]=null;
+    this._dirtyScene=true;
+    while(st.queue.length && !st.slots.some((x, i)=>x && (st.queue[0].mask>>i)&1)) this.startPlay(key, st, st.queue.shift());
+    const live=st.slots.find(Boolean);
+    const A=this.actors.get(key); if(A) A.anim=live? {group:live.group, loops:live.loops} : null;
+    if(!live && !st.queue.length) this.anims.delete(key);
+  },
+  /** Stop `group` (every group, when not given) on `key`, playing or queued. */
   stopAnim(key, group){
-    const a=this.anims.get(key);
-    if(!a || (group && a.group.toLowerCase()!==String(group).toLowerCase())) return;
-    this.anims.delete(key); this._dirtyScene=true;
-    const A=this.actors.get(key); if(A) A.anim=null;
+    const st=this.anims.get(key); if(!st) return;
+    const is=p=>!group || p.group.toLowerCase()===String(group).toLowerCase();
+    st.queue=st.queue.filter(p=>!is(p));
+    for(const p of new Set(st.slots.filter(Boolean))) if(is(p)) this.endPlay(key, st, p);
   },
-  /** Whether `group` (any, when not given) is playing on `key` now. */
+  /** What waits on `key` dropped (clearAnimationQueue). */
+  clearQueue(key){ const st=this.anims.get(key); if(st){ st.queue=[]; if(!st.slots.some(Boolean)) this.anims.delete(key); } },
+  /** Whether `group` (any, when not given) is playing on `key` now, on any bone group. */
   animPlaying(key, group){
-    const a=this.anims.get(key);
-    return !!a && (!group || a.group.toLowerCase()===String(group).toLowerCase());
+    const st=this.anims.get(key);
+    return !!st && st.slots.some(p=>p && (!group || p.group.toLowerCase()===String(group).toLowerCase()));
   },
-  /** The groups whose time is up go back to the idle. */
+  /** The four bone groups' groups on `key`, '' where the idle plays. */
+  animSlots(key){ const st=this.anims.get(key); return [0, 1, 2, 3].map(i=>st && st.slots[i]? st.slots[i].group : ''); },
+  /** The engine's request for what plays on `key` (viewcore anim.rs `parse_spec`): one slot
+   *  when one play has the whole body, else four; null when only the idle plays. */
+  animSpec(key){
+    const st=this.anims.get(key); if(!st || !st.slots.some(Boolean)) return null;
+    const one=p=>p? String(p.group).replace(/[\/\\?&=,@*]/g, '')+'@'+p.at+(p.speed!==1? '*'+p.speed : '') : '';
+    const s=st.slots;
+    return (s[0] && s.every(p=>p===s[0]))? one(s[0]) : s.map(one).join(',');
+  },
+  /** The plays whose time is up leave their bones, and the queue moves on. */
   animsFrame(){
     if(!this.anims.size) return;
     const now=performance.now();
-    for(const [k, a] of this.anims) if(a.ends!=null && now>=a.ends){ this.anims.delete(k); const A=this.actors.get(k); if(A) A.anim=null; this._dirtyScene=true; }
+    for(const [k, st] of [...this.anims]) for(const p of new Set(st.slots.filter(Boolean))) if(p.ends!=null && now>=p.ends) this.endPlay(k, st, p);
   },
 
   /* ---- what the scene shows ------------------------------------------------------------ */
@@ -804,7 +844,7 @@ const WgScripts={
     if(!touch) return rec;
     const refs=[];
     // A group a script plays: on the reference for the renderer (18_cellpreview.js `animModel`).
-    const withAnim=(r)=>{ const a=this.anims.get(r.key); return a? Object.assign({}, r, {anim:a.group, animAt:a.at, animSpeed:a.speed}) : r; };
+    const withAnim=(r)=>{ const sp=this.anims.size? this.animSpec(r.key) : null; return sp? Object.assign({}, r, {anim:sp}) : r; };
     for(const r0 of rec.refs){
       if(this.disabled.has(r0.key)) continue;
       const r=withAnim(r0);

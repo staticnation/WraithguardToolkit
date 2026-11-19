@@ -202,7 +202,7 @@ const WgLua={
     }
     if(Object.keys(actors).length) out.actors=actors;
     // The groups scripts are playing (openmw.animation's isPlaying, getActiveGroup), whole when one changes.
-    const anims={}; for(const [k, a] of S.anims) anims[k]=a.group;
+    const anims={}; for(const k of S.anims.keys()) anims[k]=S.animSlots(k);
     const as=JSON.stringify(anims); if(as!==this._sentAn){ this._sentAn=as; out.anims=anims; }
     const mw={};
     // Global scripts too (StartScript's), by `global:<id>`, for world.mwscript.getGlobalScript.
@@ -294,10 +294,11 @@ const WgLua={
     anim(e){
       const t=this.thing(e.key); if(!t || t.player) return;
       const loops=e.loops==null? 0 : (e.loops<0 || e.loops>1e6)? Infinity : e.loops;
-      WgScripts.playAnim(e.key, String(e.group), loops, e.speed>0? e.speed : 1, 'openmw.animation');
-      this.say('', 'do', 'animation '+e.group+' on '+this.name(e.key));
+      const p=WgScripts.playAnim(e.key, String(e.group), loops, e.speed>0? e.speed : 1, 'openmw.animation', {mask:e.mask|0 || 15, queued:!!e.queued});
+      this.say('', 'do', 'animation '+e.group+(p? '' : ' (queued)')+' on '+this.name(e.key));
     },
     animStop(e){ WgScripts.stopAnim(e.key, e.group||''); },
+    animClear(e){ WgScripts.clearQueue(e.key); },
     music(e){ this.say('', 'do', 'music '+e.path); WgScripts.music(String(e.path)); },
     stopMusic(){ if(typeof WgSound==='object' && WgSound.musicStop) WgSound.musicStop(); },
     weather(e){

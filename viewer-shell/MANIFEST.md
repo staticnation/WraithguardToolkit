@@ -193,7 +193,7 @@ names a command that is not defined, or one is left unregistered.
 
 | Module | Lines | What it does |
 |---|---|---|
-| `anim.rs` | 110 | Named animation groups for the scripts: a `.kf` narrowed to one group, the groups it marks, the `__grp/` request. |
+| `anim.rs` | 360 | Named animation groups for the scripts: the `__grp/` request, OpenMW's bone groups, a `.kf` laid out in a band per bone group and the parts timed to it, the groups a `.kf` marks. |
 | `audio.rs` | 274 | Sounds decoded (Symphonia) for the page to play; the checks Verify uses (silent, clipped). |
 | `bcx.rs` | 488 | BC4, BC5 and BC7 decoding, for a webview that cannot take the blocks. |
 | `coverage.rs` | 168 | Land-texture coverage per cell, and which plugins touch each cell. |
@@ -203,13 +203,13 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 61 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luarun.rs` | 1049 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
+| `luarun.rs` | 1056 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
 | `luascan.rs` | 313 | The load order's Lua scripts checked through the overlay (luacore, Teal). |
 | `markers.rs` | 36 | The Construction Set markers the viewer carries itself. |
 | `mland.rs` | 434 | The merged-lands preview: one cell's landscape as Merge Lands would write it (landcore). |
 | `navmesh.rs` | 863 | OpenMW's `navmesh.db` read for drawing (its own LZ4 decoder; written from the file's layout, not OpenMW's code). |
 | `nifx.rs` | 178 | Wraithguard's additions to Gardenfell's mesh reading (embedded textures, gloss, names). |
-| `npc.rs` | 973 | NPCs assembled for drawing: race, body parts, worn items by OpenMW's priorities, the skeleton. |
+| `npc.rs` | 982 | NPCs assembled for drawing: race, body parts, worn items by OpenMW's priorities, the skeleton. |
 | `objects.rs` | 30 | Gardenfell's object index (`ObjKind`, `ObjectDef`, leveled lists). |
 | `preview.rs` | 594 | Meshes packed as the bytes the viewport draws, and their animation as JSON. |
 | `profiles.rs` | 629 | Files beside the program: the remembered install, theme, cell-picker choice. |

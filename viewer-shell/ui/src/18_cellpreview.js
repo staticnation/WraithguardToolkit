@@ -31,10 +31,10 @@ function npcFlags(indoors){
   return f.length? '?'+f.join('&') : '';
 }   // forward slash: VFS.norm turns every backslash into one
 
-/** Wraithguard: the mesh a reference is drawn with while a script plays an animation group
- *  on it (PlayGroup, LoopGroup, openmw.animation; 73_wg_scripts.js `playAnim`): the model's
- *  `.kf` narrowed to that group (viewcore anim.rs) - `__grp/<group>/<model>`, or for an NPC
- *  `group=<group>` among its flags. */
+/** Wraithguard: the mesh a reference is drawn with while a script plays animation groups
+ *  on it (PlayGroup, LoopGroup, openmw.animation; 73_wg_scripts.js `animSpec`): the model's
+ *  `.kf` laid out for those groups (viewcore anim.rs) - `__grp/<spec>/<model>`, or for an
+ *  NPC `group=<spec>` among its flags. */
 function animModel(model, group){
   if(!group || !model) return model;
   const g=String(group).replace(/[\/?&=]/g, '');
@@ -2682,17 +2682,6 @@ function animSpan(info){
   return span;
 }
 
-/** Wraithguard: where a mesh's clip begins - the earliest start among its links. */
-function animStart(info){
-  let at=Infinity;
-  const links=L=>{ for(const l of (L||[])) at=Math.min(at, +l.start||0); };
-  for(const p of info.parts||[]){
-    if(p.anim) links(p.anim.nodes);
-    if(p.skin) for(const b of p.skin.bones||[]) links(b.chain);
-  }
-  return isFinite(at)? at : 0;
-}
-
 /** Round 18ai: the instances of a mesh dealt into phase bins - `[{all:true}]` for a mesh
  *  that does not move, else up to eight bins of `{idx, shift, speed}` with the instances
  *  shared out evenly and each bin's shift, in seconds into the clip, taken from where its
@@ -2709,16 +2698,10 @@ function phaseBins(list, info){
   if(!info.animated || !list.length) return [{all:true}];
   const span=animSpan(info);
   if(!(span>1e-6)) return [{all:true}];
-  /* Wraithguard: a group a script plays starts at its first frame when it was asked for:
-     a bin each, its shift putting the clip's start at the clock's reading then
-     (`animAt`, the renderer's `_uvSecs`), at the script's speed. */
-  if(list.some(r=>r.ref && r.ref.anim)){
-    const start=animStart(info);
-    return list.map((r,k)=>{
-      const sp=(r.ref && r.ref.animSpeed>0)? r.ref.animSpeed : 1;
-      return {idx:[k], shift:start-((r.ref && r.ref.animAt)||0)*sp, speed:sp};
-    });
-  }
+  /* Wraithguard: what a script plays is timed by the engine (viewcore anim.rs `retime`:
+     each link starts on its group's first frame at the clock's reading when it began), so
+     those instances keep the file's clock, unshifted. */
+  if(list.some(r=>r.ref && r.ref.anim)) return [{all:true}];
   const at=r=>(r.ref&&r.ref.pos)||[0,0,0];
   const hash=r=>{ const p=at(r); return frac2(p[0]*0.01, p[1]*0.01, 5.7); };
   const order=list.map((r,k)=>({k, h:hash(r)})).sort((a,b)=>a.h-b.h || a.k-b.k);

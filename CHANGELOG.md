@@ -334,17 +334,28 @@
 - **Scripts play animation groups on the mesh** (`viewcore::anim`, `anim_groups`; `73_wg_scripts.js`
   `playAnim`, `18_cellpreview.js` `animModel`; luarun.lua's `openmw.animation`). MWScript's
   PlayGroup and LoopGroup and OpenMW Lua's `playBlended`/`playQueued` used to name the group
-  and leave the mesh standing. Now the object is drawn playing it: the engine is asked for
-  `__grp/<group>/<model>` (an NPC: `group=<group>` among its flags), which is the model's `.kf`
-  narrowed to that group. It starts at the group's first frame and runs at the script's speed.
-  It goes back to the idle once its loops are done: once for PlayGroup, the count more for
-  LoopGroup, and until cancelled for a Lua `loops` of infinity or `forceLoop`. A group the
-  `.kf` lacks is named in the log with the groups it does have, and nothing changes. Lua's
-  `isPlaying`, `getActiveGroup` and `cancel` answer from what the page is playing. Blending,
-  bone groups and queues are not drawn; a queued group just plays. Tests:
-  `viewcore::anim` (requests, group windows, narrowing), `npc_request`'s `group=`,
-  `luarun::tests::animation_groups_are_played_and_end_where_the_page_says`, and
-  `ui/tests/editor/scripts_anim.test.js`.
+  and leave the mesh standing. Now the object is drawn playing it:
+  - **On the whole body or on bone groups.** Lua's `blendMask` puts a group on OpenMW's lower
+    body, torso, left arm or right arm, so legs can walk while the arms do something else.
+    `getActiveGroup` answers per bone group. Bones go to a group by the Biped names, from
+    OpenMW's roots: `Bip01 Spine1` is the torso and the clavicles are the arms.
+  - **How the engine draws it.** It is asked for `__grp/<spec>/<model>` (an NPC: `group=<spec>`
+    among its flags). The spec names each bone group's group and when it began. Each slot's
+    window of the `.kf` is moved into a time band of its own, and each link gets its band's
+    window and a clock that starts it on its group's first frame, at its own speed.
+    Gardenfell's binding and the renderer read it as they always did.
+  - **Queues.** `playQueued` and MWScript PlayGroup's default flag 0 wait until what a script
+    already plays on those bones ends; flag 1 starts at once; flag 2 starts at once and loops
+    until something else. `clearAnimationQueue` drops what waits.
+  - **Ending.** A group goes back to the idle once its loops are done: once for PlayGroup, the
+    count more for LoopGroup, and until cancelled for a Lua `loops` of infinity or `forceLoop`.
+    A group the `.kf` lacks is named in the log with the groups it does have, and nothing
+    changes. `isPlaying`, `getActiveGroup` and `cancel` answer from what the page is playing.
+  - Blending between groups is not drawn: a group starts on its first frame, snapping from
+    the pose before.
+  - Tests: `viewcore::anim` (requests, specs, bone groups, bands, retiming), `npc_request`'s
+    `group=`, `luarun::tests::animation_groups_are_played_and_end_where_the_page_says`, and
+    `ui/tests/editor/scripts_anim.test.js` (slots, the queue, MWScript's flags).
 - **Which scripts run** (the Scripts panel; `luarun::start_json`'s `off`, `lua_run_start`'s
   `off`). Each of the load order's registered Lua scripts, OpenMW's built-ins as one switch, and
   each of the scene's MWScripts can be turned off, with a filter and All/None over what it

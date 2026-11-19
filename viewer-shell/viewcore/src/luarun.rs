@@ -905,16 +905,20 @@ mod tests {
         assert!(got.contains(r#""text":"clicked""#) && got.contains(r#""text":"Bye""#), "{got}");
     }
 
-    /// `openmw.animation` (Static: "Work on LUA stuff"): a group played is sent to the page,
-    /// `isPlaying` and `getActiveGroup` answer it at once, and the page's word on what is
-    /// playing (`anims`) is what they answer after - empty once the group ended there.
+    /// `openmw.animation` (Static: "Work on LUA stuff"): a group played is sent to the page
+    /// with its bone groups, `isPlaying` and `getActiveGroup` answer it at once, a queued one
+    /// waits behind it, and the page's word on what each bone group plays (`anims`) is what
+    /// they answer after - the idle's '' once the group ended there.
     #[test]
     fn animation_groups_are_played_and_end_where_the_page_says() {
         let script = "local anim = require('openmw.animation') local self = require('openmw.self') local n = 0\n\
+            local B = anim.BONE_GROUP\n\
             return { engineHandlers = { onUpdate = function() n = n + 1\n\
-              if n == 1 then anim.playBlended(self, 'idle3', { loops = 2, speed = 1.5 }) end\n\
-              print('frame', n, anim.isPlaying(self, 'Idle3'), anim.getActiveGroup(self, anim.BONE_GROUP.LowerBody), anim.isPlaying(self, 'Hit1'))\n\
-              if n == 3 then anim.cancel(self, 'idle3') end end } }";
+              if n == 1 then anim.playBlended(self, 'idle3', { loops = 2, speed = 1.5 })\n\
+                anim.playBlended(self, 'attack1', { blendMask = anim.BLEND_MASK.UpperBody })\n\
+                anim.playQueued(self, 'idle2', { blendMask = anim.BLEND_MASK.LowerBody }) end\n\
+              print('frame', n, anim.isPlaying(self, 'Idle3'), anim.getActiveGroup(self, B.LowerBody), anim.getActiveGroup(self, B.RightArm), anim.isPlaying(self, 'Hit1'))\n\
+              if n == 3 then anim.cancel(self, 'idle3') anim.clearAnimationQueue(self, false) end end } }";
         let mut esc = String::from("\"");
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
@@ -923,15 +927,18 @@ mod tests {
         r.call("__wg_start", &start).unwrap();
         let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
         let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
-        assert!(a.contains(r#""k":"anim""#) && a.contains(r#""group":"idle3""#) && a.contains(r#""loops":2"#) && a.contains(r#""speed":1.5"#), "{a}");
-        assert!(a.contains(r#""text":"frame 1 true idle3 false""#), "{a}");
-        // The page says it is still playing, then that it ended.
-        let b = r.call("__wg_step", r#"{"dt":0.05,"anims":{"n1":"Idle3"}}"#).unwrap();
-        assert!(b.contains(r#""text":"frame 2 true Idle3 false""#), "{b}");
-        let c = r.call("__wg_step", r#"{"dt":0.05,"anims":{"n1":"Idle3"}}"#).unwrap();
-        assert!(c.contains(r#""k":"animStop""#), "cancel tells the page: {c}");
+        assert!(a.contains(r#""k":"anim""#) && a.contains(r#""group":"idle3""#) && a.contains(r#""loops":2"#) && a.contains(r#""speed":1.5"#) && a.contains(r#""mask":15"#), "{a}");
+        assert!(a.contains(r#""group":"attack1""#) && a.contains(r#""mask":14"#), "the upper body's: {a}");
+        assert!(a.contains(r#""group":"idle2""#) && a.contains(r#""queued":true"#), "queued: {a}");
+        // The legs keep idle3 (idle2 waits for them); the arms took attack1.
+        assert!(a.contains(r#""text":"frame 1 true idle3 attack1 false""#), "{a}");
+        // The page says what plays, then that it ended.
+        let b = r.call("__wg_step", r#"{"dt":0.05,"anims":{"n1":["Idle3","Attack1","Attack1","Attack1"]}}"#).unwrap();
+        assert!(b.contains(r#""text":"frame 2 true Idle3 Attack1 false""#), "{b}");
+        let c = r.call("__wg_step", r#"{"dt":0.05,"anims":{"n1":["Idle3","Attack1","Attack1","Attack1"]}}"#).unwrap();
+        assert!(c.contains(r#""k":"animStop""#) && c.contains(r#""k":"animClear""#), "cancel and the queue cleared tell the page: {c}");
         let d = r.call("__wg_step", r#"{"dt":0.05,"anims":{}}"#).unwrap();
-        assert!(d.contains(r#""text":"frame 4 false  false""#), "{d}");
+        assert!(d.contains(r#""text":"frame 4 false   false""#), "{d}");
     }
 
     #[test]

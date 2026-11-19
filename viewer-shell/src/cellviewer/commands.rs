@@ -2070,18 +2070,25 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str, still: bool) -> Result<(
         let kf = std::fs::read(disk.with_extension("kf")).ok().and_then(|b| viewcore::nif::parse_kf(&b));
         return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(path)));
     }
-    /* Wraithguard: a group a script plays on the reference (`viewcore::anim`), asked for
-       as `__grp/<group>/<model>`: the model's `.kf` narrowed to that group, played in a
-       loop. A group the file does not have draws the model's own idle. */
-    if let Some((group, model)) = viewcore::anim::group_request(path) {
+    /* Wraithguard: the groups a script plays on the reference (`viewcore::anim`), asked for
+       as `__grp/<spec>/<model>`: the model's `.kf` laid out with each bone group's group in
+       a band of its own, each link timed to start on its group's first frame. A spec the
+       file has nothing for draws the model as it always is. */
+    if let Some((spec, model)) = viewcore::anim::group_request(path) {
         let p = v
             .resolve_mesh(model)
             .or_else(|| v.resolve(model))
             .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = model))?;
         let bytes = v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = model))?;
         let kf = kf_beside(v, model);
-        let kf = kf.as_ref().and_then(|k| viewcore::anim::only(k, group)).or(kf);
-        return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(model)));
+        let laid = kf.as_ref().zip(viewcore::anim::parse_spec(spec)).and_then(|(k, s)| viewcore::anim::layered(k, &s));
+        let Some((lk, bands)) = laid else { return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(model))) };
+        let Some((mut r, g)) = viewcore::nif::read_for_draw_and_geom(&bytes, Some(&lk)) else {
+            return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(model)));
+        };
+        viewcore::nif::own_embedded(&mut r, model);
+        viewcore::anim::retime(&mut r.parts, &bands);
+        return Ok(payload_of_parts(r.parts, g, r.attach, r.systems, r.light));
     }
     let p = v
         .resolve_mesh(path)

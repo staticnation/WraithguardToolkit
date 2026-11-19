@@ -189,8 +189,11 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 
 - OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): the camera, input bindings, console and
   HUD built-ins are left out (they need the game); `ui.create`'s keys go to a node once it is
-  clicked. `openmw.animation` plays one group at a time: no blending, bone groups or queue,
-  and `addVfx` is not drawn.
+  clicked. `openmw.animation` does not crossfade (a group snaps in from the pose before; a
+  renderer change that needs a look in the viewer), and `addVfx` is not drawn.
+- **MWSE-Lua** for Morrowind.ini and MO2 setups (Static, 2026-11-18): `mwse.*`, `tes3.*` and
+  `event.register`, run against the same scene layer as MWScript and OpenMW Lua, with the
+  animation groups and Which scripts run shared. Not started.
 - **AI packages carried out** (next): Wander, Travel, Escort, Follow, Activate, and Combat as
   approach-and-face, from MWScript's Ai* and Lua's `I.AI`. Walked over the pathgrid or the
   navmesh at the record's speed, with the walk and idle groups playing (`playAnim`). Today the

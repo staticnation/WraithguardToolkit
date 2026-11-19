@@ -791,35 +791,53 @@ packages['openmw.nearby'] = function(inst)
   end })
 end
 packages['openmw.types'] = function() return types end
--- openmw.animation: the group played on the object's mesh in the Preview (73_wg_scripts.js
--- `playAnim`); the page says what is playing (`anims`), so isPlaying turns false when the
--- group ends there. One group at a time: blending, bone groups and queues are not drawn,
--- and a queued group simply plays.
+-- openmw.animation: the groups played on the object's mesh in the Preview (73_wg_scripts.js
+-- `playAnim`), on the bone groups `blendMask` names, a queued one after what plays there.
+-- The page says what each bone group plays (`anims`: four names, '' for the idle), so
+-- isPlaying turns false when a group ends there. Blending between groups is not drawn: a
+-- group starts on its first frame.
 packages['openmw.animation'] = function(inst)
-  local function play(o, group, opt)
+  -- Bit i of a mask, in arithmetic: LuaJIT (Lua 5.1) has no bitwise operators.
+  local function bit(mask, i) return math.floor(mask / 2 ^ (i - 1)) % 2 == 1 end
+  local function slots(k) local s = S.anims[k] if type(s) ~= 'table' then s = { '', '', '', '' } S.anims[k] = s end return s end
+  local function play(o, group, opt, queued)
     local k = keyOf(o)
     if not k or k == 'player' then return end
     opt = opt or {}
     local loops = tonumber(opt.loops) or 0
     if loops == math.huge or opt.forceLoop then loops = -1 end
-    S.anims[k] = group
-    emit({ k = 'anim', key = k, group = group, loops = loops, speed = tonumber(opt.speed) or 1 })
+    local mask = tonumber(opt.blendMask) or 15
+    if mask <= 0 or mask > 15 then mask = 15 end
+    local s = slots(k)
+    local busy = false
+    for i = 1, 4 do if bit(mask, i) and s[i] ~= '' then busy = true end end
+    if not (queued and busy) then for i = 1, 4 do if bit(mask, i) then s[i] = group end end end
+    emit({ k = 'anim', key = k, group = group, loops = loops, speed = tonumber(opt.speed) or 1, mask = mask, queued = queued or nil })
   end
   local function playing(o, group)
-    local g = S.anims[keyOf(o)]
-    return g ~= nil and (group == nil or string.lower(g) == string.lower(group))
+    local s = S.anims[keyOf(o)]
+    if type(s) ~= 'table' then return false end
+    for i = 1, 4 do
+      if s[i] ~= '' and (group == nil or string.lower(s[i]) == string.lower(group)) then return true end
+    end
+    return false
   end
   local function cancel(o, group)
     local k = keyOf(o)
-    if playing(o, group) then S.anims[k] = nil emit({ k = 'animStop', key = k, group = group }) end
+    if not playing(o, group) then return end
+    local s = slots(k)
+    for i = 1, 4 do if group == nil or string.lower(s[i]) == string.lower(group) then s[i] = '' end end
+    emit({ k = 'animStop', key = k, group = group })
   end
+  -- BONE_GROUP is 1-based, as OpenMW gives it; 0 is read as the lower body.
+  local function active(o, bg) local s = S.anims[keyOf(o)] if type(s) ~= 'table' then return '' end return s[math.max(1, math.min(4, tonumber(bg) or 1))] or '' end
   return setmetatable({
-    playBlended = function(o, group, opt) play(o, group, opt) end,
-    playQueued = function(o, group, opt) play(o, group, opt) end,
+    playBlended = function(o, group, opt) play(o, group, opt, false) end,
+    playQueued = function(o, group, opt) play(o, group, opt, true) end,
     cancel = function(o, group) cancel(o, group) end,
-    clearAnimationQueue = function(o) cancel(o, nil) end,
+    clearAnimationQueue = function(o, clearScripted) local k = keyOf(o) if k then emit({ k = 'animClear', key = k }) if clearScripted then cancel(o, nil) end end end,
     isPlaying = function(o, group) return playing(o, group) end,
-    getActiveGroup = function(o) return S.anims[keyOf(o)] or '' end,
+    getActiveGroup = function(o, bg) return active(o, bg) end,
     hasAnimation = function(o) local d = obj_of(keyOf(o)) return d ~= nil and (d.tag == 'NPC_' or d.tag == 'CREA' or d.tag == 'ACTI' or d.tag == 'CONT' or d.tag == 'DOOR' or d.tag == 'LIGH') end,
     -- Which groups a `.kf` has is the page's to know; a group it lacks is reported there when played.
     hasGroup = function(o) return true end,
@@ -836,7 +854,7 @@ packages['openmw.animation'] = function(inst)
     removeAllVfx = function() end,
     PRIORITY = { Default = 0, WeaponLowerBody = 1, SneakIdleLowerBody = 2, SwimIdle = 3, Jump = 4, Movement = 5, Hit = 6, Weapon = 7, Block = 8, Knockdown = 9, Torch = 10, Storm = 11, Death = 12, Scripted = 13 },
     BLEND_MASK = { LowerBody = 1, Torso = 2, LeftArm = 4, RightArm = 8, UpperBody = 14, All = 15 },
-    BONE_GROUP = { LowerBody = 0, Torso = 1, LeftArm = 2, RightArm = 3 },
+    BONE_GROUP = { LowerBody = 1, Torso = 2, LeftArm = 3, RightArm = 4 },
   }, { __index = function(_, n) once('anim:' .. tostring(n), 'skip', 'animation.' .. tostring(n) .. ' is not run in the preview') return function() end end })
 end
 packages['openmw.ambient'] = function(inst)
