@@ -613,7 +613,8 @@ const WgScripts={
     const A=this.actorOf(t); if(!A || A.dead || t.player) return;
     const hours=x=>this.num(x)>0? this.num(x)*3600/30 : Infinity;
     const p=this.posOf(t);
-    if(kind==='wander') A.ai={kind, home:p, range:Math.max(0, this.num(a[0])), left:hours(a[1]), goal:null, wait:0};
+    // AiWander range duration time idle2 ... idle9: the idles' chances, for the waits.
+    if(kind==='wander') A.ai={kind, home:p, range:Math.max(0, this.num(a[0])), left:hours(a[1]), goal:null, wait:0, idle:a.slice(3, 11).map(x=>this.num(x))};
     else if(kind==='travel') A.ai={kind, goal:[this.num(a[0]), this.num(a[1]), this.num(a[2])]};
     else if(kind==='follow' || kind==='escort'){
       const who=this.target(String(a[0]).toLowerCase(), ctx);
@@ -624,45 +625,80 @@ const WgScripts={
     if(A.ai) A.ai.done=false;
     this.drawState();
   },
-  /** One frame of every actor that has somewhere to go: a fight first, then its package. */
+  /** One frame of every actor that has somewhere to go: a fight first, then its package.
+   *  Routes over the pathgrid and the walk while it moves are 77_wg_ai.js's (`go`). */
   actorsFrame(dt){
-    const walk=150, run=300;
+    const walk=150, run=300, W=typeof WgAI==='object'? WgAI : null;
     for(const A of this.actors.values()){
-      if(A.dead || A.key==='player' || this.disabled.has(A.key)) continue;
-      if(A.combat){
-        const foe=A.combat, fa=this.actorOf(foe);
-        if(!fa || fa.dead){ A.combat=null; continue; }
-        const d=this.dist(A.t, foe);
-        if(d>120) this.stepTo(A.t, this.posOf(foe), run*dt, 100);
-        else{
-          this.face(A.t, this.posOf(foe));
-          A._hitT+=dt;
-          if(A._hitT>=1){ A._hitT=0; this.blow(A, fa); }
-        }
-        continue;
-      }
-      const ai=A.ai; if(!ai || ai.done) continue;
-      if(ai.left!=null && ai.left!==Infinity){ ai.left-=dt; if(ai.left<=0){ ai.done=true; continue; } }
-      switch(ai.kind){
-        case 'travel': if(this.stepTo(A.t, ai.goal, walk*dt, 64)) ai.done=true; break;
-        case 'wander':
-          if(!ai.range){ break; }
-          if(ai.wait>0){ ai.wait-=dt; break; }
-          if(!ai.goal){ const r=Math.random()*ai.range, th=Math.random()*Math.PI*2; ai.goal=[ai.home[0]+r*Math.cos(th), ai.home[1]+r*Math.sin(th), ai.home[2]]; }
-          if(this.stepTo(A.t, ai.goal, walk*0.6*dt, 32)){ ai.goal=null; ai.wait=2+Math.random()*4; }
-          break;
-        case 'follow': case 'escort': {
-          if(ai.goal && this.dist({pos:ai.goal, key:'#'}, A.t)<200 && ai.kind==='escort'){ ai.done=true; break; }
-          const lead=ai.kind==='escort' && ai.goal? ai.goal : this.posOf(ai.who);
-          if(ai.kind==='follow' && ai.goal && Math.hypot(...this.posOf(A.t).map((x, i)=>x-ai.goal[i]))<200){ ai.done=true; break; }
-          this.stepTo(A.t, lead, (this.dist(A.t, ai.who)>600? run : walk)*dt, ai.kind==='escort'? 64 : 180);
-          break;
-        }
-        case 'activate':
-          if(this.stepTo(A.t, this.posOf(ai.who), walk*dt, 120)){ if(ai.who) ai.who._activate=true; ai.done=true; this.say(A.id, 'do', 'activated '+(ai.who && ai.who.id || '')); }
-          break;
-      }
+      if(A.key==='player') continue;
+      A._moved=false; A._running=false;
+      if(!A.dead && !this.disabled.has(A.key)) this.actorStep(A, dt, walk, run, W);
+      // The walk while it moves; its idle once it stops (a script's own group wins, `WgAI.loop`).
+      if(W && A.key){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }
     }
+  },
+  actorStep(A, dt, walk, run, W){
+    if(A.combat){
+      const foe=A.combat, fa=this.actorOf(foe);
+      if(!fa || fa.dead){ A.combat=null; A._route=null; return; }
+      const d=this.dist(A.t, foe);
+      if(d>120){ A._running=true; this.go(A, this.posOf(foe), run, 100, dt, true); }
+      else{
+        this.face(A.t, this.posOf(foe));
+        A._hitT+=dt;
+        if(A._hitT>=1){ A._hitT=0; this.blow(A, fa); }
+      }
+      return;
+    }
+    const ai=A.ai; if(!ai || ai.done) return;
+    if(ai.left!=null && ai.left!==Infinity){ ai.left-=dt; if(ai.left<=0){ ai.done=true; A._route=null; return; } }
+    switch(ai.kind){
+      case 'travel': if(this.go(A, ai.goal, walk, 64, dt, false)) ai.done=true; break;
+      case 'wander': {
+        // A wait, with the idle it chose playing out; then the next grid point in its range.
+        const own=W && W.own(A.key);
+        if(ai.wait>0 || (own && own.loops!==Infinity)){ ai.wait-=dt; break; }
+        if(!ai.range) { ai.wait=4+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); break; }
+        if(!ai.goal) ai.goal=W? W.wanderPoint(ai.home, ai.range) : (()=>{ const r=Math.random()*ai.range, th=Math.random()*Math.PI*2; return [ai.home[0]+r*Math.cos(th), ai.home[1]+r*Math.sin(th), ai.home[2]]; })();
+        if(this.go(A, ai.goal, walk*0.6, 32, dt, false)){ ai.goal=null; ai.wait=2+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); }
+        break;
+      }
+      case 'follow': case 'escort': {
+        if(ai.goal && this.dist({pos:ai.goal, key:'#'}, A.t)<200 && ai.kind==='escort'){ ai.done=true; break; }
+        if(ai.kind==='follow' && ai.goal && Math.hypot(...this.posOf(A.t).map((x, i)=>x-ai.goal[i]))<200){ ai.done=true; break; }
+        const toGoal=ai.kind==='escort' && ai.goal;
+        const lead=toGoal? ai.goal : this.posOf(ai.who);
+        const far=this.dist(A.t, ai.who)>600;
+        A._running=far;
+        this.go(A, lead, far? run : walk, toGoal? 64 : 180, dt, !toGoal);
+        break;
+      }
+      case 'activate':
+        if(this.go(A, this.posOf(ai.who), walk, 120, dt, false)){ if(ai.who) ai.who._activate=true; ai.done=true; this.say(A.id, 'do', 'activated '+(ai.who && ai.who.id || '')); }
+        break;
+    }
+  },
+  /** An actor along a route to `dest` (`WgAI.route`, over the pathgrid; a straight line
+   *  without one), at `speed` units a second; true once within `near` of it. Planned again
+   *  when the destination moves away from where the route ends, and every two seconds after
+   *  one that moves (`moving`: a target it follows or fights). */
+  go(A, dest, speed, near, dt, moving){
+    if(!dest) return true;
+    const W=typeof WgAI==='object'? WgAI : null;
+    let R=A._route;
+    A._routeAge=(A._routeAge||0)+dt;
+    if(!R || Math.hypot(R.to[0]-dest[0], R.to[1]-dest[1])>(moving? 150 : 1) || (moving && A._routeAge>2)){
+      R=A._route={to:dest.slice(), pts:W? W.route(this.posOf(A.t), dest) : [dest.slice()]};
+      A._routeAge=0;
+    }
+    if(moving) R.pts[R.pts.length-1]=dest.slice();
+    for(let n=0;n<64;n++){
+      const last=R.pts.length===1;
+      if(!this.stepTo(A.t, R.pts[0], speed*dt, last? near : 48)){ A._moved=true; return false; }
+      if(last){ A._route=null; A._moved=false; return true; }   // arrived: it stands (its idle, or one the AI plays)
+      R.pts.shift();
+    }
+    return false;
   },
   /** An actor a step toward a point, facing it, on the ground; true once within `near`. */
   stepTo(t, goal, step, near){
@@ -765,7 +801,7 @@ const WgScripts={
     const o=opt||{}, mask=(o.mask|0)&15 || 15;
     let st=this.anims.get(key);
     if(!st){ st={slots:[null, null, null, null], queue:[]}; this.anims.set(key, st); }
-    const p={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, mask, by:by||'animation', at:0, t0:0, ends:null, len:null};
+    const p={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, mask, by:by||'animation', at:0, t0:0, ends:null, len:null, quiet:!!o.quiet, onLack:o.onLack||null};
     if(o.queued && st.slots.some((x, i)=>x && (mask>>i)&1)){ st.queue.push(p); return null; }
     this.startPlay(key, st, p);
     return p;
@@ -785,6 +821,8 @@ const WgScripts={
       const g=list.find(x=>String(x[0]).toLowerCase()===p.group.toLowerCase());
       if(!g){
         this.endPlay(key, st, p);
+        if(p.onLack) p.onLack();
+        if(p.quiet) return;   // the AI's walk on a mesh without one: it just slides, as before
         this.say('', 'skip', p.by+': '+model+' has no group '+p.group+(list.length? ' (it has '+list.map(x=>x[0]).join(', ')+')' : ' (no .kf beside it)'));
         return;
       }
@@ -1087,6 +1125,7 @@ const WgScripts={
         base:{pos:(r.pos||[0,0,0]).slice(), rot:(r.rot||[0,0,0]).slice()}, _ref:r});
     }
     this.drawState(); this.drawWhich();
+    if(typeof WgAI==='object') WgAI.load();
   },
   loopRun(){
     cancelAnimationFrame(this._raf);

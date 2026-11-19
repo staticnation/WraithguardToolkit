@@ -941,6 +941,23 @@ mod tests {
         assert!(d.contains(r#""text":"frame 4 false   false""#), "{d}");
     }
 
+    /// AiWander's idle chances from Lua (`idle = { idle2 = 60, ... }`) go to the page as eight
+    /// numbers, Idle2 first, for the wanderer's waits (77_wg_ai.js `pickIdle`).
+    #[test]
+    fn a_wanderer_s_idle_chances_reach_the_page() {
+        let script = "local self = require('openmw.self') local n = 0\n\
+            return { engineHandlers = { onUpdate = function() n = n + 1 if n == 1 then self:_startAiWander(500, 0, { idle2 = 60, idle4 = 20 }) end end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/w.lua","flags":["NPC"]}}],"sources":{{"scripts/t/w.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
+        let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
+        assert!(a.contains(r#""k":"ai""#) && a.contains(r#""kind":"wander""#) && a.contains(r#""idle":[60,0,20,0,0,0,0,0]"#), "{a}");
+    }
+
     #[test]
     fn scripts_turned_off_are_named_by_path_in_any_case() {
         let off = vec!["scripts/mod/a.lua".to_string(), OFF_BUILTINS.to_string()];

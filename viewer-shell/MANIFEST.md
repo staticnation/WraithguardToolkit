@@ -124,6 +124,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `74_wg_lua.js` | 19 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
 | `75_wg_luaui.js` | 11 KB | The windows OpenMW Lua scripts make (ui.create), drawn over the Preview, their clicks and text sent back. |
 | `76_wg_physics.js` | 11 KB | The Editor's Physics drop: the selection falls and comes to rest on the scene's collision and the land (phys_drop, physcore); the fall as ghosts, then Keep or Drop. |
+| `77_wg_ai.js` | 10 KB | The actors' AI carried out: routes over the loaded cells' pathgrids (A*), wander points and idle chances, the walk and run on the mesh while they move. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs`: 145)
@@ -203,7 +204,7 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 61 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luarun.rs` | 1056 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
+| `luarun.rs` | 1073 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
 | `luascan.rs` | 313 | The load order's Lua scripts checked through the overlay (luacore, Teal). |
 | `markers.rs` | 36 | The Construction Set markers the viewer carries itself. |
 | `mland.rs` | 434 | The merged-lands preview: one cell's landscape as Merge Lands would write it (landcore). |

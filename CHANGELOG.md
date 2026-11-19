@@ -331,6 +331,27 @@
 
 ### Added
 
+- **The actors' AI walks the pathgrid and plays its walk** (`77_wg_ai.js`; `73_wg_scripts.js`
+  `actorsFrame`, `go`). The scripts' AI packages (MWScript's Ai* and StartCombat, OpenMW Lua's
+  `I.AI`) used to step each actor in a straight line toward its goal, through walls, standing
+  in its idle. Now:
+  - **Routes over the loaded cells' pathgrids,** the points the game's own AI walks. A* runs
+    from the grid point nearest the actor to the one nearest its goal, and the exterior cells'
+    grids are joined where their points meet across a border. It is planned again every two
+    seconds after a target that moves. With no grid, or a goal close by, it is a straight
+    line, as before.
+  - **Wander as the game does it.** The next goal is a grid point within the package's distance
+    of where it began. Then it waits, playing one of Idle2 ... Idle9 by the package's chances:
+    MWScript's AiWander arguments, or Lua's `idle` table, which `_startAiWander` now passes on.
+    A wanderer with no distance stands and plays its idles.
+  - **The walk on the mesh.** `WalkForward` (`RunForward` when it runs, as to a fight) loops
+    while it moves, and its idle comes back when it stops (`playAnim`, `by: 'AI'`). A group a
+    script plays wins, and the walk stands aside until it ends. A mesh with no walk is asked
+    once, then slides as before, with nothing in the log.
+  - Actors still step rather than glide, a few moves a second (TODO, The viewer).
+  - Tests: `ui/tests/editor/ai_routes.test.js` (the graph and the join, a route around a wall
+    and across a border, wander points and idle chances, the walk, a script's group first, a
+    mesh without a walk) and `luarun::tests::a_wanderer_s_idle_chances_reach_the_page`.
 - **Scripts play animation groups on the mesh** (`viewcore::anim`, `anim_groups`; `73_wg_scripts.js`
   `playAnim`, `18_cellpreview.js` `animModel`; luarun.lua's `openmw.animation`). MWScript's
   PlayGroup and LoopGroup and OpenMW Lua's `playBlended`/`playQueued` used to name the group

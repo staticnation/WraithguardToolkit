@@ -331,7 +331,7 @@ const WgLua={
     ai(e){
       const S=WgScripts, t=this.thing(e.key); if(!t) return;
       const o=e.opt||{}, who=o.target? this.thing(o.target) : null, d=o.dest;
-      const a=e.kind==='wander'? [o.distance||0, o.duration||0] :
+      const a=e.kind==='wander'? [o.distance||0, o.duration||0, 0].concat(Array.isArray(o.idle)? o.idle : []) :
         e.kind==='travel'? (d? d : []) :
         e.kind==='activate'? [who? who.id : ''] :
         [who? (who.player? 'player' : who.id) : 'player', o.duration||0].concat(d||[]);

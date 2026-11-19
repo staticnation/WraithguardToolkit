@@ -112,6 +112,8 @@ for code: it is GPL-3.
   edits its scale at home - load both in the CS and see where the rock stands; if it stands
   where B moved it, 0023 and the Editor's rule turn round together
   (`tests/fixtures/move_cases.json`, "moved, then a plain record in its home cell").
+- **A mask for landscape texture painting and vertex color** (Static, 2026-11-18: "we can do that
+  later"): an area the brushes (`72_wg_landbrush.js`) paint inside, or are kept out of.
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
@@ -194,10 +196,10 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 - **MWSE-Lua** for Morrowind.ini and MO2 setups (Static, 2026-11-18): `mwse.*`, `tes3.*` and
   `event.register`, run against the same scene layer as MWScript and OpenMW Lua, with the
   animation groups and Which scripts run shared. Not started.
-- **AI packages carried out** (next): Wander, Travel, Escort, Follow, Activate, and Combat as
-  approach-and-face, from MWScript's Ai* and Lua's `I.AI`. Walked over the pathgrid or the
-  navmesh at the record's speed, with the walk and idle groups playing (`playAnim`). Today the
-  package is only recorded and the actor stands.
+- AI (`77_wg_ai.js`): routes are over the pathgrid only, not the navmesh, and an actor walks
+  through another actor. There is no flee, no greeting distance, and no walk speed from the
+  record (150 units a second, 300 running). A wanderer's `time` argument and AiWander's reset
+  are not read.
 - MWScript the preview still does not run: a spell's effects (Cast is counted for GetSpellEffects
   for ten seconds; GetEffect is not answered). Combat has no weapons, armor or fatigue.
   Actors step rather than glide (The viewer, above).

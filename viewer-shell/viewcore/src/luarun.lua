@@ -730,7 +730,12 @@ local function selfInternals(key)
     _startAiPursue = function(_, target) startAi(key, 'follow', { target = tk(target) }) end,
     _startAiFollow = function(_, target, cellId, duration, dest) startAi(key, 'follow', { target = tk(target), duration = duration, dest = (dest and (dest.x ~= 0 or dest.y ~= 0 or dest.z ~= 0)) and dv(dest) or nil }) end,
     _startAiEscort = function(_, target, cell, duration, dest) startAi(key, 'escort', { target = tk(target), duration = duration, dest = dv(dest) }) end,
-    _startAiWander = function(_, distance, duration) startAi(key, 'wander', { distance = distance, duration = duration }) end,
+    -- The idle chances, when a script gives them (`idle = { idle2 = 60, ... }`), as eight numbers.
+    _startAiWander = function(_, distance, duration, idle)
+      local c = nil
+      if type(idle) == 'table' then c = {} for n = 2, 9 do c[n - 1] = tonumber(idle['idle' .. n] or idle['Idle' .. n] or idle[n - 1]) or 0 end end
+      startAi(key, 'wander', { distance = distance, duration = duration, idle = c })
+    end,
     _startAiTravel = function(_, dest) startAi(key, 'travel', { dest = dv(dest) }) end,
     _getActiveAiPackage = function() return aiOf(key) end,
     _isFleeing = function() return false end,
