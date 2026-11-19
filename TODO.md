@@ -70,14 +70,12 @@ master is told by its extension everywhere; the master check only notes a header
 - Orbit navigation without an end (2026-11-16): serviceable, wants polish (nothing named yet). The
   renderer's mouse handling has no page test (it needs the shell to move the pointer and a GL
   context).
-- Scripted actors glide instead of stepping. They move when the scene is rebuilt, about three
-  times a second (`73_wg_scripts.js` `flushScene`). Gliding means moving one drawn reference
-  between rebuilds, in the renderer (`06_gl.js`). A reference's matrix is in its model's array
-  (`b.mats`, shared by the model's batches), and from there in up to three places: a batch's own
-  instance buffer (`mb`, the animated and skinned batches that draw on their own), the
-  scene-wide instance texture (`_buildGroups`'s `itex`), and baked world-space vertices for baked
-  batches, which can't move without being baked again. The batches' per-cell cull boxes would go
-  stale too. It needs a visual check in the app.
+- Scripted actors glide (`18_cellpreview.js` `previewMoveRef`, 2026-11-19): while the Scripts run,
+  an actor's batches draw on their own (`live`, not in the material groups), and a move writes
+  its matrix into them, widens its cull run and moves its pickable, with no rebuild. **Needs a
+  look in the app**: an NPC walking a town street should glide, and stay drawn as it crosses
+  tiles. Not carried along between rebuilds: a carried torch's light and flame, and a static
+  or activator a script moves (they still step, a few times a second).
 
 ## After 5.0
 
@@ -196,13 +194,14 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 - **MWSE-Lua** for Morrowind.ini and MO2 setups (Static, 2026-11-18): `mwse.*`, `tes3.*` and
   `event.register`, run against the same scene layer as MWScript and OpenMW Lua, with the
   animation groups and Which scripts run shared. Not started.
-- AI (`77_wg_ai.js`): routes are over the pathgrid only, not the navmesh, and an actor walks
-  through another actor. There is no flee, no greeting distance, and no walk speed from the
-  record (150 units a second, 300 running). A wanderer's `time` argument and AiWander's reset
-  are not read.
+- AI (`77_wg_ai.js`): the navmesh route goes through the middles of the shared edges, with no
+  funnel to straighten it, and the navmesh is read only when one was chosen in the overlay.
+  Fleeing, greeting and keeping room are approximations of OpenMW's (no weighing by
+  disposition, no greeting voice, no actor-to-actor collision past the room kept). A
+  wanderer's `time` argument and AiWander's reset are not read.
 - MWScript the preview still does not run: a spell's effects (Cast is counted for GetSpellEffects
   for ten seconds; GetEffect is not answered). Combat has no weapons, armor or fatigue.
-  Actors step rather than glide (The viewer, above).
+  A torch an actor carries stays where it was until the scene is drawn again (The viewer, above).
 
 ## MWScript compiler
 

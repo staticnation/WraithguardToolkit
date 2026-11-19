@@ -36,6 +36,9 @@ pub struct World {
     pub gmst: HashMap<String, f32>,
     /// Each NPC's and creature's AI Hello, by lowercased id.
     pub hello: HashMap<String, u8>,
+    /// Wraithguard: an NPC's or creature's AI ratings from its AIDT, `[hello, fight, flee,
+    /// alarm]` (0-100), for the Preview's AI (77_wg_ai.js: greeting distance, fleeing).
+    pub ai_rates: HashMap<String, [u8; 4]>,
     /// Sound records (SOUN) by lowercased id: the file and DATA's volume and ranges.
     pub sounds: HashMap<String, SoundDef>,
     /// A light's (LIGH SNAM) looped sound, by the light's lowercased id: the SOUN id.
@@ -65,7 +68,7 @@ pub struct World {
     pub inventories: HashMap<String, Vec<(String, i32)>>,
     /// An NPC's or creature's health, magicka and fatigue (NPDT), by lowercased id; an NPC
     /// whose stats the game works out (auto-calculated, the short NPDT) has none.
-    pub actor_stats: HashMap<String, [i32; 8]>,
+    pub actor_stats: HashMap<String, [i32; 10]>,
     /// The path grids: exteriors by grid, rooms by `room_key`.
     pub pathgrids_ext: HashMap<(i32, i32), Pathgrid>,
     pub pathgrids_int: HashMap<String, Pathgrid>,
@@ -118,6 +121,9 @@ impl World {
             }
             for (k, v) in e.hello {
                 self.hello.insert(k, v);
+            }
+            for (k, v) in e.ai_rates {
+                self.ai_rates.insert(k, v);
             }
             // The later plugin wins; a deleting one takes the record away.
             for (k, v) in e.sounds {
@@ -217,6 +223,7 @@ struct Extras {
     npc: crate::npc::NpcRaw,
     gmst: Vec<(String, f32)>,
     hello: Vec<(String, u8)>,
+    ai_rates: Vec<(String, [u8; 4])>,
     sounds: Vec<(String, Option<SoundDef>)>,
     light_sounds: Vec<(String, Option<String>)>,
     region_sounds: Vec<(String, Option<Vec<(String, u8)>>)>,
@@ -227,7 +234,7 @@ struct Extras {
     start_scripts: Vec<(String, Option<String>)>,
     globals: Vec<(String, Option<(String, char, f32)>)>,
     inventories: Vec<(String, Option<Vec<(String, i32)>>)>,
-    actor_stats: Vec<(String, Option<[i32; 8]>)>,
+    actor_stats: Vec<(String, Option<[i32; 10]>)>,
     pathgrids: Vec<Pathgrid>,
     land_at: Vec<((i32, i32), u64, u32)>,
 }
@@ -273,8 +280,9 @@ fn extras_of(buf: &[u8]) -> Extras {
                 }
             }
             b"NPC_" | b"CREA" => {
-                if let Some(h) = actor_hello(rec.body) {
-                    e.hello.push(h);
+                if let Some((id, r)) = actor_ai(rec.body) {
+                    e.hello.push((id.clone(), r[0]));
+                    e.ai_rates.push((id, r));
                 }
                 if let Some(x) = carried(rec.body) {
                     e.inventories.push(x);
@@ -640,13 +648,14 @@ fn carried(body: &[u8]) -> Option<(String, Option<Vec<(String, i32)>>)> {
 }
 
 /// An NPC's or creature's fighting numbers from its NPDT: `[health, magicka, fatigue,
-/// level, strength, agility, attack, most damage]`. An NPC's long form (52 bytes: level, 8
+/// level, strength, agility, attack, most damage, speed, athletics]` - the last two for how
+/// fast it walks and runs (a creature has no Athletics: -1). An NPC's long form (52 bytes: level, 8
 /// attributes, 27 skills, a byte, then the three as u16): its attack the best of its weapon
 /// and hand-to-hand skills, its damage what its strength gives a blow (0: worked out by the
 /// page). A creature's (type, level, 8 attributes as i32, the three, soul, combat, magic,
 /// stealth, then three attacks' least and most): its combat skill and its strongest attack.
 /// An auto-calculated NPC has none.
-fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 8]>)> {
+fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 10]>)> {
     let mut id = String::new();
     let mut st = None;
     for s in Subs::new(body) {
@@ -657,13 +666,14 @@ fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 8]>)> 
                 let d = s.data;
                 // Long blade, blunt, axe, spear, short blade, marksman, hand-to-hand.
                 let attack = [5usize, 4, 6, 7, 22, 23, 26].iter().map(|k| d[10 + k] as i32).max().unwrap_or(0);
-                st = Some([u(38), u(40), u(42), u(0), d[2] as i32, d[5] as i32, attack, 0]);
+                // Speed is the fifth attribute; Athletics the ninth skill.
+                st = Some([u(38), u(40), u(42), u(0), d[2] as i32, d[5] as i32, attack, 0, d[6] as i32, d[18] as i32]);
             }
             b"NPDT" if &tag == b"CREA" && s.data.len() >= 52 => {
                 let d = s.data;
                 let most = if d.len() >= 92 { [72usize, 80, 88].iter().map(|o| i32le(d, *o)).max().unwrap_or(0) } else { 0 };
                 let combat = if d.len() >= 60 { i32le(d, 56) } else { 0 };
-                st = Some([i32le(d, 40), i32le(d, 44), i32le(d, 48), i32le(d, 4), i32le(d, 8), i32le(d, 20), combat, most]);
+                st = Some([i32le(d, 40), i32le(d, 44), i32le(d, 48), i32le(d, 4), i32le(d, 8), i32le(d, 20), combat, most, i32le(d, 24), -1]);
             }
             _ => {}
         }
@@ -689,18 +699,22 @@ fn gmst_number(body: &[u8]) -> Option<(String, f32)> {
     if name.is_empty() { None } else { val.map(|v| (name.to_ascii_lowercase(), v)) }
 }
 
-/// An NPC's or creature's id and its AI Hello (AIDT's first byte).
-fn actor_hello(body: &[u8]) -> Option<(String, u8)> {
+/// An NPC's or creature's id and its AI ratings, `[hello, fight, flee, alarm]` (AIDT's
+/// bytes 0, 2, 3 and 4; a short AIDT gives what it has and 0 for the rest).
+fn actor_ai(body: &[u8]) -> Option<(String, [u8; 4])> {
     let mut id = String::new();
-    let mut hello = None;
+    let mut rates = None;
     for s in Subs::new(body) {
         match &s.tag {
             b"NAME" => id = cstring(s.data),
-            b"AIDT" if !s.data.is_empty() => hello = Some(s.data[0]),
+            b"AIDT" if !s.data.is_empty() => {
+                let b = |i: usize| s.data.get(i).copied().unwrap_or(0);
+                rates = Some([b(0), b(2), b(3), b(4)]);
+            }
             _ => {}
         }
     }
-    if id.is_empty() { None } else { hello.map(|h| (id.to_ascii_lowercase(), h)) }
+    if id.is_empty() { None } else { rates.map(|r| (id.to_ascii_lowercase(), r)) }
 }
 
 #[cfg(test)]
@@ -796,22 +810,36 @@ mod wraithguard_world_tests {
         let mut item = b"Gold_001".to_vec(); item.resize(32, 0); npco.extend(item);
         let mut npdt = vec![0u8; 52];
         npdt[38..40].copy_from_slice(&45u16.to_le_bytes()); npdt[40..42].copy_from_slice(&80u16.to_le_bytes()); npdt[42..44].copy_from_slice(&120u16.to_le_bytes());
+        npdt[6] = 60; // Speed
+        npdt[18] = 35; // Athletics
         let npc = [sub(b"NAME", b"fargoth\0"), sub(b"NPDT", &npdt), sub(b"NPCO", &npco)].concat();
         assert_eq!(super::carried(&npc), Some(("fargoth".into(), Some(vec![("gold_001".into(), 3)]))));
-        assert_eq!(super::actor_stats(*b"NPC_", &npc), Some(("fargoth".into(), Some([45, 80, 120, 0, 0, 0, 0, 0]))));
+        assert_eq!(super::actor_stats(*b"NPC_", &npc), Some(("fargoth".into(), Some([45, 80, 120, 0, 0, 0, 0, 0, 60, 35]))));
         let auto = [sub(b"NAME", b"auto\0"), sub(b"NPDT", &[0u8; 12])].concat();
         assert_eq!(super::actor_stats(*b"NPC_", &auto), None);
         let mut cdt = vec![0u8; 96];
         cdt[40..44].copy_from_slice(&30i32.to_le_bytes());
         let crea = [sub(b"NAME", b"rat\0"), sub(b"NPDT", &cdt)].concat();
-        assert_eq!(super::actor_stats(*b"CREA", &crea), Some(("rat".into(), Some([30, 0, 0, 0, 0, 0, 0, 0]))));
+        assert_eq!(super::actor_stats(*b"CREA", &crea), Some(("rat".into(), Some([30, 0, 0, 0, 0, 0, 0, 0, 0, -1]))));
         // A creature's level, strength, agility, combat skill and strongest attack.
         let mut cdt = vec![0u8; 96];
-        for (o, v) in [(4usize, 3i32), (8, 40), (20, 55), (40, 30), (56, 45), (68, 1), (72, 4), (76, 2), (80, 9), (84, 1), (88, 3)] {
+        for (o, v) in [(4usize, 3i32), (8, 40), (20, 55), (24, 70), (40, 30), (56, 45), (68, 1), (72, 4), (76, 2), (80, 9), (84, 1), (88, 3)] {
             cdt[o..o + 4].copy_from_slice(&v.to_le_bytes());
         }
         let wolf = [sub(b"NAME", b"wolf\0"), sub(b"NPDT", &cdt)].concat();
-        assert_eq!(super::actor_stats(*b"CREA", &wolf), Some(("wolf".into(), Some([30, 0, 0, 3, 40, 55, 45, 9]))));
+        assert_eq!(super::actor_stats(*b"CREA", &wolf), Some(("wolf".into(), Some([30, 0, 0, 3, 40, 55, 45, 9, 70, -1]))));
+    }
+
+    /// AIDT's Hello, Fight, Flee and Alarm (bytes 0, 2, 3, 4), for the Preview's AI.
+    #[test]
+    fn an_actor_s_ai_ratings_are_read() {
+        let sub = |t: &[u8; 4], d: &[u8]| { let mut v = t.to_vec(); v.extend((d.len() as u32).to_le_bytes()); v.extend(d); v };
+        let aidt = [30u8, 0, 70, 40, 90, 0, 0, 0, 0, 0, 0, 0];
+        let npc = [sub(b"NAME", b"Guard\0"), sub(b"AIDT", &aidt)].concat();
+        assert_eq!(super::actor_ai(&npc), Some(("guard".into(), [30, 70, 40, 90])));
+        let short = [sub(b"NAME", b"x\0"), sub(b"AIDT", &[5u8])].concat();
+        assert_eq!(super::actor_ai(&short), Some(("x".into(), [5, 0, 0, 0])));
+        assert_eq!(super::actor_ai(&sub(b"NAME", b"none\0")), None);
     }
 
     #[test]

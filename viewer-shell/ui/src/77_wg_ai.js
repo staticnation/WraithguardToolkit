@@ -6,10 +6,19 @@
    MWScript's AiWander, AiTravel, AiFollow, AiEscort and AiActivate, StartCombat, and OpenMW
    Lua's I.AI through 74_wg_lua.js. This is what carries them out the way the game does:
 
-   - routes over the loaded cells' pathgrids (the `pathgrid` command, the points the game's
-     own AI walks): A* from the grid point nearest the actor to the one nearest where it is
-     going, the exterior cells' grids joined where their points meet across a border. With no
-     grid, a straight line, as before;
+   - routes over OpenMW's navmesh when one has been chosen (the viewer's navmesh overlay,
+     `wg.navDb`): A* over its polygons, through the middles of the edges they share - OpenMW's
+     own actors walk it; else over the loaded cells' pathgrids (the `pathgrid` command, the
+     points Morrowind's AI walks): A* from the grid point nearest the actor to the one nearest
+     where it is going, the exterior cells' grids joined where their points meet across a
+     border. With neither, a straight line;
+   - the record's own pace: walk and run from its Speed and Athletics by the game's settings
+     (fMinWalkSpeed ... fBaseRunMultiplier; a creature's fMinWalkSpeedCreature ...);
+   - greetings: an actor with Hello stops and turns to the player within Hello x
+     iGreetDistanceMultiplier units, as the game's do, once each time the player comes near;
+   - fleeing: in a fight, one whose Flee and lost health come to 100 runs from its foe, and
+     stops once it is clear;
+   - room: a moving actor keeps out of another's;
    - wander: a grid point within the package's distance of where it began, walked to, then a
      wait with an idle played by the package's idle chances (Idle2 ... Idle9);
    - the walk: `WalkForward` (`RunForward` when it runs) on the actor's mesh while it moves,
@@ -26,6 +35,15 @@ const WgAI={
   lacks:new Set(),
   /** Two exterior grids' points this close across a border are one path. */
   JOIN:384,
+  /** The navmesh as a graph, when one was chosen and read: {polys:[{v, c}], adj:[[[j, mid]...]]}. */
+  nav:null, _navFor:'',
+  /** The game's settings the walk and the greeting are worked out by (`game_settings`). */
+  gs:{greetMult:6, move:{fMinWalkSpeed:100, fMaxWalkSpeed:200, fMinWalkSpeedCreature:5, fMaxWalkSpeedCreature:300, fBaseRunMultiplier:1.75, fAthleticsRunBonus:1}},
+  _gsRead:false,
+  /** How far apart two actors keep. */
+  ROOM:56,
+  /** How far a fleeing actor runs from its foe before it stops. */
+  FLEE:2048,
 
   /** The loaded cells' pathgrids as one graph, read when the cells change. */
   async load(){
@@ -46,10 +64,155 @@ const WgAI={
         for(const [g,a,b] of tb.edges||[]) if(grids[g]) grids[g].edges.push([a|0, b|0]);
       }catch(_){ grids=[]; }
       this.grid=this.build(grids);
+      await this.loadNav(specs, key);
+      if(!this._gsRead){
+        this._gsRead=true;
+        try{ const g=await Engine.call('game_settings'); if(g){ if(g.greetMult!=null) this.gs.greetMult=+g.greetMult; Object.assign(this.gs.move, g.move||{}); } }catch(_){ }
+      }
       this._for=key; this._busy=null;
       return this.grid;
     })();
     return this._busy;
+  },
+  /** OpenMW's navmesh for the loaded cells, when one has been chosen (the navmesh overlay's
+   *  `wg.navDb`), as a graph of polygons for the agent nearest an actor's size. */
+  async loadNav(specs, key){
+    let db=''; try{ db=localStorage.getItem('wg.navDb')||''; }catch(_){ }
+    if(!db || typeof WgTools!=='object' || !WgTools.readNav){ this.nav=null; return; }
+    if(this._navFor===db+'|'+key) return;
+    try{
+      const d=WgTools.readNav(await Engine.bytes('navmesh',{cells:specs, db}));
+      this.nav=this.buildNav(d.polys, this.agentOf(d.agents));
+    }catch(_){ this.nav=null; }
+    this._navFor=db+'|'+key;
+  },
+  /** The agent an actor walks as: the one nearest OpenMW's default half extents. */
+  agentOf(agents){
+    let best=0, bd=Infinity;
+    (agents||[]).forEach((a, i)=>{ const h=a.h||[0,0,0], d=Math.abs(h[0]-29.27)+Math.abs(h[1]-28.48)+Math.abs(h[2]-66.5); if(d<bd){ bd=d; best=i; } });
+    return best;
+  },
+  /** The agent's polygons, each with its middle, joined where two share an edge (the edge's
+   *  middle the point to walk through). Null with none. */
+  buildNav(polys, agent){
+    const P=[], adj=[], edges=new Map();
+    const vk=(v, i)=>Math.round(v[i*3])+','+Math.round(v[i*3+1])+','+Math.round(v[i*3+2]);
+    for(const p of polys||[]){
+      if(p.a!==agent) continue;
+      const v=p.v, n=v.length/3|0; if(n<3) continue;
+      const c=[0,0,0]; for(let i=0;i<n;i++){ c[0]+=v[i*3]; c[1]+=v[i*3+1]; c[2]+=v[i*3+2]; }
+      c[0]/=n; c[1]/=n; c[2]/=n;
+      const id=P.length; P.push({v, c}); adj.push([]);
+      for(let i=0;i<n;i++){
+        const j=(i+1)%n, a=vk(v, i), b=vk(v, j), k=a<b? a+'|'+b : b+'|'+a;
+        const mid=[(v[i*3]+v[j*3])/2, (v[i*3+1]+v[j*3+1])/2, (v[i*3+2]+v[j*3+2])/2];
+        const was=edges.get(k);
+        if(was==null) edges.set(k, {id, mid});
+        else if(was.id!==id){ adj[id].push([was.id, mid]); adj[was.id].push([id, mid]); }
+      }
+    }
+    return P.length? {polys:P, adj} : null;
+  },
+  /** The navmesh polygon a point stands on (the nearest one below or above it among those
+   *  whose outline holds it), else the one whose middle is nearest. */
+  navAt(p){
+    const N=this.nav; if(!N) return -1;
+    let best=-1, bz=Infinity;
+    N.polys.forEach((q, i)=>{
+      const v=q.v, n=v.length/3|0;
+      let inside=false;
+      for(let a=0, b=n-1; a<n; b=a++){
+        const xa=v[a*3], ya=v[a*3+1], xb=v[b*3], yb=v[b*3+1];
+        if(((ya>p[1])!==(yb>p[1])) && (p[0]<(xb-xa)*(p[1]-ya)/(yb-ya)+xa)) inside=!inside;
+      }
+      if(inside){ const dz=Math.abs(q.c[2]-p[2]); if(dz<bz && dz<256){ bz=dz; best=i; } }
+    });
+    if(best>=0) return best;
+    let bd=Infinity;
+    N.polys.forEach((q, i)=>{ const d=Math.hypot(q.c[0]-p[0], q.c[1]-p[1], 2*(q.c[2]-p[2])); if(d<bd){ bd=d; best=i; } });
+    return best;
+  },
+  /** A route over the navmesh: the middles of the edges crossed, then `to`. Null when the
+   *  navmesh does not join the two (the pathgrid is tried then). */
+  routeNav(from, to){
+    const N=this.nav; if(!N) return null;
+    const a=this.navAt(from), b=this.navAt(to);
+    if(a<0 || b<0) return null;
+    if(a===b) return [to.slice()];
+    const C=i=>N.polys[i].c, h=i=>Math.hypot(C(i)[0]-C(b)[0], C(i)[1]-C(b)[1], C(i)[2]-C(b)[2]);
+    const g=new Map([[a,0]]), came=new Map(), shut=new Set(), open=[[h(a), a]];
+    while(open.length){
+      let m=0; for(let i=1;i<open.length;i++) if(open[i][0]<open[m][0]) m=i;
+      const [, i]=open.splice(m, 1)[0];
+      if(i===b) break;
+      if(shut.has(i)) continue;
+      shut.add(i);
+      for(const [j, mid] of N.adj[i]){
+        if(shut.has(j)) continue;
+        const c=g.get(i)+Math.hypot(C(i)[0]-mid[0], C(i)[1]-mid[1])+Math.hypot(mid[0]-C(j)[0], mid[1]-C(j)[1]);
+        if(c<(g.has(j)? g.get(j) : Infinity)){ g.set(j, c); came.set(j, [i, mid]); open.push([c+h(j), j]); }
+      }
+    }
+    if(!came.has(b)) return null;
+    const path=[];
+    for(let i=b; came.has(i); i=came.get(i)[0]) path.unshift(came.get(i)[1].slice());
+    path.push(to.slice());
+    return path;
+  },
+
+  /* ---- pace, greetings, fleeing, room --------------------------------------------------- */
+
+  /** An actor's walk and run in units a second, by OpenMW's formulas over the game's settings:
+   *  walk = min + Speed% of (max - min) (a creature's own min and max), run = walk x (Athletics%
+   *  x fAthleticsRunBonus + fBaseRunMultiplier) (a creature: x fBaseRunMultiplier). */
+  speeds(A){
+    const g=this.gs.move, m=(A && A.move)||{speed:50, athletics:30, creature:false};
+    const sp=Math.max(0, +m.speed||0);
+    const walk=m.creature? g.fMinWalkSpeedCreature+0.01*sp*(g.fMaxWalkSpeedCreature-g.fMinWalkSpeedCreature)
+                         : g.fMinWalkSpeed+0.01*sp*(g.fMaxWalkSpeed-g.fMinWalkSpeed);
+    const run=m.creature? walk*g.fBaseRunMultiplier : walk*(0.01*Math.max(0, +m.athletics||0)*g.fAthleticsRunBonus+g.fBaseRunMultiplier);
+    return {walk:Math.max(1, walk), run:Math.max(1, run)};
+  },
+  /** Whether a fighter runs: its Flee and the share of its health lost come to 100. */
+  flees(A){
+    const flee=(A.rates && A.rates[2])||0, max=(A.max && A.max[0])||100;
+    if(!flee || !(max>0)) return false;
+    return flee+(1-Math.max(0, A.hp)/max)*100>=100;
+  },
+  /** Where a fleeing actor runs to: straight away from its foe, the flee distance off. */
+  fleePoint(p, foe){
+    let dx=p[0]-foe[0], dy=p[1]-foe[1], d=Math.hypot(dx, dy);
+    if(d<1e-3){ dx=1; dy=0; d=1; }
+    return [p[0]+dx/d*this.FLEE, p[1]+dy/d*this.FLEE, p[2]];
+  },
+  /** The greeting: an actor with Hello, the player within Hello x iGreetDistanceMultiplier
+   *  (and near its height), turns to the player and stands - said once each time the
+   *  player comes near. True while it greets. */
+  greet(A){
+    const hello=(A.rates && A.rates[0])||0, S=WgScripts;
+    if(!hello || A.key==='player') return false;
+    const p=S.posOf(A.t), pl=S.posOf({player:true}), d=Math.hypot(pl[0]-p[0], pl[1]-p[1]);
+    const range=hello*this.gs.greetMult;
+    if(d<=range && Math.abs(pl[2]-p[2])<256){
+      S.face(A.t, pl);
+      if(!A._greeted){ A._greeted=true; S.say(A.id, 'do', A.id+' greets the player'); }
+      return true;
+    }
+    if(d>range*1.2) A._greeted=false;
+    return false;
+  },
+  /** Room: `p`, where a moving actor is about to stand, pushed out of every other actor's. */
+  room(key, p){
+    const S=WgScripts;
+    for(const B of S.actors.values()){
+      if(B.key===key || B.key==='player' || B.dead || S.disabled.has(B.key)) continue;
+      const q=S.posOf(B.t), dx=p[0]-q[0], dy=p[1]-q[1], d=Math.hypot(dx, dy);
+      if(d<this.ROOM && Math.abs(p[2]-q[2])<128){
+        if(d<1e-3){ p[0]+=this.ROOM; continue; }
+        p[0]+=dx/d*(this.ROOM-d); p[1]+=dy/d*(this.ROOM-d);
+      }
+    }
+    return p;
   },
   /** One graph from the grids: each grid's points and edges (both ways), and the exterior
    *  grids' points that meet across a border joined. */
@@ -96,8 +259,12 @@ const WgAI={
   /** The points to walk from `from` to `to`: grid points on the way, then `to` itself. A
    *  straight line when there is no grid, the two are close, or the grid does not join them. */
   route(from, to){
+    if(!from || !to) return [to];
+    // OpenMW's navmesh first, when one was chosen and it joins the two.
+    const nv=this.nav && this.routeNav(from, to);
+    if(nv) return nv;
     const G=this.grid;
-    if(!G || !from || !to) return [to];
+    if(!G) return [to];
     if(Math.hypot(to[0]-from[0], to[1]-from[1])<256 && Math.abs(to[2]-from[2])<128) return [to];
     const a=this.nearest(from), b=this.nearest(to);
     if(a<0 || b<0 || a===b) return [to];

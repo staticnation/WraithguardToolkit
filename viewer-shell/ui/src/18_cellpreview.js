@@ -1300,6 +1300,8 @@ async function _rebuildCellPreview(){
    * is the only honest thing an abandoned run can do. */
   const staticBatches=[];
   const pickables=[];
+  // Wraithguard: the live references (`previewMoveRef`), by ref key.
+  const liveRefs=new Map();
   // Round 17m: {p, r, c, neg} per LIGH reference in the nine cells being drawn.
   const cellLights=[];
   let tris=0, drawn=0, systemsPlaced=0;   // systemsPlaced: round 17w, the particle systems
@@ -1432,7 +1434,10 @@ async function _rebuildCellPreview(){
            and an exterior cell is sixteen a layer rather than one. Three dimensions,
            because that room stacks its areas 32,000 units tall. The cell comes first in
            the key so a cell's runs stay together. */
-        const entry={ref,local,id:ref.id,model,still,cellKey:c.gx+','+c.gy,
+        /* Wraithguard: an actor while the Scripts run is moved by them every frame, so its
+           batches draw on their own and it is moved in place (`previewMoveRef`). */
+        const live=!!actor && typeof WgScripts==='object' && WgScripts.on;
+        const entry={ref,local,id:ref.id,model,still,live,cellKey:c.gx+','+c.gy,
                      tileKey:c.gx+','+c.gy+'|'+Math.floor(local[0]/CULL_TILE)+','+Math.floor(local[1]/CULL_TILE)+','+Math.floor(local[2]/CULL_TILE)};
         /* Round 17m: a reference to a LIGH record carries a light. Where exactly is not
            known until the mesh is read — the game hangs it on a node called AttachLight
@@ -1617,7 +1622,9 @@ async function _rebuildCellPreview(){
          exactly that: the highlight batch was built from the bare part with no shift and
          no rate, so it played the file's own clock over a bin running at 80-90% of it. */
       const phaseOf=new Array(list.length).fill(null);
+      const liveMesh=list.some(r=>r.live);
       for(const bin of bins){
+        const binBatches=[];
         const sub=bin.all? {m, n:list.length, groups, lamp} : subInstances(bin.idx, list, m, lamp, info);
         const phase=bin.speed? {shift:bin.shift, speed:bin.speed} : null;
         if(phase) for(const k of bin.idx) phaseOf[k]=phase;
@@ -1630,9 +1637,15 @@ async function _rebuildCellPreview(){
           const bt=R.buildStaticBatch(pp,{m:sub.m,n:sub.n,groups:sub.groups,lamp:sub.lamp},
             part.glTex? part.glTex.gl : null, true);
           if(bin.speed){ bt.animShift=bin.shift; bt.animSpeed=bin.speed; }
+          if(liveMesh) bt.live=true;
+          binBatches.push(bt);
           staticBatches.push(bt);
           tris+=sub.n*(part.idx.length/3);
         }
+        if(liveMesh) (bin.all? list.map((_,k)=>k) : bin.idx).forEach((k,i)=>{
+          const r=list[k]; if(!r.live || !r.ref.key) return;
+          liveRefs.set(r.ref.key, {arr:sub.m, i, batches:binBatches, runs:sub.groups||[], vis:info.visAabb, full:m, k, pick:null});
+        });
       }
       /* Round 17w: the mesh's particle systems, one live set per placed instance — a
          waterfall's mist, a torch's flame. A lamp's systems keep the lamp's hours. */
@@ -1677,7 +1690,7 @@ async function _rebuildCellPreview(){
         // Wraithguard: for the review and overlay tools (48_wg_tools.js).
         mark:r.ref.mark||'', hist:r.ref.hist||null, moved:r.ref.moved||0,
         wpos:r.ref.pos, rot:r.ref.rot, cellKey:r.cellKey, from:r.ref.from,
-        visAabb:info.visAabb, light:r.light||null}));
+        visAabb:info.visAabb, light:r.light||null}) && (liveRefs.has(r.ref.key) && (liveRefs.get(r.ref.key).pick=pickables[pickables.length-1])));
     }
   }
   /* Round 18q: the moths, one copy of the mod's own mesh at each lamp it names. Built
@@ -1767,6 +1780,7 @@ async function _rebuildCellPreview(){
         } }); }
   for(const [sys,mm,lamp,model] of pendingSystems) R.addParticleSystems(sys,mm,lamp,model);
   R.setPickables(pickables);
+  App._liveRefs=liveRefs;
   /* Wraithguard: a record the conflict viewer sent here (45_wg_nav.js) - inspect it once
      it is on screen. */
   // Wraithguard: back from the mesh viewer (a container's contents) - the camera as it was.
@@ -2668,6 +2682,31 @@ function cellRuns(list, m, visAabb){
     }
   }
   return groups;
+}
+
+/** Wraithguard: a live reference (an actor while the Scripts run) moved where the scripts put
+ *  it, without rebuilding the scene - so it glides rather than stepping a few times a
+ *  second. Its matrix is written into its batches' instance arrays and buffers
+ *  (`R.moveInstance`), the cull run it is in is widened to take it, and its pickable is
+ *  moved with it. False when it is not live (not drawn, or drawn in the shared groups):
+ *  the caller rebuilds instead. `pos` in world units, `rot` in radians, as a reference. */
+function previewMoveRef(key, pos, rot, scale){
+  const L=App._liveRefs && App._liveRefs.get(key), R=App.R, o=(App._scene && App._scene.origin)||[0,0];
+  if(!L || !R || !R.moveInstance || !L.batches.length) return false;
+  const m=refMatrix([pos[0]-o[0], pos[1]-o[1], pos[2]], rot, scale);
+  L.arr.set(m, L.i*12);
+  if(L.full!==L.arr) L.full.set(m, L.k*12);
+  for(const b of L.batches) if(!R.moveInstance(b, L.i, m)) return false;
+  if(L.vis){
+    const box=worldAabb(L.vis, m);
+    for(const g of L.runs) if(L.i>=g.at && L.i<g.at+g.n){
+      const b=g.b;
+      if(box.x0<b[0])b[0]=box.x0; if(box.y0<b[1])b[1]=box.y0; if(box.z0<b[2])b[2]=box.z0;
+      if(box.x1>b[3])b[3]=box.x1; if(box.y1>b[4])b[4]=box.y1; if(box.z1>b[5])b[5]=box.z1;
+    }
+    if(L.pick){ L.pick.m=Array.from(m); L.pick.aabb=box; L.pick.wpos=pos.slice(); L.pick.rot=rot.slice(); }
+  }
+  return true;
 }
 
 /** Round 18ai: how long one loop of a mesh's animation is - the longest clip among its

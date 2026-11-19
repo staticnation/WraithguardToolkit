@@ -3385,9 +3385,12 @@ fn game_settings(state: State) -> Result<String, String> {
 }
 
 /// The game settings the first-person body moves by, with Morrowind's defaults.
-const MOVEMENT_GMSTS: [(&str, f32); 18] = [
+const MOVEMENT_GMSTS: [(&str, f32); 20] = [
     ("fMinWalkSpeed", 100.0),
     ("fMaxWalkSpeed", 200.0),
+    // A creature's walk (77_wg_ai.js): the same formula over these.
+    ("fMinWalkSpeedCreature", 5.0),
+    ("fMaxWalkSpeedCreature", 300.0),
     ("fBaseRunMultiplier", 1.75),
     ("fAthleticsRunBonus", 1.0),
     ("fEncumberedMoveEffect", 0.3),
@@ -3424,7 +3427,7 @@ fn scene_scripts(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response,
     let mut want: std::collections::BTreeSet<String> = w.start_scripts.iter().map(|s| s.to_ascii_lowercase()).collect();
     // The actors and containers among them: their type, what they carry, their health,
     // magicka and fatigue (the scripts' GetItemCount, GetHealth, AI and combat).
-    let mut actors: Vec<(String, String, Option<&[i32; 8]>, &[(String, i32)])> = Vec::new();
+    let mut actors: Vec<(String, String, Option<&[i32; 10]>, &[(String, i32)])> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for id in ids {
         let k = id.to_ascii_lowercase();
@@ -3475,6 +3478,13 @@ fn scene_scripts(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response,
         for v in stats.iter().flat_map(|s| s.iter()) {
             tb.u(row as u64).i(*v as i64);
         }
+    }
+    /* Wraithguard: the AI ratings, `actor_rates` `uuuuu` (row; hello, fight, flee, alarm), for
+       the Preview's AI (77_wg_ai.js): an auto-calculated NPC has them too. */
+    let rated: Vec<(usize, &[u8; 4])> = actors.iter().enumerate().filter_map(|(i, a)| w.ai_rates.get(&a.0).map(|r| (i, r))).collect();
+    tb.table("actor_rates", "uuuuu", rated.len());
+    for (row, r) in &rated {
+        tb.u(*row as u64).u(r[0] as u64).u(r[1] as u64).u(r[2] as u64).u(r[3] as u64);
     }
     Ok(tauri::ipc::Response::new(tb.done()))
 }

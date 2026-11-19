@@ -342,6 +342,12 @@ const WgScripts={
     const r=this.refById(ref);
     return r? {key:r.key, id:ref, ref:r} : null;
   },
+  /** A reference of the scene by its key (an index kept per scene: the AI asks every frame). */
+  refByKey(key){
+    const sc=App._scene;
+    if(this._keyIx!==sc){ this._keyIx=sc; this._byKey=new Map(); for(const c of (sc && sc.cells)||[]) for(const r of c.refs||[]) if(r && r.key) this._byKey.set(r.key, r); }
+    return this._byKey.get(key) || this.placed.find(p=>p.key===key) || null;
+  },
   refById(id){
     const sc=App._scene;
     for(const c of (sc && sc.cells)||[]) for(const r of c.refs||[]) if(String(r.id).toLowerCase()===id) return r;
@@ -357,7 +363,7 @@ const WgScripts={
   /** Where something stands now: its position as the scripts have left it. */
   posOf(t){
     if(!t) return [0,0,0];
-    if(t.player){ const R=App.R, o=(App._scene && App._scene.origin)||[0,0]; if(!R) return [0,0,0]; const c=R.cam, ce=Math.cos(c.el);
+    if(t.player){ const R=App.R, o=(App._scene && App._scene.origin)||[0,0]; if(!R || !R.cam) return [0,0,0]; const c=R.cam, ce=Math.cos(c.el);
       return [c.tx+c.dist*ce*Math.cos(c.az)+o[0], c.ty+c.dist*ce*Math.sin(c.az)+o[1], c.tz+c.dist*Math.sin(c.el)-116]; }
     const m=this.moved.get(t.key); if(m && m.pos) return m.pos.slice();
     const r=this.refOf(t); return r && r.pos? r.pos.slice() : (t.base && t.base.pos? t.base.pos.slice() : [0,0,0]);
@@ -584,7 +590,12 @@ const WgScripts={
       hp:st[0], mp:st[1], fp:st[2], max:st.slice(0, 3), ai:null, combat:null, dead:false, attacked:false, _hitT:0,
       // How it fights (its NPDT's level, strength, agility, attack skill and, for a creature,
       // its strongest attack); an auto-calculated NPC and the player: middling numbers.
-      fight:{level:st[3]||1, str:st[4]||50, agi:st[5]||50, attack:st[6]||(t.player? 50 : 35), most:st[7]||0}};
+      fight:{level:st[3]||1, str:st[4]||50, agi:st[5]||50, attack:st[6]||(t.player? 50 : 35), most:st[7]||0},
+      // How it moves (its Speed and Athletics; a creature has no Athletics) and its AI
+      // ratings, [hello, fight, flee, alarm], for 77_wg_ai.js. An auto-calculated NPC moves
+      // at a middling Speed.
+      move:{speed:st[8]!=null? st[8] : 50, athletics:st[9]!=null? st[9] : (def && def.tag==='CREA'? -1 : 30), creature:!!(def && def.tag==='CREA')},
+      rates:(def && def.rates)||[0, 0, 0, 0]};
     this.actors.set(key, A);
     this.drawState();
     return A;
@@ -632,7 +643,9 @@ const WgScripts={
     for(const A of this.actors.values()){
       if(A.key==='player') continue;
       A._moved=false; A._running=false;
-      if(!A.dead && !this.disabled.has(A.key)) this.actorStep(A, dt, walk, run, W);
+      // Its own pace, from its record (77_wg_ai.js `speeds`).
+      const pace=W? W.speeds(A) : {walk, run};
+      if(!A.dead && !this.disabled.has(A.key)) this.actorStep(A, dt, pace.walk, pace.run, W);
       // The walk while it moves; its idle once it stops (a script's own group wins, `WgAI.loop`).
       if(W && A.key){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }
     }
@@ -640,8 +653,17 @@ const WgScripts={
   actorStep(A, dt, walk, run, W){
     if(A.combat){
       const foe=A.combat, fa=this.actorOf(foe);
-      if(!fa || fa.dead){ A.combat=null; A._route=null; return; }
+      if(!fa || fa.dead){ A.combat=null; A._route=null; A._fleeing=false; return; }
       const d=this.dist(A.t, foe);
+      // Fleeing: its Flee and its lost health come to 100 - it runs, and stops once clear.
+      if(W && W.flees(A)){
+        if(!A._fleeing){ A._fleeing=true; A._route=null; this.say(A.id, 'do', A.id+' flees from '+(fa.id||'?')); }
+        if(d>=W.FLEE){ A.combat=null; A._fleeing=false; A._route=null; this.say(A.id, 'do', A.id+' stops fleeing'); return; }
+        A._running=true;
+        if(!A._fleeTo || (A._fleeAge=(A._fleeAge||0)+dt)>2){ A._fleeTo=W.fleePoint(this.posOf(A.t), this.posOf(foe)); A._fleeAge=0; }
+        this.go(A, A._fleeTo, run, 64, dt, false);
+        return;
+      }
       if(d>120){ A._running=true; this.go(A, this.posOf(foe), run, 100, dt, true); }
       else{
         this.face(A.t, this.posOf(foe));
@@ -650,7 +672,10 @@ const WgScripts={
       }
       return;
     }
-    const ai=A.ai; if(!ai || ai.done) return;
+    const ai=A.ai;
+    // A greeting: within its Hello's reach of the player, one standing or wandering turns to it and stands.
+    if(W && (!ai || ai.done || ai.kind==='wander') && W.greet(A)) return;
+    if(!ai || ai.done) return;
     if(ai.left!=null && ai.left!==Infinity){ ai.left-=dt; if(ai.left<=0){ ai.done=true; A._route=null; return; } }
     switch(ai.kind){
       case 'travel': if(this.go(A, ai.goal, walk, 64, dt, false)) ai.done=true; break;
@@ -660,7 +685,7 @@ const WgScripts={
         if(ai.wait>0 || (own && own.loops!==Infinity)){ ai.wait-=dt; break; }
         if(!ai.range) { ai.wait=4+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); break; }
         if(!ai.goal) ai.goal=W? W.wanderPoint(ai.home, ai.range) : (()=>{ const r=Math.random()*ai.range, th=Math.random()*Math.PI*2; return [ai.home[0]+r*Math.cos(th), ai.home[1]+r*Math.sin(th), ai.home[2]]; })();
-        if(this.go(A, ai.goal, walk*0.6, 32, dt, false)){ ai.goal=null; ai.wait=2+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); }
+        if(this.go(A, ai.goal, walk, 32, dt, false)){ ai.goal=null; ai.wait=2+Math.random()*4; if(W) W.idle(A.key, W.pickIdle(ai.idle)); }
         break;
       }
       case 'follow': case 'escort': {
@@ -707,6 +732,8 @@ const WgScripts={
     if(d<=near) return true;
     const s=Math.min(step, d-near*0.9);
     p[0]+=dx/d*s; p[1]+=dy/d*s;
+    // Room: out of the other actors' way (77_wg_ai.js).
+    if(typeof WgAI==='object' && t.key) WgAI.room(t.key, p);
     const R=App.R, o=(App._scene && App._scene.origin)||[0,0];
     const gz=R && R.groundZ? R.groundZ(p[0]-o[0], p[1]-o[1]) : null;
     p[2]=gz!=null? gz : (goal[2]!=null && Math.abs(goal[2]-p[2])<400? p[2]+(goal[2]-p[2])*Math.min(1, s/d) : p[2]);
@@ -766,7 +793,12 @@ const WgScripts={
     }
     if(same) return;
     this.moved.set(t.key, m);
-    this._dirtyScene=true;
+    /* An actor drawn live is moved where it stands (18_cellpreview.js `previewMoveRef`), so
+       it glides; anything else waits for the scene to be drawn again, a few times a second. */
+    const r=t._ref || t.ref || this.refByKey(t.key);
+    const live=typeof previewMoveRef==='function' && r &&
+      previewMoveRef(t.key, m.pos || r.pos || [0,0,0], m.rot || r.rot || [0,0,0], m.scale!=null? m.scale : (r.scale||1));
+    if(!live) this._dirtyScene=true;
   },
 
   /* ---- animation groups ------------------------------------------------------------------ */
@@ -1093,6 +1125,8 @@ const WgScripts={
     const actors={}, rows=(tb.actors||[]).map(([id,tag,has])=>(actors[id]={tag, items:[], stats:has? [] : null}));
     for(const [row,item,n] of tb.actor_items||[]) rows[row].items.push([item,n]);
     for(const [row,v] of tb.actor_stats||[]) rows[row].stats.push(v);
+    // Wraithguard: the AI ratings, [hello, fight, flee, alarm] (77_wg_ai.js).
+    for(const [row,h,f,fl,al] of tb.actor_rates||[]) if(rows[row]) rows[row].rates=[h,f,fl,al];
     return {objects:Object.fromEntries(tb.objects||[]), scripts:Object.fromEntries((tb.scripts||[]).map(([k,id,text])=>[k,{id,text}])),
             start:(tb.start||[]).map(r=>r[0]), globals:(tb.globals||[]).map(([name,kind,value])=>({name, kind, value})), actors};
   },
@@ -1142,7 +1176,11 @@ const WgScripts={
   setOn(on){
     this.on=!!on;
     const b=$('#tbScripts'); if(b) b.classList.toggle('on', this.on);
-    if(this.on){ this.panel(); this._el.hidden=false; this.gather().then(()=>this.startLua()); this._last=0; this.loopRun(); }
+    if(this.on){
+      this.panel(); this._el.hidden=false; this.gather().then(()=>this.startLua()); this._last=0; this.loopRun();
+      // Drawn again so the actors draw on their own and glide (18_cellpreview.js `previewMoveRef`).
+      if(typeof schedulePreview==='function') schedulePreview();
+    }
     else this.reset(true);
   },
   /** OpenMW Lua beside MWScript: started once the scene's objects are known. */

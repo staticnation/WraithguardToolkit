@@ -278,6 +278,7 @@ function sceneTables(r) {
     ['actors', 'ssu', actors.map(([id, a]) => [id, a.tag || '', a.stats ? 1 : 0])],
     ['actor_items', 'usi', actors.flatMap(([, a], row) => (a.items || []).map(([item, n]) => [row, item, n | 0]))],
     ['actor_stats', 'ui', actors.flatMap(([, a], row) => (a.stats || []).map(v => [row, v | 0]))],
+    ['actor_rates', 'uuuuu', actors.filter(([, a]) => a.rates).map(([, a]) => [actors.findIndex(x => x[1] === a), ...a.rates])],
   ]);
 }
 

@@ -4332,7 +4332,17 @@ class Renderer{
    *  and all, so nothing is lost by drawing them through the scene buffers. */
   _groupable(b){
     return !!(b && b.n && b.part && b.mats && b.groups && b.groups.length &&
-              !b.skin && !b.moths && b.texKey==null);
+              !b.skin && !b.moths && b.texKey==null && !b.live);
+  }
+  /** Wraithguard: an instance of a batch that draws on its own (`live`: the actors while the
+   *  Scripts run, see 18_cellpreview.js `previewMoveRef`) moved without a rebuild - its
+   *  matrix written into the batch's instance buffer, when the batch has made one (it reads
+   *  `mats` when it does). The caller has already written `mats` and the run boxes. */
+  moveInstance(b, k, m){
+    if(!b || !b.live) return false;
+    if(b.mb){ const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, b.mb); gl.bufferSubData(gl.ARRAY_BUFFER, k*48, m); }
+    this.dirty=true;
+    return true;
   }
   /** The key two batches must share to be drawn in one call: everything `_meshTex` and
    *  `_meshMode` would set differently between them. An animated batch keys on itself

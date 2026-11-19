@@ -331,6 +331,29 @@
 
 ### Added
 
+- **Actors glide, walk at their own pace, flee, greet, and keep out of each other's way**
+  (`18_cellpreview.js` `previewMoveRef`, `06_gl.js` `moveInstance`; `77_wg_ai.js`; `World::ai_rates`,
+  the stats' Speed and Athletics, `scene_scripts`' `actor_rates`).
+  - **Gliding.** While the Scripts run, an actor's batches draw on their own rather than in the
+    shared material groups. A move writes the actor's matrix into them, widens its cull run
+    and moves its pickable, so it glides every frame. Before, it stepped when the scene was
+    rebuilt, a few times a second. Anything else a script moves still steps.
+  - **The navmesh.** When one has been chosen in the navmesh overlay, routes go over OpenMW's
+    navmesh first, for the agent nearest a person's size, through the middles of the edges its
+    polygons share. The pathgrid is used where it does not join the two points.
+  - **Pace.** Walk and run come from the record's Speed and Athletics by OpenMW's formulas over
+    the game's settings (`fMinWalkSpeed` ... `fBaseRunMultiplier`; a creature's
+    `fMinWalkSpeedCreature` and `fMaxWalkSpeedCreature`, added to `game_settings`).
+  - **Fleeing.** In a fight, an actor whose Flee and lost share of health come to 100 runs from its
+    foe and stops once it is clear.
+  - **Greetings.** An actor with Hello, standing or wandering, stops and turns to the player within
+    Hello x `iGreetDistanceMultiplier`, and says so once each time the player comes near.
+  - **Room.** A moving actor keeps out of other actors' way.
+  - The engine now sends AIDT's Hello, Fight, Flee and Alarm for each actor (an auto-calculated
+    NPC too) and NPDT's Speed and Athletics.
+  - Tests: `ui/tests/editor/ai_routes.test.js` (a live move, pace, fleeing, greeting, room, the
+    navmesh graph and its routes) and `world`'s `an_actor_s_ai_ratings_are_read` and the stats
+    test.
 - **The actors' AI walks the pathgrid and plays its walk** (`77_wg_ai.js`; `73_wg_scripts.js`
   `actorsFrame`, `go`). The scripts' AI packages (MWScript's Ai* and StartCombat, OpenMW Lua's
   `I.AI`) used to step each actor in a straight line toward its goal, through walls, standing
