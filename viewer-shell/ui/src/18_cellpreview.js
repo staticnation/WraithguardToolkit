@@ -1780,7 +1780,9 @@ async function _rebuildCellPreview(){
     WgDistant.refresh(R, centre, origin, rings)
       .catch(e=>{ WgDistant.err=String(e&&e.message||e); })
       .then(()=>{ mark('landDone'); timing.land=WgDistant.stats? Object.assign({},WgDistant.stats) : null;
-        if(typeof WgDistantObjects==='object' && R.statics===staticBatches){   // still this scene
+        // Still this scene: its live actors (a live actor's mesh swap makes the renderer's list a
+        // new array, so `R.statics===staticBatches` said no, and the far objects never came).
+        if(typeof WgDistantObjects==='object' && App._liveRefs===liveRefs){
           mark('far');
           return WgDistantObjects.refresh(R, centre, origin, rings, staticBatches)
             .catch(e=>{ WgDistantObjects.err=String(e&&e.message||e); })
@@ -2719,10 +2721,30 @@ async function previewSwapActor(key, spec){
     bt.live=true;
     return bt;
   });
+  /* The scene's own list too (58_wg_distant_objects.js installs it again with the far objects
+     once they load): left as it was built, that put the actor's first batches back - a ghost
+     standing where it was, not pickable - and dropped the swapped ones the AI moves, so the
+     next swap drew a second actor (Static: "two fargoths"). */
+  if(typeof WgDistantObjects==='object' && Array.isArray(WgDistantObjects._scene)){
+    const sc=WgDistantObjects._scene, gone=new Set(L.batches);
+    for(let i=sc.length-1;i>=0;i--) if(gone.has(sc[i])) sc.splice(i,1);
+    for(const b of add) sc.push(b);
+  }
   R.swapLive(L.batches, add);
   L.batches=add; L.model=model; L.vis=info.visAabb||L.vis;
   if(L.pick){ L.pick.model=model; L.pick.parts=info.parts; L.pick.phase=null; }
   return true;
+}
+
+/** Wraithguard: a live actor's mesh for `spec` loaded ahead, so its first walk is drawn walking
+ *  at once (73_wg_scripts.js, when the AI takes it up): the first swap waited on the engine
+ *  building the mesh, and the actor glided meanwhile. Nothing is drawn; the mesh cache keeps it. */
+function previewWarmActor(key, spec){
+  const L=App._liveRefs && App._liveRefs.get(key);
+  if(!L || !spec) return Promise.resolve(false);
+  const model=animModel(L.base, spec);
+  const isOwn=model===CORPSE_SLAB || model.startsWith(NPC_MESH_PREFIX) || model.startsWith('__');
+  return loadMeshes([isOwn? model : {path:'Meshes\\'+model, still:false}]).then(()=>true, ()=>false);
 }
 
 /** Wraithguard: a live reference (an actor while the Scripts run) moved where the scripts put

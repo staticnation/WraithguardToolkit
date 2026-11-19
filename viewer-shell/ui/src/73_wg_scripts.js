@@ -258,6 +258,7 @@ const WgScripts={
     const L=App._liveRefs;
     if(!L || L===this._liveSeen) return;
     this._liveSeen=L;
+    if(this._warmWant) for(const k of [...this._warmWant]) if(L.has(k)){ this._warmWant.delete(k); this.warm(k); }
     if(typeof previewMoveRef!=='function') return;
     for(const [k, m] of this.moved){
       if(!m.pos || !L.has(k)) continue;
@@ -1314,6 +1315,16 @@ const WgScripts={
     }
     this.bindScene();
   },
+  /** An actor the AI walks, its walk mesh asked for ahead (18_cellpreview.js
+   *  `previewWarmActor`), one at a time behind the others: built when it first walked, it
+   *  glided there meanwhile. The AI's walk begins at 0 (`loop`), so it is the very mesh. */
+  warm(key){
+    if(typeof previewWarmActor!=='function') return;
+    // Not drawn live yet (the AI takes them up before the scene is drawn with them live):
+    // kept until it is (`keepLive`).
+    if(!(App._liveRefs && App._liveRefs.has(key))){ (this._warmWant=this._warmWant||new Set()).add(key); return; }
+    this._warmQ=(this._warmQ||Promise.resolve()).then(()=>this.on? previewWarmActor(key, 'WalkForward@0') : false).catch(()=>false);
+  },
   /** The current scene's references to what is known of them: an instance for each scripted
    *  one, and each actor's own AI packages started. Run after each gathering, whichever scene
    *  it asked about. */
@@ -1342,6 +1353,7 @@ const WgScripts={
       A.packages=d.packages; A.pkg=0;
       this.ai(t, A.packages[0][0], A.packages[0][1], {self:t}, true);
       if(A.ai){ const k=A.ai.kind+(A.ai.kind==='wander'? (A.ai.range>0? ' with a distance' : ' in place') : ''); started[k]=(started[k]||0)+1; }
+      if(A.ai && !(A.ai.kind==='wander' && !(A.ai.range>0))) this.warm(r.key);
     }
     // Said once a gathering: how many actors the AI took up, and how (the panel's Actors list has each).
     const total=Object.values(started).reduce((a, b)=>a+b, 0);

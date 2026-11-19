@@ -261,6 +261,17 @@ module.exports = async (t) => {
   open();
   t.ok((await first) === false && (await second) === true && L.model === '__npc/guard_b?group=Idle3@1', 'the newer ask wins ' + L.model);
 
+  /* The scene's own list follows a swap (the far objects install it again once they load,
+     58_wg_distant_objects.js): the old batches out, the new in - left as built, it put back a
+     still copy of the actor that could not be picked, and dropped the one the AI moves. */
+  const other = { id: 'lamp' };
+  ctx.WgDistantObjects = { _scene: [other, ...L.batches] };
+  const beforeSwap = L.batches.slice();
+  t.ok((await ctx.previewSwapActor('n1', 'Idle4@1')) === true, 'swapped');
+  const sc = ctx.WgDistantObjects._scene;
+  t.ok(sc.includes(other) && !beforeSwap.some(b => sc.includes(b)) && L.batches.every(b => sc.includes(b)), 'the scene\'s list: the old batches out, the new in, the rest kept ' + sc.length);
+  delete ctx.WgDistantObjects;
+
   // A play once whose length never comes does not hold a wanderer for ever.
   S.anims.delete('n1');
   const stuck = S.playAnim('n1', 'Idle9', 0, 1, 'AI', { quiet: true });
