@@ -1230,8 +1230,13 @@ const WgScripts={
     const ids=[...new Set(refs.map(([,r])=>String(r.id).toLowerCase()))].filter(id=>!this._asked.has(id));
     for(const id of ids) this._asked.add(id);
     let got={objects:{}, scripts:{}, start:[], globals:[]};
-    if(ids.length || !this._globalsRead) try{ got=this.readScene(unpackTables(await Engine.bytes('scene_scripts',{ids}))); }catch(e){ this.say('', 'error', 'the scene\'s scripts did not load: '+String(e && e.message || e)); return; }
-    if(this._sceneSeen!==sc) return;
+    if(ids.length || !this._globalsRead) try{ got=this.readScene(unpackTables(await Engine.bytes('scene_scripts',{ids}))); }
+    catch(e){ for(const id of ids) this._asked.delete(id); this.say('', 'error', 'the scene\'s scripts did not load: '+String(e && e.message || e)); return; }
+    if(!this.on) return;
+    /* What came back is kept even when the scene was built again meanwhile (the scripts,
+       objects and actors are by id, not by scene): those ids are marked asked, so a gathering
+       of the newer scene does not ask again, and dropping this answer left a big load order's
+       scene with no object scripts and no actor - none of them moved. */
     for(const [k, s] of Object.entries(got.scripts||{})) if(!this.parsed.has(k) || this.parsed.get(k).error==='loading') this.learn(k, s);
     for(const [id, s] of Object.entries(got.objects||{})) this.objScript.set(id, s);
     for(const [id, d] of Object.entries(got.actors||{})) this.actorDefs.set(id, d);
@@ -1240,6 +1245,15 @@ const WgScripts={
       for(const g of got.globals||[]){ const k=g.name.toLowerCase(); if(!this.state.globals.has(k)) this.state.globals.set(k, {name:g.name, kind:g.kind, v:g.value}); }
       for(const s of got.start||[]) this.start(s);
     }
+    this.bindScene();
+  },
+  /** The current scene's references to what is known of them: an instance for each scripted
+   *  one, and each actor's own AI packages started. Run after each gathering, whichever scene
+   *  it asked about. */
+  bindScene(){
+    const sc=App._scene; if(!sc || !this.on) return;
+    const refs=[];
+    for(const c of sc.cells||[]) for(const r of c.refs||[]) if(r && r.id && !r.gc) refs.push([c, r]);
     for(const [c, r] of refs){
       const id=String(r.id).toLowerCase(), s=this.objScript.get(id);
       if(!s || this.inst.has(r.key)) continue;

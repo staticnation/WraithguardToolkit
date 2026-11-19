@@ -279,6 +279,8 @@ function sceneTables(r) {
     ['actor_items', 'usi', actors.flatMap(([, a], row) => (a.items || []).map(([item, n]) => [row, item, n | 0]))],
     ['actor_stats', 'ui', actors.flatMap(([, a], row) => (a.stats || []).map(v => [row, v | 0]))],
     ['actor_rates', 'uuuuu', actors.filter(([, a]) => a.rates).map(([, a]) => [actors.findIndex(x => x[1] === a), ...a.rates])],
+    // Each actor's own AI packages: [kind, args `|`-separated] (commands.rs `actor_packages`).
+    ['actor_packages', 'uss', actors.flatMap(([, a], row) => (a.packages || []).map(([kind, args]) => [row, kind, args]))],
   ]);
 }
 

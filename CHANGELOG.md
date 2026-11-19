@@ -287,6 +287,7 @@
 
 ### Fixed
 
+- Scripts: on a big load order no object's script ran and no actor moved: the engine's answer for the scene's objects came back after the scene was drawn again (turning the Scripts on draws the actors on their own) and was dropped, and the newer scene's gathering did not ask again. The answer is now kept and bound to the current scene, so the actors' own AI packages start.
 - OSV-Scanner: heapless 0.8.0's nine 2026 advisories (RUSTSEC-2026-0574 to 0582, all "unsound") are ignored with reasons in `osv-scanner.toml` and `deny.toml`. heapless comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier's latest) still requires; rstar uses only heapless's `BinaryHeap`, which none of them cover. Drop the entries when parry3d moves to rstar 0.14.
 - **The AI checked against OpenMW's source** (`openmw-master/apps/openmw/mwmechanics`: aiwander.cpp,
   actors.cpp; Static, 2026-11-19: "NPCs still dont wander ... what are we doing wrong").
