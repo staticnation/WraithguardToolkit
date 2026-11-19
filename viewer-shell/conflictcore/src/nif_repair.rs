@@ -14,7 +14,7 @@
 //! What was found in a mesh is kept in the scan cache (tag [`TAG`], valid while the
 //! file's size and time are unchanged), so a second run reads only what changed.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
 use editcore::cache::Cache;
@@ -161,6 +161,8 @@ pub fn mended(bytes: Vec<u8>) -> (Vec<u8>, Vec<String>) {
 
 /// A candidate checked; from the cache when it holds the mesh as it is now.
 pub fn check(cache: Option<&Cache>, c: &Candidate) -> Found {
+    // A packed mesh's result is kept with its archive's (`check_all`), not under the archive's path.
+    let cache = cache.filter(|_| c.packed.is_none());
     let kept = cache
         .and_then(|cc| cc.get(&c.path, TAG))
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -168,7 +170,7 @@ pub fn check(cache: Option<&Cache>, c: &Candidate) -> Found {
     if let Some(f) = kept {
         return f;
     }
-    let bytes = match std::fs::read(&c.path) {
+    let bytes = match c.read() {
         Ok(b) => b,
         Err(e) => return Found { status: Status::Unreadable, bytes: 0, faults: Vec::new(), why: e.to_string() },
     };
@@ -180,15 +182,10 @@ pub fn check(cache: Option<&Cache>, c: &Candidate) -> Found {
 }
 
 /// Every candidate checked, on a few threads, in the candidates' order. The optimizer's
-/// [`DONE`] counts.
+/// [`DONE`] counts; a packed mesh's result is kept with its archive's
+/// (`nif_batch::run_cached`).
 pub fn check_all(cache: Option<&Cache>, cands: &[Candidate]) -> Vec<Found> {
-    DONE.store(0, Ordering::Relaxed);
-    TOTAL.store(cands.len(), Ordering::Relaxed);
-    par_map(cands, |c| {
-        let f = check(cache, c);
-        DONE.fetch_add(1, Ordering::Relaxed);
-        f
-    })
+    crate::nif_batch::run_cached(cache, cands, TAG, |c| check(cache, c), |c| check(None, c), Found::to_json, Found::from_json)
 }
 
 /// Whether a checked mesh is written: mendable, or a guess when guesses are asked for.
@@ -198,8 +195,8 @@ pub fn writes(f: &Found, guesses: bool) -> bool {
 
 /// One mesh read again, repaired, and written under `out_dir` at its own path.
 pub fn write_one(c: &Candidate, out_dir: &Path, guesses: bool) -> Written {
-    let mut w = Written { rel: c.rel.clone(), from: c.path.clone(), before: 0, after: 0, error: String::new() };
-    let bytes = match std::fs::read(&c.path) {
+    let mut w = Written { rel: c.rel.clone(), from: PathBuf::from(c.from()), before: 0, after: 0, error: String::new() };
+    let bytes = match c.read() {
         Ok(b) => b,
         Err(e) => {
             w.error = e.to_string();
@@ -349,6 +346,91 @@ mod tests {
         // And what the optimizer reads is the mended mesh.
         assert_eq!(mended(bad.clone()).0, good);
         assert_eq!(mended(good.clone()), (good, Vec::new()));
+        cache.close();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A version-0x100 archive with `files` (backslash names), laid out as Morrowind's are
+    /// (`gardenfell-bsa`'s own test builder).
+    fn archive(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let n = files.len();
+        let mut names = Vec::new();
+        let mut name_offs = Vec::new();
+        for (name, _) in files {
+            name_offs.push(names.len() as u32);
+            names.extend_from_slice(name.as_bytes());
+            names.push(0);
+        }
+        let hash_off = (8 * n + 4 * n + names.len()) as u32;
+        let mut out = Vec::new();
+        for v in [0x100u32, hash_off, n as u32] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut off = 0u32;
+        for (_, data) in files {
+            out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&off.to_le_bytes());
+            off += data.len() as u32;
+        }
+        for o in &name_offs {
+            out.extend_from_slice(&o.to_le_bytes());
+        }
+        out.extend_from_slice(&names);
+        out.extend(std::iter::repeat_n(0u8, 8 * n));
+        for (_, data) in files {
+            out.extend_from_slice(data);
+        }
+        out
+    }
+
+    #[test]
+    fn meshes_in_archives_are_checked_behind_loose_files_and_written_loose() {
+        use crate::nif_batch::collect_all;
+        let root = tmp("bsa");
+        let (a, b) = (root.join("a"), root.join("b"));
+        let good = std::fs::read(format!("{FIX}uvsets.nif")).unwrap();
+        let at = uv_word(&good).unwrap();
+        let mut bad = good.clone();
+        bad[at..at + 4].copy_from_slice(&0u32.to_le_bytes());
+        // First.bsa in a: a broken mesh, one a later archive replaces, and one a loose file does.
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::write(a.join("First.bsa"), archive(&[("meshes\\x\\bad.nif", &bad), ("meshes\\x\\later.nif", &good), ("meshes\\x\\loose.nif", &bad)])).unwrap();
+        // Second.bsa in b, later in the load order: its broken copy of later.nif wins.
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("second.BSA"), archive(&[("meshes\\x\\later.nif", &bad)])).unwrap();
+        // A loose loose.nif in a, sound: it wins over First.bsa's.
+        std::fs::create_dir_all(a.join("meshes/x")).unwrap();
+        std::fs::write(a.join("meshes/x/loose.nif"), &good).unwrap();
+
+        let names = ["First.bsa".to_string(), "Second.bsa".to_string(), "Gone.bsa".to_string()];
+        let (cands, warnings) = collect_all(&[a.clone(), b.clone()], &names);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].starts_with("Gone.bsa"));
+        let by = |n: &str| cands.iter().find(|c| c.rel.ends_with(n)).unwrap();
+        assert_eq!(cands.len(), 3);
+        assert_eq!(by("bad.nif").archive_name().as_deref(), Some("First.bsa"));
+        assert_eq!(by("later.nif").archive_name().as_deref(), Some("second.BSA"));
+        assert!(by("loose.nif").packed.is_none());
+
+        let cache = Cache::new(root.join("c.sqlite3"), "t", 1 << 20);
+        let found = check_all(Some(&cache), &cands);
+        // From the cache the second time: one entry an archive, the same answers.
+        assert_eq!(found, check_all(Some(&cache), &cands));
+        assert!(cache.get(&a.join("First.bsa"), TAG).is_some());
+        let status = |n: &str| found[cands.iter().position(|c| c.rel.ends_with(n)).unwrap()].status;
+        assert_eq!(status("bad.nif"), Status::Mendable);
+        assert_eq!(status("later.nif"), Status::Mendable);
+        assert_eq!(status("loose.nif"), Status::Sound);
+
+        let picked: Vec<&Candidate> = cands.iter().zip(&found).filter(|(_, f)| writes(f, false)).map(|(c, _)| c).collect();
+        let out = root.join("out");
+        let done = write_all(&picked, &out, false);
+        assert_eq!(done.len(), 2);
+        for w in &done {
+            assert!(w.error.is_empty(), "{}", w.error);
+            assert!(w.from.to_string_lossy().to_lowercase().contains(".bsa::meshes/x/"), "{}", w.from.display());
+            assert_eq!(std::fs::read(out.join(&w.rel)).unwrap(), good, "{}", w.rel);
+        }
         cache.close();
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -569,8 +569,9 @@ pub fn merge(plugins: &[(String, PathBuf)], opts: &Options) -> Outcome {
                 continue;
             }
             // The merge starts from the last version: one read past a subrecord its type does
-            // not know (lenient reading) would lose it, so the record is left out. An earlier
-            // version read so is merged from as read.
+            // not know (lenient reading) that could not be kept would lose it, so the record is
+            // left out. The last version's kept subrecords stay with the merged record; an
+            // earlier version's are not merged (TES3Merge does not know them either).
             if let Some(why) = crate::plugin::lossy(&marked[marked.len() - 1].1) {
                 let id = record_id(&marked[marked.len() - 1].1).unwrap_or_default();
                 out.failed.push(format!("{t} {id}"));
@@ -582,10 +583,14 @@ pub fn merge(plugins: &[(String, PathBuf)], opts: &Options) -> Outcome {
             }
             let recs: Vec<(usize, Value)> = marked
                 .iter()
-                .map(|(i, v)| {
+                .enumerate()
+                .map(|(n, (i, v))| {
                     let mut v = v.clone();
                     if let Value::Object(m) = &mut v {
                         m.remove(crate::plugin::LOSSY);
+                        if n + 1 < marked.len() {
+                            m.remove(crate::plugin::UNKNOWN);
+                        }
                     }
                     (*i, v)
                 })

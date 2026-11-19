@@ -368,8 +368,8 @@ Each tool is a section on the left with its work on the right.
 | **Merge objects** | One `Merged Objects.esp` holding every mod's changes to the records two or more plugins change, not only the last one's: [TES3Merge](https://github.com/NullCascade/TES3Merge)'s merge, ported. Each field another plugin changed is kept, leveled lists are combined, and effects merge slot by slot. TES3Merge's fog-bug, summons and cell-name fixes apply. The record types are ticked (TES3Merge's list by default), and plugins can be left out and ids filtered. *Inclusive inventories* gives an NPC every item any plugin gives it, *Leveled lists only* writes `multipatch.esp`, and *Dry run* writes nothing. It reads the load order as the setup has it, for OpenMW, MO2 or the game's own. Load the plugin last. |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
-| **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. A mesh that Check meshes can mend with a proven repair is optimized from the repaired copy. |
-| **Check meshes** | The winning copy of every loose mesh read for the faults exporters write. **Mendable** means every fault has a repair that is proven to keep the mesh the same: a `Has UV` flag left off where there are UV sets, which OpenMW and older tools misread as the triangles, or UV sets counted that aren't there. **Mendable by a guess** means a node whose lists don't read, which nothing else links to, kept with no children (written only when you tick it). **Unreadable** names why: another NIF version, a block type outside Morrowind's format, or not a NIF. **Write repaired** puts the ticked ones, at their own paths, into a folder you add last in the load order; your mods aren't touched. |
+| **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. A mesh that Check meshes can mend with a proven repair is optimized from the repaired copy. Meshes in the load order's archives are read too; a copy is written as a loose file. |
+| **Check meshes** | The winning copy of every mesh, loose or in the load order's archives, read for the faults exporters write. **Mendable** means every fault has a repair that is proven to keep the mesh the same: a `Has UV` flag left off where there are UV sets, which OpenMW and older tools misread as the triangles, or UV sets counted that aren't there. **Mendable by a guess** means a node whose lists don't read, which nothing else links to, kept with no children (written only when you tick it). **Unreadable** names why: another NIF version, a block type outside Morrowind's format, or not a NIF. **Write repaired** puts the ticked ones, at their own paths, into a folder you add last in the load order; your mods aren't touched. |
 
 ### Help, Report and Settings
 
@@ -379,10 +379,10 @@ Each tool is a section on the left with its work on the right.
   and textures found, and anything that couldn't be read.
 - **Settings** (the gear) holds the theme, the language, how the mouse moves the camera,
   and the side panel. **Read past unknown subrecords** (off by default) lets the scans, the
-  Editor and Merge objects read a plugin with a subrecord its record type doesn't know (an NPC
-  with a FILL, as some tools write), instead of leaving the plugin out. A record read that way
-  is marked: the Editor says so and won't write it into a patch, and Merge objects leaves out a
-  record whose last version was read so, because writing it would drop that subrecord.
+  Editor and Merge objects read a plugin with a subrecord its record type doesn't know, instead
+  of leaving the plugin out. What was stepped over is kept and written back where it was. In the
+  rare case that can't be proven on the record, it is marked instead: the Editor won't write it
+  into a patch, and Merge objects leaves it out.
 
 ---
 

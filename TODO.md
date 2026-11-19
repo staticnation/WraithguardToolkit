@@ -16,7 +16,9 @@ for `CHANGELOG.md`; a decision stays as one line where open work depends on it. 
 
   Static's real order (619 plugins, 2026-11-10) spent 4.4 s between "declaring" and "wrote" (13.5
   MB); Verbose now splits the encoding from the disk write. A Verbose run of the real order says
-  whether that time is the disk (or a scanner on the new file) or the encoding.
+  whether that time is the disk (or a scanner on the new file) or the encoding. Not the plugin
+  lookups: those go through one index of the data folders (`PluginIndex`). The synthetic order
+  (2026-11-18): 2.2 s whole, encoded in 0.09 s, written in 0.03 s.
 - tes3cmd (built in since 2026-11-17, `viewer-shell/TES3CMD-REWRITE.md`). Left on purpose:
   `modify --run` and `--program-file` run Perl, so they stay the external tes3cmd's; the master
   cache is not ported (it holds every record of the master, so reading it back costs what reading
@@ -68,8 +70,14 @@ master is told by its extension everywhere; the master check only notes a header
 - Orbit navigation without an end (2026-11-16): serviceable, wants polish (nothing named yet). The
   renderer's mouse handling has no page test (it needs the shell to move the pointer and a GL
   context).
-- Verify finds a cell written broken before the fix of 2026-11-16 ("the border with ... is N
-  vertex/vertices apart") but does not mend it: undo it or take it out of the patch.
+- Scripted actors glide instead of stepping. They move when the scene is rebuilt, about three
+  times a second (`73_wg_scripts.js` `flushScene`). Gliding means moving one drawn reference
+  between rebuilds, in the renderer (`06_gl.js`). A reference's matrix is in its model's array
+  (`b.mats`, shared by the model's batches), and from there in up to three places: a batch's own
+  instance buffer (`mb`, the animated and skinned batches that draw on their own), the
+  scene-wide instance texture (`_buildGroups`'s `itex`), and baked world-space vertices for baked
+  batches, which can't move without being baked again. The batches' per-cell cull boxes would go
+  stale too. It needs a visual check in the app.
 
 ## After 5.0
 
@@ -105,9 +113,6 @@ for code: it is GPL-3.
   edits its scale at home - load both in the CS and see where the rock stands; if it stands
   where B moved it, 0023 and the Editor's rule turn round together
   (`tests/fixtures/move_cases.json`, "moved, then a plain record in its home cell").
-- Lenient reading (Settings, "Read past unknown subrecords") drops what it steps over, so a
-  marked record can't be written into a patch or Merged Objects. Keeping the unknown
-  subrecord's bytes with the record, and writing them back, would let one be patched.
 - Phase 2c: the viewer's own scene keys (`i:Name` / `x,y` in `17_cell.js`, `18_cellpreview.js`,
   `32_cellhistory.js`, `50_wg_editor_ref.js`) - fold onto `CellKey.doorKey` only if one shows
   a case bug (`17_cell.js` lowercases the name, the others do not).
@@ -186,15 +191,10 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 - OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): the camera, input bindings, console and
   HUD built-ins are left out (they need the game); `openmw.animation` answers but nothing
   is animated; `ui.create`'s keys go to a node once it is clicked.
-- Physics drop (`76_wg_physics.js`, `physcore`): a hollow body is split coarsely (a 32-voxel
-  grid, 16 parts at most), so a thin-walled vase may still fill in: a finer split if that
-  shows.
 - MWScript the preview still does not run: animations are named but not drawn (PlayGroup,
   LoopGroup: the mesh stands still), a spell's effects (Cast is counted for GetSpellEffects
   for ten seconds; GetEffect is not answered). Combat has no weapons, armor or fatigue.
-  Actors move each time the scene is built again (about three times a second), so a walk
-  steps rather than glides: gliding needs the renderer to move one drawn object between
-  builds.
+  Actors step rather than glide (The viewer, above).
 
 ## MWScript compiler
 
@@ -233,8 +233,6 @@ the vanilla CS, so then:
 ## Meshes and distant view
 
 - "Optimize draw order": compare with G7's Blender exporter's output on the same mesh.
-- Check meshes, like the optimizer, reads loose meshes only: read the archives too, and write
-  an archived mesh's repair as a loose file (a loose file wins).
 - 40 corpus meshes are NIF 4.0.0.0 (most from Properly Smoothed Meshes). Find out what the game
   and OpenMW do with them, and read them if they load.
 - Check meshes' guess repair (`dbs_meatstick.nif`'s two "Emitter" roots): see the mesh in

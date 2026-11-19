@@ -279,8 +279,8 @@ fn command() -> Command {
         )
         .arg(flag(
             "lenient-plugins",
-            "Read past a subrecord a record type does not know (an NPC_ with a FILL) instead of refusing the plugin; such a record is \
-             marked, and Merge objects leaves out a record whose last version was read so (Settings' \"Read past unknown subrecords\")",
+            "Read past a subrecord a record type does not know (an NPC_ with a FILL) instead of refusing the plugin; what is stepped \
+             over is kept and written back where it was (Settings' \"Read past unknown subrecords\")",
         ))
         .arg(flag("check-meshes-guesses", "With --check-meshes FOLDER: also write the meshes mendable only by a guess (a node whose lists do not read, emptied)"))
         .arg(Arg::new("verbose").short('v').long("verbose").action(ArgAction::Count).help("Show run diagnostics on stderr (-v, -vv)"))
@@ -668,7 +668,10 @@ fn check_meshes(args: &Args, folder: &str) -> Result<(), String> {
     let data: Vec<std::path::PathBuf> =
         setup.data.iter().filter(|d| skip.is_empty() || fold(&d.to_string_lossy()) != skip).cloned().collect();
     section("CHECK MESHES");
-    let cands = nif_batch::collect(&data);
+    let (cands, missing) = nif_batch::collect_all(&data, &setup.archives);
+    for w in &missing {
+        println!("  archive not read: {w}");
+    }
     let found = nr::check_all(None, &cands);
     let mut counts = [0usize; 4];
     for f in &found {
@@ -686,7 +689,7 @@ fn check_meshes(args: &Args, folder: &str) -> Result<(), String> {
     order.sort_by(|&x, &y| found[y].status.cmp(&found[x].status).then_with(|| cands[x].rel.to_lowercase().cmp(&cands[y].rel.to_lowercase())));
     for &i in &order {
         let (c, f) = (&cands[i], &found[i]);
-        println!("  [{}] {}  ({})", f.status.label(), c.rel, c.dir.display());
+        println!("  [{}] {}  ({})", f.status.label(), c.rel, c.shown_from());
         for x in &f.faults {
             println!("      {}: block {} ({}): {}", x.label, x.block, x.name, x.note);
         }

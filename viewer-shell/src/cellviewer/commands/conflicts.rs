@@ -133,15 +133,16 @@ pub(super) fn mo_folded(p: &str) -> String {
     p.trim_end_matches(['/', '\\']).to_lowercase()
 }
 
-/// The meshes of the load order that the optimizer looks at: the winning copy of each,
-/// not those in the output folder (what it wrote before is not an input).
+/// The meshes of the load order that the optimizer and Check meshes look at: the winning copy
+/// of each, loose or in one of the load order's archives (`nif_batch::collect_all`), not those
+/// in the output folder (what they wrote before is not an input).
 pub(super) fn mo_candidates(cfg: &str, opts: &conflictcore::nif_batch::Options, out_dir: &str) -> Result<Vec<conflictcore::nif_batch::Candidate>, String> {
     use conflictcore::nif_batch as nb;
     let setup = cf_setup(cfg)?;
     let skip = mo_folded(out_dir);
     let data: Vec<std::path::PathBuf> =
         setup.data.iter().filter(|d| skip.is_empty() || mo_folded(&d.to_string_lossy()) != skip).cloned().collect();
-    Ok(nb::filter(nb::collect(&data), opts))
+    Ok(nb::filter(nb::collect_all(&data, &setup.archives).0, opts))
 }
 
 /// Wraithguard: the mesh optimizer's measurement over a load order (Tools). `opts`:
@@ -257,7 +258,7 @@ pub(super) fn meshcheck_scan(cfg: String, opts: serde_json::Value, out_dir: Stri
     let mut dirs: Vec<String> = Vec::new();
     let mut dir_at = std::collections::HashMap::new();
     for &i in &order {
-        let d = cands[i].dir.to_string_lossy().into_owned();
+        let d = cands[i].shown_from();
         if !dir_at.contains_key(&d) {
             dir_at.insert(d.clone(), dirs.len());
             dirs.push(d);
@@ -273,7 +274,7 @@ pub(super) fn meshcheck_scan(cfg: String, opts: serde_json::Value, out_dir: Stri
     tb.table("rows", "suuss", order.len());
     for &i in &order {
         let (c, f) = (&cands[i], &found[i]);
-        tb.s(&c.rel).u(dir_at[&*c.dir.to_string_lossy()] as u64).u(f.status.code()).s(&f.bytes.to_string()).s(&f.why);
+        tb.s(&c.rel).u(dir_at[&c.shown_from()] as u64).u(f.status.code()).s(&f.bytes.to_string()).s(&f.why);
     }
     tb.table("faults", "ussuus", order.iter().map(|&i| found[i].faults.len()).sum());
     for (row, &i) in order.iter().enumerate() {

@@ -1197,6 +1197,13 @@ mod tests {
         let s = said(&ed);
         assert_eq!(s.len(), 1, "{s:?}");
         assert!(s[0].starts_with("the border with (3, -3) is 65 vertex/vertices apart, by up to 256 units"), "{}", s[0]);
+        // Mended: the east column takes (3, -3)'s 256 again, and Verify finds nothing.
+        let mended = ed.mend_land_borders("2, -3").unwrap();
+        assert_eq!((mended["mended"].as_u64(), mended["left"].as_u64()), (Some(65), Some(0)), "{mended}");
+        assert!(said(&ed).is_empty(), "{:?}", said(&ed));
+        // Nothing left to mend: nothing moves.
+        assert_eq!(ed.mend_land_borders("2, -3").unwrap()["mended"].as_u64(), Some(0));
+        ed.set_land("2, -3", &torn).unwrap();
         // Both cells shaped alike: whole again, and a border between two of the patch's is told once.
         ed.set_land("3, -3", &torn).unwrap();
         assert!(said(&ed).is_empty(), "{:?}", said(&ed));

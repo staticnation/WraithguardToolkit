@@ -95,8 +95,9 @@ pub fn matrix(rot: [f32; 3]) -> Mat3 {
 
 /// A body's triangles as convex parts (V-HACD), when it has a hollow worth keeping: `None`
 /// for a shape that is not triangles, too small to split, or that its hull fills nearly
-/// all of anyway (a crate). The decomposition is coarse (a 32-voxel grid, at most 16
-/// parts), which is enough to keep a bowl's inside and a cart's bed.
+/// all of anyway (a crate). The grid is 32 voxels along the shape's longest side, which keeps
+/// a bowl's inside and a cart's bed; a slender shape gets a finer one ([`grid_for`]), so a
+/// tall vase's narrow inside is not filled in.
 fn hollow(soup: &[[f32; 3]], scale: f32) -> Option<ColliderBuilder> {
     use rapier3d::parry::transformation::vhacd::VHACDParameters;
     if soup.len() < 36 || !soup.len().is_multiple_of(3) {
@@ -130,8 +131,33 @@ fn hollow(soup: &[[f32; 3]], scale: f32) -> Option<ColliderBuilder> {
     if hull_vol.is_nan() || hull_vol <= 0.0 || vol > hull_vol * 0.7 {
         return None;
     }
-    let params = VHACDParameters { resolution: 32, max_convex_hulls: 16, ..Default::default() };
+    let (resolution, max_convex_hulls) = grid_for(&verts);
+    let params = VHACDParameters { resolution, max_convex_hulls, ..Default::default() };
     std::panic::catch_unwind(|| ColliderBuilder::convex_decomposition_with_params(&verts, &idx, &params)).ok()
+}
+
+/// The V-HACD grid for a shape: voxels along its longest side, and the most parts. 32 and 16
+/// for a shape about as wide as it is long; for a slender one, enough that its narrowest side
+/// is still 16 voxels across (a vase 12 wide and 160 tall had its inside two voxels wide on
+/// 32, and filled in), up to 128 and 32 parts. The grid is cut to the shape's box, so a finer
+/// grid along a slender shape costs about what 32 does on a cube.
+fn grid_for(verts: &[Vec3]) -> (u32, u32) {
+    let (lo, hi) = verts.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+    let size = hi - lo;
+    let (longest, narrowest) = (size.max_element(), narrow_side(size));
+    if narrowest.is_nan() || narrowest <= 0.0 {
+        return (32, 16);
+    }
+    let resolution = ((16.0 * longest / narrowest).ceil() as u32).clamp(32, 128);
+    (resolution, if resolution > 32 { 32 } else { 16 })
+}
+
+/// A box's narrowest side for [`grid_for`], ignoring a side under a hundredth of the longest
+/// (a flat shape, which has no inside to keep): its middle side then.
+fn narrow_side(size: Vec3) -> f32 {
+    let mut s = [size.x, size.y, size.z];
+    s.sort_by(|a, b| a.total_cmp(b));
+    if s[0] < s[2] * 0.01 { s[1] } else { s[0] }
 }
 
 /// A rotation from rows (the viewer's 3x3, as its 3x4 matrices hold it).
@@ -392,6 +418,28 @@ mod tests {
         let out = drop(&[floor], &bodies, &Settings { hollow: false, ..Default::default() });
         let z = out.frames.last().unwrap()[1].0[2];
         assert!(z > 55.0, "on the hull's lid: {z}");
+    }
+
+    #[test]
+    fn something_dropped_into_a_tall_narrow_vase_rests_inside_it() {
+        // A vase 12 across and 160 tall with walls a quarter unit thick, a 4-unit crate dropped
+        // into it. On a 32-voxel grid its inside was two voxels wide and filled in: the crate
+        // stood on a lid at 163 (2026-11-18). `grid_for` gives it a finer grid.
+        let (w, h, wall) = (6.0, 160.0, 0.25);
+        let mut cup = box_tris([-w, -w, 0.0], [w, w, wall]);
+        for (lo, hi) in [([-w, -w, 0.0], [-w + wall, w, h]), ([w - wall, -w, 0.0], [w, w, h]), ([-w, -w, 0.0], [w, -w + wall, h]), ([-w, w - wall, 0.0], [w, w, h])] {
+            cup.extend(box_tris(lo, hi));
+        }
+        let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
+        let bodies = [
+            Body { key: "cup".into(), points: cup, pos: [4096.0, 4096.0, 0.5], rot: [0.0; 3], scale: 1.0 },
+            Body { key: "c".into(), points: box_tris([-2.0; 3], [2.0; 3]), pos: [4096.0, 4096.0, 300.0], rot: [0.0; 3], scale: 1.0 },
+        ];
+        let t = std::time::Instant::now();
+        let out = drop(&[floor], &bodies, &Settings::default());
+        let z = out.frames.last().unwrap()[1].0[2];
+        eprintln!("vase: {:?}, crate at {z}", t.elapsed());
+        assert!(z < 100.0, "inside the vase, not on a lid over it: {z}");
     }
 
     #[test]

@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde_json::{json, Value};
 
-use crate::edit::{value_at, Editor};
+use crate::edit::{value_at, EditError, Editor};
 use crate::key::{record_key, tag_of};
 use crate::pyval::{self, g, str_of};
 use crate::session::{truthy, Found};
@@ -174,6 +174,14 @@ fn text(v: Option<&Value>) -> String {
 }
 
 /// One finding.
+/// A border of a cell's land the patch opens: the neighbour, this cell's vertices that stand
+/// apart from it (`row * 65 + column`, with the neighbour's height there), and the widest gap.
+struct BorderGap {
+    other: String,
+    at: Vec<(usize, f64)>,
+    worst: f64,
+}
+
 fn finding(level: &str, check: &str, tag: &str, key: &str, path: &str, message: String) -> Value {
     json!({"level": level, "check": check, "tag": tag, "id": key, "path": path, "message": message})
 }
@@ -667,30 +675,57 @@ impl Editor {
     /// wrote cells whose clamped steps tore their borders, and nothing said so. A border between
     /// two cells of the patch is told once, by the one to the south or west.
     fn land_borders(&self, key: &str, record: &Value) -> Vec<Value> {
+        self.border_gaps(key, record, false)
+            .into_iter()
+            .map(|g| {
+                finding(
+                    "warning",
+                    "Landscape",
+                    "LAND",
+                    key,
+                    "vertex_heights",
+                    format!(
+                        "the border with {} is {} vertex/vertices apart, by up to {} units, where the load order had it whole: mend it (this cell takes its neighbour's border), shape the two cells again, or take the land out of the patch",
+                        g.other,
+                        g.at.len(),
+                        g.worst
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    /// The borders of a cell's land the patch opens (see [`Self::land_borders`]): for each
+    /// neighbour, the vertices of this cell (`row * 65 + column`) that stand apart from it, with
+    /// the neighbour's height there. `all`: every neighbour, a border between two cells of the
+    /// patch from both sides (for mending); otherwise told once, by the cell to the south or west.
+    fn border_gaps(&self, key: &str, record: &Value, all: bool) -> Vec<BorderGap> {
         let Some(grid) = exterior_grid_of(key) else { return Vec::new() };
         let Some(mine) = land_heights(record) else { return Vec::new() };
         let before = self.land(&json!([grid.0, grid.1]));
         let in_patch = |k: &str| {
             self.queue.fields().get(&("Landscape".to_string(), k.to_string())).is_some() || self.queue.new_records().any(|m| m.record_type == "Landscape" && m.key == k)
         };
-        // Side by side: this cell's vertex and the neighbour's at step `t` along the border.
-        let sides: [(i64, i64, fn(&[Vec<f64>], usize) -> f64, fn(&[Vec<f64>], usize) -> f64); 4] = [
-            (1, 0, |h, t| h[t][64], |h, t| h[t][0]),
-            (-1, 0, |h, t| h[t][0], |h, t| h[t][64]),
-            (0, 1, |h, t| h[64][t], |h, t| h[0][t]),
-            (0, -1, |h, t| h[0][t], |h, t| h[64][t]),
+        // Side by side: this cell's vertex and the neighbour's at step `t` along the border, and
+        // where this cell's is (`row * 65 + column`).
+        type Side = (i64, i64, fn(&[Vec<f64>], usize) -> f64, fn(&[Vec<f64>], usize) -> f64, fn(usize) -> usize);
+        let sides: [Side; 4] = [
+            (1, 0, |h, t| h[t][64], |h, t| h[t][0], |t| t * 65 + 64),
+            (-1, 0, |h, t| h[t][0], |h, t| h[t][64], |t| t * 65),
+            (0, 1, |h, t| h[64][t], |h, t| h[0][t], |t| 64 * 65 + t),
+            (0, -1, |h, t| h[0][t], |h, t| h[64][t], |t| t),
         ];
         let mut out = Vec::new();
-        for (dx, dy, here, there) in sides {
+        for (dx, dy, here, there, index) in sides {
             let other = (grid.0 + dx, grid.1 + dy);
             let other_key = format!("({}, {})", other.0, other.1);
-            if (dx < 0 || dy < 0) && in_patch(&other_key) {
+            if !all && (dx < 0 || dy < 0) && in_patch(&other_key) {
                 continue;
             }
             let Some(found) = self.find("LAND", &other_key, None) else { continue };
             let Some(theirs) = land_heights(&self.as_written(&found)) else { continue };
             let theirs_before = self.land(&json!([other.0, other.1]));
-            let (mut count, mut worst) = (0, 0.0f64);
+            let (mut at, mut worst) = (Vec::new(), 0.0f64);
             for t in 0..65 {
                 let gap = (here(&mine, t) - there(&theirs, t)).abs();
                 let was = match (&before, &theirs_before) {
@@ -698,22 +733,53 @@ impl Editor {
                     _ => 0.0,
                 };
                 if gap > 0.0 && was == 0.0 {
-                    count += 1;
+                    at.push((index(t), there(&theirs, t)));
                     worst = worst.max(gap);
                 }
             }
-            if count > 0 {
-                out.push(finding(
-                    "warning",
-                    "Landscape",
-                    "LAND",
-                    key,
-                    "vertex_heights",
-                    format!("the border with {other_key} is {count} vertex/vertices apart, by up to {worst} units, where the load order had it whole: shape the two cells again, or take the land out of the patch"),
-                ));
+            if !at.is_empty() {
+                out.push(BorderGap { other: other_key, at, worst });
             }
         }
         out
+    }
+
+    /// Mends the borders of a cell's land that the patch opened (Verify's "the border with ...
+    /// is N vertex/vertices apart"): each vertex that stands apart takes its neighbour's height,
+    /// as the patch leaves the neighbour, and the land is written as the Land view writes it
+    /// (`set_land`). `{cell, mended, clamped, left}`: the vertices moved, the steps the format
+    /// had to clamp, and the vertices still apart afterwards (a clamp can leave some: shape the
+    /// cell's edge by hand then).
+    pub fn mend_land_borders(&mut self, cell: &str) -> Result<Value, EditError> {
+        let Some(grid) = crate::places::exterior_grid(&crate::places::cell_key(cell)) else {
+            return Err(EditError("land belongs to an exterior square: give (x, y)".into()));
+        };
+        let key = format!("({}, {})", grid.0, grid.1);
+        let Some(found) = self.find("LAND", &key, None) else {
+            return Err(EditError(format!("{key} has no land")));
+        };
+        let record = self.as_written(&found);
+        let Some(rows) = land_heights(&record) else {
+            return Err(EditError(format!("{key}'s land has no heights to mend")));
+        };
+        let mut heights: Vec<f64> = rows.into_iter().flatten().collect();
+        let gaps = self.border_gaps(&key, &record, true);
+        let mut mended = 0;
+        for g in &gaps {
+            for &(i, h) in &g.at {
+                if heights[i] != h {
+                    heights[i] = h;
+                    mended += 1;
+                }
+            }
+        }
+        if mended == 0 {
+            return Ok(json!({"cell": key, "mended": 0, "clamped": 0, "left": 0}));
+        }
+        let set = self.set_land(&key, &heights)?;
+        let found = self.find("LAND", &key, None).ok_or_else(|| EditError(format!("{key} has no land")))?;
+        let left: usize = self.border_gaps(&key, &self.as_written(&found), true).iter().map(|g| g.at.len()).sum();
+        Ok(json!({"cell": key, "mended": mended, "clamped": set["clamped"], "left": left}))
     }
 
     /// Whether the patch has anything Verify reads dialogue for: a response or a topic edited or

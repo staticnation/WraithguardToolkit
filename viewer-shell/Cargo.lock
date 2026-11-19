@@ -575,6 +575,8 @@ name = "conflictcore"
 version = "0.1.0"
 dependencies = [
  "editcore",
+ "gardenfell-bsa",
+ "gardenfell-bytes",
  "gardenfell-nif",
  "luacore",
  "meshopt-port",

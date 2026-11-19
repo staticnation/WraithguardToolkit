@@ -23,6 +23,9 @@ tes3 = { git = "https://github.com/Greatness7/tes3", default-features = false, f
 # order (`triorder`, Robin Hjelte's port of meshoptimizer's vertex cache and overdraw passes)
 # and our port of its vertex fetch order and analysers. Both std only.
 gardenfell-nif = { path = "../gardenfell/crates/gardenfell-nif" }
+# The load order's archives, for the Mesh optimizer and Check meshes.
+gardenfell-bsa = { path = "../gardenfell/crates/gardenfell-bsa" }
+gardenfell-bytes = { path = "../gardenfell/crates/gardenfell-bytes" }
 meshopt-port = { path = "../meshopt-port" }
 
 # A record's tes3conv-schema form, for the field diff (in the record's own order: editcore

@@ -44,6 +44,7 @@ pub const ANSWERS: &[&str] = &[
     "editLandTextures",
     "editLandColors",
     "editLandPending",
+    "editLandMend",
     "editCellRegions",
     "editDuplicateCell",
     "editPathgrid",
@@ -1163,6 +1164,11 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
                 return Err("bad heights".into());
             };
             Json(edit(ed.set_land(&cell, &heights))?)
+        }
+        "editLandMend" => {
+            let req = body_of(body)?;
+            let cell = need_words(&req, "cell", "cell")?;
+            Json(edit(ed.mend_land_borders(&cell))?)
         }
         "editLandTextures" => {
             let req = body_of(body)?;

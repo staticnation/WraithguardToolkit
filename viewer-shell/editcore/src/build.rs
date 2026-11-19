@@ -248,7 +248,10 @@ pub fn lual_remap(record: &Value, mapping: &HashMap<i32, i32>) -> Result<Value, 
     if let Some(m) = missing {
         return Err(format!("a script entry names content file {m}, which the plugin's master list does not reach"));
     }
-    serde_json::to_value(&obj).map_err(|e| e.to_string())
+    let mut out = serde_json::to_value(&obj).map_err(|e| e.to_string())?;
+    // What a lenient read kept or lost rides along (`plugin::carry_marks`).
+    crate::plugin::carry_marks(record, &mut out);
+    Ok(out)
 }
 
 /// A record renumbered for its new home (a copy).

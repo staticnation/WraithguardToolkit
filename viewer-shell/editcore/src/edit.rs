@@ -68,8 +68,8 @@ pub fn crlf(text: &str) -> String {
 pub fn flatten(record: &Value) -> Vec<(String, Value)> {
     fn walk(v: &Map<String, Value>, parent: &str, out: &mut Vec<(String, Value)>) {
         for (k, x) in v {
-            // A lenient read's mark (`plugin::LOSSY`) is not a field.
-            if parent.is_empty() && k == crate::plugin::LOSSY {
+            // A lenient read's marks (`plugin::LOSSY`, `plugin::UNKNOWN`) are not fields.
+            if parent.is_empty() && (k == crate::plugin::LOSSY || k == crate::plugin::UNKNOWN) {
                 continue;
             }
             let path = if parent.is_empty() { k.clone() } else { format!("{parent}.{k}") };
@@ -282,6 +282,15 @@ impl Editor {
         let whole = self.queue.selections().iter().find(|s| s.record_type == found.record_type && s.key == found.key).map(|s| s.plugin.clone());
         let lossy: Vec<Value> =
             found.versions.iter().filter_map(|(p, r)| crate::plugin::lossy(r).map(|why| json!([p, why]))).collect();
+        // The versions that keep subrecords their type does not know: `[plugin, tags]`.
+        let kept: Vec<Value> = found
+            .versions
+            .iter()
+            .filter_map(|(p, r)| {
+                let tags: Vec<&str> = r.get(crate::plugin::UNKNOWN)?.as_array()?.iter().filter_map(|k| k["tag"].as_str()).collect();
+                Some(json!([p, tags.join(", ")]))
+            })
+            .collect();
         let mut view = json!({
             "tag": found.tag,
             "type": found.record_type,
@@ -296,6 +305,9 @@ impl Editor {
         // `[plugin, why]`, only when there are any. A patch carrying one is refused (`records_bytes`).
         if !lossy.is_empty() {
             view["lossy"] = Value::Array(lossy);
+        }
+        if !kept.is_empty() {
+            view["kept"] = Value::Array(kept);
         }
         view
     }

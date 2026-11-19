@@ -142,9 +142,17 @@ Object.assign(WgEditor, {
     // A placed copy or a new record is not checked, so a patch of only those has none to check.
     const head='<div class="hint">'+(v.checked? v.checked+' record'+(v.checked===1?'':'s')+' checked' : 'No edited records to check (placed copies and new records are not checked)')+': '+
       (v.findings.length? errs+' error'+(errs===1?'':'s')+', '+(v.findings.length-errs)+' warning'+(v.findings.length-errs===1?'':'s') : 'nothing found')+'</div>';
-    body.innerHTML=head+(rows.length? '<table class="edVerTable"><thead><tr><th></th><th>Check</th><th>Record</th><th>Field</th><th>What is wrong</th></tr></thead><tbody>'+
-      rows.map((f,i)=>'<tr data-i="'+i+'" class="'+escHtml(f.level)+'" title="Double-click: open '+escHtml(f.id)+'"><td>'+(f.level==='error'? '✖' : '⚠')+'</td><td>'+escHtml(f.check)+'</td><td>'+escHtml((this.NAMES[f.tag]||f.tag)+' '+f.id)+'</td><td>'+escHtml(f.path)+'</td><td>'+escHtml(f.message)+'</td></tr>').join('')+
+    // A land border the patch opened can be mended: the cell takes its neighbour's border
+    // (`editLandMend`).
+    const torn=f=>f.tag==='LAND' && /^the border with /.test(String(f.message||''));
+    const cells=[...new Set(v.findings.filter(torn).map(f=>f.id))];
+    const mendAll=cells.length>1? ' <button class="btn sm" id="edVerMendAll" title="Every cell with a torn border takes its neighbours\' border">Mend all borders ('+cells.length+')</button>' : '';
+    body.innerHTML=head.replace(/<\/div>$/, mendAll+'</div>')+(rows.length? '<table class="edVerTable"><thead><tr><th></th><th>Check</th><th>Record</th><th>Field</th><th>What is wrong</th></tr></thead><tbody>'+
+      rows.map((f,i)=>'<tr data-i="'+i+'" class="'+escHtml(f.level)+'" title="Double-click: open '+escHtml(f.id)+'"><td>'+(f.level==='error'? '✖' : '⚠')+'</td><td>'+escHtml(f.check)+'</td><td>'+escHtml((this.NAMES[f.tag]||f.tag)+' '+f.id)+'</td><td>'+escHtml(f.path)+'</td><td>'+escHtml(f.message)+
+        (torn(f)? ' <button class="btn sm" data-mend="'+i+'" title="This cell takes its neighbours\' border where the patch tore it">Mend</button>' : '')+'</td></tr>').join('')+
       '</tbody></table>' : '');
+    body.querySelectorAll('button[data-mend]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); this.mendLand([rows[+b.dataset.mend].id]); });
+    const ma=body.querySelector('#edVerMendAll'); if(ma) ma.onclick=()=>this.mendLand(cells);
     body.querySelectorAll('tr[data-i]').forEach(tr=>tr.ondblclick=()=>{
       const f=rows[+tr.dataset.i];
       if(f.tag==='PGRD'){ toast('Path grid of '+f.id+': open its cell and use Path grid mode','info',4000); return; }
@@ -153,6 +161,19 @@ Object.assign(WgEditor, {
     });
     const b=document.getElementById('edVerifyBtn');
     if(b){ b.classList.toggle('badge', errs>0); b.dataset.n=errs? String(errs) : ''; }
+  },
+
+  /** Mends the land borders the patch tore in `cells` (`editLandMend`): each takes its
+   *  neighbours' border. The Land view is drawn again and Verify runs again. */
+  async mendLand(cells){
+    let moved=0, left=0, clamped=0;
+    for(const cell of cells){
+      try{ const r=await this.ask('editLandMend', {cell}); moved+=+r.mended||0; left+=+r.left||0; clamped+=+r.clamped||0; }
+      catch(e){ toast(cell+': '+String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',5000); }
+    }
+    toast(moved+' border vertex/vertices mended'+(left? '; '+left+' still apart (a step too steep to store): shape the edge by hand' : ''), left? 'warn' : 'ok', 6000);
+    if(typeof WgLand==='object' && WgLand.sync) WgLand.sync();
+    this.showVerify();
   },
 
   /** Test in OpenMW's launch setups (`editTestSetups`, kept by Wraithguard): `{setups,

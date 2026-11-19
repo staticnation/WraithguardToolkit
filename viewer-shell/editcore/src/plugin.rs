@@ -64,13 +64,18 @@ pub fn code_page() -> &'static bytes_io::Encoding {
 }
 
 /* Lenient reading (Settings, "Read past unknown subrecords"; `--lenient-plugins`; Static,
-   2026-11-18). A subrecord a record type does not know (an NPC_ with a FILL, as tools and test
-   fixtures write) fails the record, and with it the plugin, by default. With the switch on, a
-   record that fails so is read again with the crate's `Reader::lenient`, which steps over
-   what it does not know. Such a record is marked ([`LOSSY`], with the strict read's error),
-   because writing it back would drop what was stepped over: the patch writer
-   (`records_bytes`) refuses a marked record, and Merge objects leaves out a record whose last
-   version is marked. A record that reads strictly is read exactly as before. */
+   2026-11-18). A subrecord a record type does not know (an NPC_ with a FILL, as Gardenfell's
+   test fixtures have; none has been seen in a real plugin) fails the record, and with it the
+   plugin, by default. With the switch on, a record that fails so is read again with the crate's `Reader::lenient`, which steps over
+   what it does not know. A record that reads strictly is read exactly as before.
+
+   What was stepped over is kept ([`UNKNOWN`]): the record's subrecords whose tags the crate
+   does not write back for it, each with the subrecord it followed, and the writers put them
+   back where they were (`records_bytes`, [`with_unknown`]). They are kept only when that is
+   proven on the record itself: the crate's bytes for what it read, with them put back, are
+   the record's own bytes. When it is not (the crate writes the rest differently), the record
+   is marked [`LOSSY`] instead, with the strict read's error, and a writer refuses it, since
+   writing it would drop what was stepped over. */
 static LENIENT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Lenient reading on or off (see [`LENIENT`]); answers the switch as set.
@@ -88,31 +93,194 @@ pub fn lenient() -> bool {
 /// the strict read's error. Never part of the record; a writer refuses a value that has it.
 pub const LOSSY: &str = "__lossy";
 
-/// The reason a record's value was read leniently, when it was.
+/// The reason a record's value was read leniently and cannot be written, when it was.
 pub fn lossy(v: &serde_json::Value) -> Option<&str> {
     v.get(LOSSY).and_then(|x| x.as_str())
 }
 
+/// The key of the subrecords a record type does not know, kept with a record read leniently:
+/// `[{tag, after, nth, data}]`, each put back after the `nth` (from 0) subrecord tagged `after`
+/// that the crate writes (`after` empty: first), its data as base64.
+pub const UNKNOWN: &str = "__unknown";
+
+/// The marks a lenient read puts on a value ([`LOSSY`], [`UNKNOWN`]) copied from `from` to
+/// `to`: for a value rebuilt from the crate's types (a script's Lua data renumbered).
+pub fn carry_marks(from: &serde_json::Value, to: &mut serde_json::Value) {
+    for k in [LOSSY, UNKNOWN] {
+        if let Some(v) = from.get(k) {
+            to[k] = v.clone();
+        }
+    }
+}
+
+/// A record's subrecords, `(tag, data)`, from its bytes (the 16-byte header first).
+fn subrecords(record: &[u8]) -> Option<Vec<([u8; 4], &[u8])>> {
+    let mut out = Vec::new();
+    let mut p = 16usize;
+    while p < record.len() {
+        let tag: [u8; 4] = record.get(p..p + 4)?.try_into().ok()?;
+        let n = u32::from_le_bytes(record.get(p + 4..p + 8)?.try_into().ok()?) as usize;
+        out.push((tag, record.get(p + 8..p + 8 + n)?));
+        p += 8 + n;
+    }
+    Some(out)
+}
+
+/// One kept subrecord: its tag, the subrecord it follows (`after`, `nth`), its data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Kept {
+    tag: [u8; 4],
+    after: Option<([u8; 4], usize)>,
+    data: Vec<u8>,
+}
+
+/// The crate's bytes for a record.
+fn saved(o: &tes3::esp::TES3Object) -> io::Result<Vec<u8>> {
+    let mut w = writer();
+    guarded(|| w.save(o))?;
+    Ok(w.cursor.into_inner())
+}
+
+/// `record` (the crate's bytes for one record) with `kept` put back, each after the
+/// subrecord it followed (or, that one gone, at the end); its size fixed.
+fn put_back(record: &[u8], kept: &[Kept]) -> Option<Vec<u8>> {
+    let subs = subrecords(record)?;
+    let mut body: Vec<u8> = Vec::new();
+    let mut seen: std::collections::HashMap<[u8; 4], usize> = std::collections::HashMap::new();
+    let mut placed = vec![false; kept.len()];
+    let emit = |body: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]| {
+        body.extend_from_slice(tag);
+        body.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        body.extend_from_slice(data);
+    };
+    for (i, k) in kept.iter().enumerate() {
+        if k.after.is_none() {
+            emit(&mut body, &k.tag, &k.data);
+            placed[i] = true;
+        }
+    }
+    for (tag, data) in &subs {
+        emit(&mut body, tag, data);
+        let nth = seen.entry(*tag).or_default();
+        for (i, k) in kept.iter().enumerate() {
+            if !placed[i] && k.after == Some((*tag, *nth)) {
+                emit(&mut body, &k.tag, &k.data);
+                placed[i] = true;
+            }
+        }
+        *nth += 1;
+    }
+    for (i, k) in kept.iter().enumerate() {
+        if !placed[i] {
+            emit(&mut body, &k.tag, &k.data);
+        }
+    }
+    let mut out = record.get(..16)?.to_vec();
+    out[4..8].copy_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&body);
+    Some(out)
+}
+
+/// What a lenient read of `span` stepped over, proven: the subrecords whose tags the crate
+/// does not write for `o`, which put back into the crate's bytes give `span` exactly.
+fn unknown_of(span: &[u8], o: &tes3::esp::TES3Object) -> Option<Vec<Kept>> {
+    let ours = saved(o).ok()?;
+    let theirs = subrecords(span)?;
+    let known: std::collections::HashSet<[u8; 4]> = subrecords(&ours)?.iter().map(|(t, _)| *t).collect();
+    let mut kept = Vec::new();
+    let mut last: Option<([u8; 4], usize)> = None;
+    let mut seen: std::collections::HashMap<[u8; 4], usize> = std::collections::HashMap::new();
+    for (tag, data) in theirs {
+        if known.contains(&tag) {
+            let nth = seen.entry(tag).or_default();
+            last = Some((tag, *nth));
+            *nth += 1;
+        } else {
+            kept.push(Kept { tag, after: last, data: data.to_vec() });
+        }
+    }
+    (!kept.is_empty() && put_back(&ours, &kept).as_deref() == Some(span)).then_some(kept)
+}
+
+fn kept_json(kept: &[Kept]) -> serde_json::Value {
+    use base64::Engine as _;
+    let tag = |t: &[u8; 4]| t.iter().map(|&b| b as char).collect::<String>();
+    serde_json::Value::Array(
+        kept.iter()
+            .map(|k| {
+                serde_json::json!({
+                    "tag": tag(&k.tag),
+                    "after": k.after.map(|(t, _)| tag(&t)).unwrap_or_default(),
+                    "nth": k.after.map(|(_, n)| n).unwrap_or(0),
+                    "data": base64::engine::general_purpose::STANDARD.encode(&k.data),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn kept_of(v: &serde_json::Value) -> io::Result<Vec<Kept>> {
+    use base64::Engine as _;
+    let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, format!("{UNKNOWN}: {m}"));
+    let tag = |s: &str| -> io::Result<[u8; 4]> {
+        let b: Vec<u8> = s.chars().map(|c| c as u32 as u8).collect();
+        b.try_into().map_err(|_| bad("a tag is not four bytes"))
+    };
+    let Some(list) = v.as_array() else { return Err(bad("not a list")) };
+    list.iter()
+        .map(|k| {
+            let after = k["after"].as_str().unwrap_or("");
+            Ok(Kept {
+                tag: tag(k["tag"].as_str().unwrap_or(""))?,
+                after: if after.is_empty() { None } else { Some((tag(after)?, k["nth"].as_u64().unwrap_or(0) as usize)) },
+                data: base64::engine::general_purpose::STANDARD.decode(k["data"].as_str().unwrap_or("")).map_err(|_| bad("its data is not base64"))?,
+            })
+        })
+        .collect()
+}
+
+/// A record's value with what a lenient read kept ([`UNKNOWN`]) as its bytes: the crate's
+/// bytes for the rest, with the kept subrecords put back where they were.
+pub fn with_unknown(o: &tes3::esp::TES3Object, unknown: &serde_json::Value) -> io::Result<Vec<u8>> {
+    let kept = kept_of(unknown)?;
+    put_back(&saved(o)?, &kept).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the record's subrecords do not read"))
+}
+
+/// How a record was read: strictly, or leniently with what was stepped over kept, or
+/// leniently with it lost (the strict read's error).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Read {
+    Strict,
+    Kept(serde_json::Value),
+    Lost(String),
+}
+
 /// One record by itself: strictly, and when that fails and lenient reading is on, again
-/// leniently, with the strict read's error as the second value.
-pub fn load_record(span: &[u8]) -> io::Result<(tes3::esp::TES3Object, Option<String>)> {
+/// leniently (see [`LENIENT`]).
+pub fn load_record(span: &[u8]) -> io::Result<(tes3::esp::TES3Object, Read)> {
     match guarded(|| reader(span).load()) {
-        Ok(o) => Ok((o, None)),
+        Ok(o) => Ok((o, Read::Strict)),
         Err(e) if lenient() => {
             let mut r = reader(span);
             r.lenient = true;
             let o = guarded(|| r.load()).map_err(|_| io::Error::new(e.kind(), e.to_string()))?;
-            Ok((o, Some(e.to_string())))
+            let how = match unknown_of(span, &o) {
+                Some(kept) => Read::Kept(kept_json(&kept)),
+                None => Read::Lost(e.to_string()),
+            };
+            Ok((o, how))
         }
         Err(e) => Err(e),
     }
 }
 
-/// A record as a value, marked when it was read leniently.
-fn marked_value(o: &tes3::esp::TES3Object, lossy: Option<String>) -> io::Result<serde_json::Value> {
+/// A record as a value, with what a lenient read kept, or marked when it lost something.
+fn marked_value(o: &tes3::esp::TES3Object, how: Read) -> io::Result<serde_json::Value> {
     let mut v = serde_json::to_value(o).map_err(io::Error::other)?;
-    if let Some(why) = lossy {
-        v[LOSSY] = serde_json::Value::from(why);
+    match how {
+        Read::Strict => {}
+        Read::Kept(k) => v[UNKNOWN] = k,
+        Read::Lost(why) => v[LOSSY] = serde_json::Value::from(why),
     }
     Ok(v)
 }
@@ -226,14 +394,12 @@ pub fn records_json(bytes: &[u8], keep: Option<&[[u8; 4]]>) -> io::Result<String
             }
             first = false;
             if known(tag) {
-                let (obj, lossy) = load_record(&bytes[pos..end]).map_err(|e| {
+                let (obj, how) = load_record(&bytes[pos..end]).map_err(|e| {
                     bad(format!("the {} record at {pos}: {e}", String::from_utf8_lossy(&tag)))
                 })?;
                 let text = serde_json::to_vec(&obj).map_err(io::Error::other)?;
-                if let Some(why) = lossy {
-                    let mut v: serde_json::Value = serde_json::from_slice(&text).map_err(io::Error::other)?;
-                    v[LOSSY] = serde_json::Value::from(why);
-                    serde_json::to_writer(&mut out, &v).map_err(io::Error::other)?;
+                if how != Read::Strict {
+                    serde_json::to_writer(&mut out, &marked_value(&obj, how)?).map_err(io::Error::other)?;
                 } else if contains_null(&text) {
                     // A NaN or infinite float, which JSON has no number for (serde_json
                     // writes null, and cannot read it back - tes3conv shares this). The
@@ -297,9 +463,18 @@ pub fn records_bytes(json: &str) -> io::Result<Vec<u8>> {
                      writing it would drop that subrecord, so it is not written. Leave the record out, or fix the plugin"
                 )));
             }
+            let unknown = v.get(UNKNOWN).cloned();
             let obj: tes3::esp::TES3Object =
                 serde_json::from_value(v).map_err(|e| bad(format!("record {i} ({kind}): {e}")))?;
-            guarded(|| w.save(&obj))?;
+            match unknown {
+                // What a lenient read kept, put back where it was.
+                Some(u) => {
+                    let b = with_unknown(&obj, &u).map_err(|e| bad(format!("record {i} ({kind}): {e}")))?;
+                    use std::io::Write as _;
+                    w.cursor.write_all(&b)?;
+                }
+                None => guarded(|| w.save(&obj))?,
+            }
         }
     }
     Ok(w.cursor.into_inner())
@@ -339,8 +514,8 @@ pub fn items(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
 pub fn values(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool) -> io::Result<Vec<serde_json::Value>> {
     items_pos(bytes, keep, light, false)?
         .into_iter()
-        .filter_map(|(_, _, i, lossy)| match i {
-            Item::Obj(o) => Some(marked_value(&o, lossy)),
+        .filter_map(|(_, _, i, how)| match i {
+            Item::Obj(o) => Some(marked_value(&o, how)),
             Item::Raw { .. } => None,
         })
         .collect()
@@ -348,7 +523,7 @@ pub fn values(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool) -> io::Result
 
 /// [`items`], each with its record's place in the file (`(start, end)`, header included) and,
 /// for a record read leniently, the strict read's error.
-fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> io::Result<Vec<(usize, usize, Item, Option<String>)>> {
+fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> io::Result<Vec<(usize, usize, Item, Read)>> {
     use tes3::esp::TES3Object as O;
     let bad = |m: String| io::Error::new(io::ErrorKind::InvalidData, m);
     let mut out = Vec::new();
@@ -364,9 +539,9 @@ fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
         })?;
         if !known(tag) && raw && keep.is_none_or(|k| k.contains(&tag)) {
             let flags = u32::from_le_bytes(bytes[pos + 12..pos + 16].try_into().unwrap());
-            out.push((pos, end, Item::Raw { tag, flags, body: bytes[pos + 16..end].to_vec() }, None));
+            out.push((pos, end, Item::Raw { tag, flags, body: bytes[pos + 16..end].to_vec() }, Read::Strict));
         } else if known(tag) && keep.is_none_or(|k| k.contains(&tag)) {
-            let (mut obj, lossy) = load_record(&bytes[pos..end])
+            let (mut obj, how) = load_record(&bytes[pos..end])
                 .map_err(|e| bad(format!("the {} record at {pos}: {e}", String::from_utf8_lossy(&tag))))?;
             if light {
                 match &mut obj {
@@ -387,7 +562,7 @@ fn items_pos(bytes: &[u8], keep: Option<&[[u8; 4]]>, light: bool, raw: bool) -> 
                     _ => {}
                 }
             }
-            out.push((pos, end, Item::Obj(obj), lossy));
+            out.push((pos, end, Item::Obj(obj), how));
         }
         pos = end;
     }
@@ -526,9 +701,9 @@ pub type Span = (String, String, u64, u32);
 pub fn keys_cells_spans(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>, Vec<CellRef>, Vec<Span>)> {
     let mut values: Vec<serde_json::Value> = Vec::new();
     let mut places: Vec<(usize, usize)> = Vec::new();
-    for (pos, end, item, lossy) in items_pos(bytes, None, true, false)? {
+    for (pos, end, item, how) in items_pos(bytes, None, true, false)? {
         if let Item::Obj(o) = item {
-            values.push(marked_value(&o, lossy)?);
+            values.push(marked_value(&o, how)?);
             places.push((pos, end));
         }
     }
@@ -538,8 +713,8 @@ pub fn keys_cells_spans(bytes: &[u8]) -> io::Result<(Vec<(String, String, bool)>
 /// One record by itself - its bytes as [`keys_cells_spans`] places them - in its
 /// tes3conv-schema form, whole (no references or vertices cleared).
 pub fn record_value(span: &[u8]) -> io::Result<serde_json::Value> {
-    let (obj, lossy) = load_record(span).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("the record: {e}")))?;
-    marked_value(&obj, lossy)
+    let (obj, how) = load_record(span).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("the record: {e}")))?;
+    marked_value(&obj, how)
 }
 
 /// The keys, cells and (given the records' places in the file) spans of records already in

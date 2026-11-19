@@ -2,9 +2,11 @@
 //!
 //! The mesh viewer's Optimize (`nif_order`) does one mesh; this runs it over every mesh the
 //! game would load: the winning copy of each `meshes/` path across the data folders
-//! (the last folder wins, case folded, as OpenMW's VFS), loose files only. Nothing is
-//! written into a mod. The optimized copies go to one output folder, laid out as a data
-//! folder, which the person adds last in the load order (or does not).
+//! (the last folder wins, case folded, as OpenMW's VFS), and with [`collect_all`] the
+//! meshes in the load order's archives that no loose file overrides (a later archive over
+//! an earlier one). Nothing is written into a mod. The copies go to one output folder,
+//! laid out as a data folder, which the person adds last in the load order (or does not):
+//! a mesh from an archive is written there as a loose file, which wins over the archive.
 //!
 //! "Only what improves" is two checks. Per shape, `nif_order` already leaves a shape
 //! alone unless its vertex cache, fetch or overdraw really comes out better. Per mesh, the
@@ -20,6 +22,9 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use gardenfell_bsa::bsa::Bsa;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use editcore::cache::Cache;
@@ -70,12 +75,60 @@ impl Options {
 /// A mesh the load order provides: the file that wins its path.
 #[derive(Clone, Debug)]
 pub struct Candidate {
-    /// The path as the winning folder has it, `/`-separated, from `meshes`: it is also
-    /// the path under the output folder.
+    /// The path as the winning folder (or archive) has it, `/`-separated, from `meshes`: it
+    /// is also the path under the output folder.
     pub rel: String,
-    /// The data folder it comes from.
+    /// The data folder it comes from (for a packed mesh, the one holding the archive).
     pub dir: PathBuf,
+    /// The loose file, or for a packed mesh the archive.
     pub path: PathBuf,
+    /// For a mesh inside an archive: the archive and the entry's key.
+    pub packed: Option<Packed>,
+}
+
+/// A mesh's place inside an archive.
+#[derive(Clone)]
+pub struct Packed {
+    pub archive: Arc<Bsa>,
+    /// The entry's key, normalized as the archive indexes it.
+    pub key: String,
+}
+
+impl std::fmt::Debug for Packed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}::{}", self.archive.path.display(), self.key)
+    }
+}
+
+impl Candidate {
+    /// The mesh's bytes, from its file or its archive.
+    pub fn read(&self) -> std::io::Result<Vec<u8>> {
+        match &self.packed {
+            None => std::fs::read(&self.path),
+            Some(p) => p.archive.read(&p.key).ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, format!("{} is not in {}", p.key, p.archive.path.display()))
+            }),
+        }
+    }
+
+    /// Where it comes from, in words: the file, or `archive.bsa::entry`.
+    pub fn from(&self) -> String {
+        match &self.packed {
+            None => self.path.to_string_lossy().into_owned(),
+            Some(p) => format!("{}::{}", p.archive.path.to_string_lossy(), self.rel),
+        }
+    }
+
+    /// The folder a listing shows it under: its data folder, or for a packed mesh the archive
+    /// (so the last part of the path is the archive's name).
+    pub fn shown_from(&self) -> String {
+        if self.packed.is_some() { &self.path } else { &self.dir }.to_string_lossy().into_owned()
+    }
+
+    /// The archive's file name, for a packed mesh.
+    pub fn archive_name(&self) -> Option<String> {
+        self.packed.as_ref().and_then(|p| p.archive.path.file_name()).map(|n| n.to_string_lossy().into_owned())
+    }
 }
 
 /// The `.nif` files of the data folders' `meshes` folders (lowest priority first, as the
@@ -100,7 +153,7 @@ pub fn collect(data: &[PathBuf]) -> Vec<Candidate> {
                 if ft.is_dir() || (ft.is_symlink() && path.is_dir()) {
                     stack.push((path, rel2));
                 } else if (ft.is_file() || ft.is_symlink()) && name.to_lowercase().ends_with(".nif") {
-                    won.insert(rel2.to_lowercase(), Candidate { rel: rel2, dir: dir.clone(), path });
+                    won.insert(rel2.to_lowercase(), Candidate { rel: rel2, dir: dir.clone(), path, packed: None });
                 }
             }
         }
@@ -108,6 +161,56 @@ pub fn collect(data: &[PathBuf]) -> Vec<Candidate> {
     let mut v: Vec<Candidate> = won.into_values().collect();
     v.sort_by_key(|c| c.rel.to_lowercase());
     v
+}
+
+/// An archive the load order names, found as the game finds it: in the last data folder
+/// that has a file of that name (any case), with the folder.
+pub fn find_archive(data: &[PathBuf], name: &str) -> Option<(PathBuf, PathBuf)> {
+    let want = name.trim().to_lowercase();
+    data.iter().rev().find_map(|dir| {
+        std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().to_lowercase() == want && e.path().is_file())
+            .map(|e| (e.path(), dir.clone()))
+    })
+}
+
+/// [`collect`], and the meshes of the `archives` (as the load order names them, in its
+/// order) that no loose file overrides: a later archive's entry over an earlier one's, as
+/// OpenMW and the viewer's overlay resolve them. An archive that is missing or does not
+/// open is named in the second value and left out.
+pub fn collect_all(data: &[PathBuf], archives: &[String]) -> (Vec<Candidate>, Vec<String>) {
+    let mut out = collect(data);
+    let loose: std::collections::HashSet<String> = out.iter().map(|c| c.rel.to_lowercase()).collect();
+    let mut warnings = Vec::new();
+    let mut packed: std::collections::HashMap<String, Candidate> = std::collections::HashMap::new();
+    for name in archives {
+        let Some((path, dir)) = find_archive(data, name) else {
+            warnings.push(format!("{name}: not found in the data folders"));
+            continue;
+        };
+        let bsa = match Bsa::open(&path) {
+            Ok(b) => Arc::new(b),
+            Err(e) => {
+                warnings.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        for entry in bsa.names() {
+            let rel = entry.replace('\\', "/");
+            let low = rel.to_lowercase();
+            if !low.starts_with("meshes/") || !low.ends_with(".nif") || loose.contains(&low) {
+                continue;
+            }
+            let key = gardenfell_bytes::paths::norm(entry);
+            let c = Candidate { rel, dir: dir.clone(), path: path.clone(), packed: Some(Packed { archive: bsa.clone(), key }) };
+            packed.insert(low, c);
+        }
+    }
+    out.extend(packed.into_values());
+    out.sort_by_key(|c| c.rel.to_lowercase());
+    (out, warnings)
 }
 
 /// The candidates `opts.folder` allows.
@@ -146,14 +249,14 @@ pub struct Analysis {
 }
 
 impl Analysis {
-    fn to_json(&self) -> Value {
+    pub(crate) fn to_json(&self) -> Value {
         json!({"v": VERSION, "unreadable": self.unreadable, "bytes": self.bytes, "triangles": self.triangles,
             "shapes": self.shapes, "improvable": self.improvable, "improvable_triangles": self.improvable_triangles,
             "gain": self.gain, "acmr": self.acmr, "overdraw": self.overdraw, "overfetch": self.overfetch,
             "skipped": self.skipped, "repaired": self.repaired})
     }
 
-    fn from_json(v: &Value) -> Option<Analysis> {
+    pub(crate) fn from_json(v: &Value) -> Option<Analysis> {
         if v["v"].as_u64()? != VERSION {
             return None;
         }
@@ -232,6 +335,8 @@ pub fn analyse_bytes(bytes: &[u8]) -> Analysis {
 
 /// A candidate measured; from the cache when it holds the mesh as it is now.
 pub fn analyse(cache: Option<&Cache>, c: &Candidate) -> Analysis {
+    // A packed mesh's result is kept with its archive's (`analyse_all`), not under the archive's path.
+    let cache = cache.filter(|_| c.packed.is_none());
     let kept = cache
         .and_then(|cc| cc.get(&c.path, TAG))
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -239,7 +344,7 @@ pub fn analyse(cache: Option<&Cache>, c: &Candidate) -> Analysis {
     if let Some(a) = kept {
         return a;
     }
-    let bytes = match std::fs::read(&c.path) {
+    let bytes = match c.read() {
         Ok(b) => b,
         Err(e) => return Analysis { unreadable: e.to_string(), ..Default::default() },
     };
@@ -252,13 +357,67 @@ pub fn analyse(cache: Option<&Cache>, c: &Candidate) -> Analysis {
 
 /// Every candidate measured, on a few threads, in the candidates' order. [`DONE`] counts.
 pub fn analyse_all(cache: Option<&Cache>, cands: &[Candidate]) -> Vec<Analysis> {
+    run_cached(cache, cands, TAG, |c| analyse(cache, c), |c| analyse(None, c), Analysis::to_json, Analysis::from_json)
+}
+
+/// `each` over the candidates, on a few threads, in their order, with [`DONE`] counting. A
+/// loose mesh caches its own result (`loose`); a packed mesh's results are kept together, one
+/// cache entry an archive under `tag` (an object from entry key to result, valid while the
+/// archive's size and time are unchanged), read once before the run and written once after,
+/// so an archive of thousands of meshes is not thousands of entries. `packed` computes one.
+pub(crate) fn run_cached<T: Clone + Send + Sync>(
+    cache: Option<&Cache>,
+    cands: &[Candidate],
+    tag: &str,
+    loose: impl Fn(&Candidate) -> T + Sync,
+    packed: impl Fn(&Candidate) -> T + Sync,
+    to_json: impl Fn(&T) -> Value + Sync,
+    from_json: impl Fn(&Value) -> Option<T> + Sync,
+) -> Vec<T> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
     DONE.store(0, Ordering::Relaxed);
     TOTAL.store(cands.len(), Ordering::Relaxed);
-    par_map(cands, |c| {
-        let a = analyse(cache, c);
+    let mut archives: Vec<PathBuf> = cands.iter().filter(|c| c.packed.is_some()).map(|c| c.path.clone()).collect();
+    archives.sort();
+    archives.dedup();
+    let kept: HashMap<PathBuf, serde_json::Map<String, Value>> = archives
+        .iter()
+        .map(|a| {
+            let m = cache
+                .and_then(|cc| cc.get(a, tag))
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                .and_then(|v| v.as_object().cloned())
+                .unwrap_or_default();
+            (a.clone(), m)
+        })
+        .collect();
+    let fresh: Mutex<HashMap<PathBuf, serde_json::Map<String, Value>>> = Mutex::new(HashMap::new());
+    let out = par_map(cands, |c| {
+        let r = match &c.packed {
+            None => loose(c),
+            Some(p) => match kept.get(&c.path).and_then(|m| m.get(&p.key)).and_then(&from_json) {
+                Some(r) => r,
+                None => {
+                    let r = packed(c);
+                    if let Ok(mut f) = fresh.lock() {
+                        f.entry(c.path.clone()).or_default().insert(p.key.clone(), to_json(&r));
+                    }
+                    r
+                }
+            },
+        };
         DONE.fetch_add(1, Ordering::Relaxed);
-        a
-    })
+        r
+    });
+    if let Some(cc) = cache {
+        for (archive, new) in fresh.into_inner().unwrap_or_default() {
+            let mut all = kept.get(&archive).cloned().unwrap_or_default();
+            all.extend(new);
+            cc.put(&archive, tag, Value::Object(all).to_string().as_bytes(), None);
+        }
+    }
+    out
 }
 
 /// Whether a measured mesh is worth rewriting under `opts`.
@@ -279,7 +438,7 @@ pub fn row_json(c: &Candidate, a: &Analysis, opts: &Options) -> Value {
     } else {
         String::new()
     };
-    json!({"path": c.rel, "dir": c.dir.to_string_lossy(), "bytes": a.bytes, "triangles": a.triangles,
+    json!({"path": c.rel, "dir": c.shown_from(), "bytes": a.bytes, "triangles": a.triangles,
         "shapes": a.shapes, "improvable": a.improvable, "gain": a.gain, "acmr": a.acmr, "overdraw": a.overdraw,
         "overfetch": a.overfetch, "qualifies": qualifies(a, opts), "note": note, "repaired": a.repaired})
 }
@@ -297,8 +456,8 @@ pub struct Written {
 
 /// One mesh optimized, checked and written under `out_dir` at its own path.
 pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
-    let mut w = Written { rel: c.rel.clone(), from: c.path.clone(), before: 0, after: 0, error: String::new() };
-    let bytes = match std::fs::read(&c.path) {
+    let mut w = Written { rel: c.rel.clone(), from: PathBuf::from(c.from()), before: 0, after: 0, error: String::new() };
+    let bytes = match c.read() {
         Ok(b) => b,
         Err(e) => {
             w.error = e.to_string();

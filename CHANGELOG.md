@@ -5,6 +5,18 @@
 
 ### Changed
 
+- **The Mesh optimizer and Check meshes read the load order's archives** (`nif_batch::collect_all`,
+  `Candidate::read`). They read loose meshes only; now a mesh in a BSA the load order names is
+  read too when no loose file overrides it, a later archive over an earlier one, as OpenMW and the
+  viewer resolve them. Its optimized or repaired copy is written as a loose file, which wins over
+  the archive. An archive's results are cached as one entry an archive (keyed by its size and
+  time), so a second run reads Morrowind.bsa's meshes again only when it changes. A missing
+  archive is named. Test: `nif_repair.rs` `meshes_in_archives_are_checked_behind_loose_files_and_written_loose`.
+- **A finer physics split for slender hollow shapes** (`physcore::grid_for`). V-HACD's grid was 32
+  voxels along the longest side; a vase 12 wide and 160 tall had its inside two voxels across, and
+  a crate dropped into it stood on a lid at its rim. The grid now keeps the narrowest side 16
+  voxels across, up to 128 along the longest, with up to 32 parts. A boxy shape keeps 32 and 16.
+  Test: `something_dropped_into_a_tall_narrow_vase_rests_inside_it`.
 - **The Mesh optimizer reads proven repairs first** (`nif_batch`, `nif_repair::mended`). A mesh
   with a fault Check meshes mends for certain (a UV flag left off) is measured and optimized from
   the repaired copy, and the copy written is repaired too. Its row says so. Such meshes were listed
@@ -319,19 +331,31 @@
 
 ### Added
 
+- **Verify mends a land border the patch tore** (`Editor::mend_land_borders`, `editLandMend`;
+  the Verify panel's **Mend**, and **Mend all borders** when several). Verify told a cell whose
+  border the patch opened ("the border with ... is N vertex/vertices apart") but could not fix
+  it. Mend puts this cell's border vertices back on its neighbour's heights, as the patch leaves
+  the neighbour, and writes the land as the Land view does. It says how many vertices it moved,
+  and how many are still apart if a step was too steep to store. Test: `places.rs`
+  `verify_tells_a_land_border_the_patch_opens`.
 - **Read past unknown subrecords** (Settings, `--lenient-plugins`; `editcore::plugin::set_lenient`,
-  `plugins_lenient`). Off by default. A plugin with a subrecord its record type doesn't know (an
-  NPC_ with a FILL, as tools and test fixtures write) failed that record and the plugin with it,
-  so the scans, the Editor and Merge objects left the plugin out. With the switch on, such a
-  record is read again with the tes3 fork's `Reader::lenient`, which steps over what it doesn't
-  know (the fork's `esp-lenient-unknown-subrecords`, in `Cargo.lock` since `710b0e2`).
+  `plugins_lenient`). Off by default. A plugin with a subrecord its record type doesn't know
+  failed that record and the plugin with it, so the scans, the Editor and Merge objects left the
+  plugin out. The only known case is a test fixture (Gardenfell's `mkesm.js` pads its plugins
+  with FILL subrecords); none has been seen in a real plugin. With the switch on, such a record
+  is read again with the tes3 fork's `Reader::lenient`, which steps over what it doesn't know
+  (the fork's `esp-lenient-unknown-subrecords`, in `Cargo.lock` since `710b0e2`).
   - **Strict first:** a record that reads strictly is read exactly as before.
-  - **Marked:** a record read leniently carries the strict read's error (`__lossy`).
-  - **Never written silently:** writing a marked record back would drop the subrecord. The patch
-    writer (`records_bytes`) refuses one and names it, and the Editor's record dialog says which
-    version was read so. Merge objects leaves out a record whose last version was read so, but
-    merges from an earlier version read so as usual. A record left untouched by an in-place
-    edit is still copied byte for byte.
+  - **Kept:** what was stepped over is kept with the record (`__unknown`: each subrecord, the one
+    it followed, its bytes) and written back where it was (`with_unknown`), in a patch, an
+    in-place edit or Merged Objects. It is kept only when that is proven on the record: the
+    crate's bytes for the rest, with it put back, are the record's own bytes. An unchanged record
+    is then written back byte for byte, and an edited one keeps the subrecord in its place. The
+    Editor's record dialog says which subrecords a version keeps.
+  - **Otherwise marked:** where that can't be proven, the record carries the strict read's error
+    (`__lossy`) instead. The patch writer (`records_bytes`) refuses it and names it, and Merge
+    objects leaves out a record whose last version is marked, since writing it would drop the
+    subrecord.
   - **Saved** in the viewer profile (`lenient_plugins`), and set in the engine when the profile
     loads.
 - **Merge objects** (Tools, `--merge-objects`; `editcore::mergeobjects`, `tools_merge_objects`).
