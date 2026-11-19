@@ -26,9 +26,13 @@ weather's ambient and rain loops as OpenMW reads them (`_Ambient_Loop_Sound_ID`,
 `R.lightning`), and activators', doors' and containers' own `PlayLoopSound3D(VP)` loops
 (`viewcore::world::loop_in_script`: the first call on the object itself, not after `->`;
 played whatever the script's conditions are, behind Preview's "Script loops"). **Step 4 is in**
-(2026-11-02): Verify opens the files sound records and responses name (below). Not yet: Battle
-music (no fight to start it). A sound's facts and waveform are kept by file (2026-11-17,
-below).
+(2026-11-02): Verify opens the files sound records and responses name (below). A sound's facts
+and waveform are kept by file (2026-11-17, below). **Battle music is in** (2026-11-18): Music/Battle
+while an actor of the scene's scripts fights the player (`73_wg_scripts.js`: StartCombat, or a
+blow the player strikes), Music/Explore otherwise, the playing track faded out over a second on
+the switch either way (`63_wg_sound.js` `musicKind`, `musicFade`; `music_list` already listed any
+`Music/` folder). With no Battle music in the data folders, Explore plays on. Test:
+`ui/tests/editor/music_battle.test.js`.
 
 ## Reference: Resonix
 
@@ -91,7 +95,8 @@ default in the cell preview.
    range (scaled the way OpenMW scales them; read `apps/openmw/mwsound` before choosing the
    numbers). Only objects within range play, under a voice budget.
 3. **The world's sound.** A region's ambient sounds by their chances, weather loops, and
-   music: the Explore and Battle folders, and OpenMW's playlists.
+   music: the Explore and Battle folders, and OpenMW's playlists. Done (Battle since
+   2026-11-18).
 4. **Checks.** A sound record naming a file no folder supplies; a file the game cannot
    play (what Morrowind.exe and OpenMW each accept differs: check both before writing the
    rule); clipped or silent files; a voice response with no file. Done (5.0.1): in

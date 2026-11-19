@@ -331,6 +331,34 @@
 
 ### Added
 
+- **Kinetic physics in the Editor** (the Physics panel, `76_wg_physics.js`; `physcore::Blast`,
+  `Body::vel`, `Blacklist`; `phys_drop`'s `kinetic`, `near` and `blacklist` tables). Besides the
+  drop:
+  - **Blast:** Run, then click a point. Every body within reach is pushed outward with a lift,
+    the push falling off to nothing at the edge, and more for a light body than a heavy one (by
+    the square root of the mass, between half and twice). Reach and strength are sliders.
+  - **Throw:** the selection leaves the way the camera faces, a little upward, at a speed.
+  - **Scatter:** Run, then click a point. Copies of the selection (one picked at random each)
+    fall from above it, spread over a circle and turned at random, and settle. Keep places them
+    as one step; Drop places nothing.
+  - **Struck objects move too** (off by default, so only the selection or the copies move): the
+    objects around join in, the nearest 300 at most, so what is hit scatters. Those the
+    blacklist holds stay as ground and still collide. The blacklist is mesh path patterns
+    (`x/ex_*`, `*_wall*`, ...), record types (`DOOR`, `NPC_`, ...) and a size (512 units). It
+    ships with Morrowind's buildings, walls, docks, bridges, rocks and trees, doors and actors,
+    is edited in the panel, and is kept with the panel's settings. The engine applies it: the
+    record's type comes from the load order, the size from the collision.
+  - **Keep** moves every object that moved as one step, the struck ones too.
+
+  Tests: `physcore` (a throw lands east, a blast pushes four crates their own way and leaves one
+  out of reach, the blacklist holds by mesh, by type and by size),
+  `ui/tests/editor/physics_kinetic.test.js` (each event's request, the click, Keep and Drop), and
+  the boot check's blast through the engine on the fixture.
+- **Battle music** (Preview's Music; `63_wg_sound.js` `musicKind`, `musicFade`). Music/Battle plays
+  while an actor of the scene's scripts fights the player (StartCombat, or a blow the player
+  strikes), and Music/Explore otherwise; on the switch the playing track fades out over a second,
+  as OpenMW switches its playlists. With no Battle music in the data folders, Explore plays on.
+  Test: `ui/tests/editor/music_battle.test.js`.
 - **Verify mends a land border the patch tore** (`Editor::mend_land_borders`, `editLandMend`;
   the Verify panel's **Mend**, and **Mend all borders** when several). Verify told a cell whose
   border the patch opened ("the border with ... is N vertex/vertices apart") but could not fix

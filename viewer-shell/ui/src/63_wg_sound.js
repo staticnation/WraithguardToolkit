@@ -40,7 +40,7 @@ const WgSound={
   },
 
   /** Drop what was read (another install, another set of data folders). */
-  forget(){ this.stop(); this.cache.clear(); this.place.failed.clear(); this._musicList=null; this._fb=null; this._fbLow=null; this.musicStop(); this.weatherOff(true); this.place.region=''; this.place.weather=''; for(const k of [...this.place.voices.keys()]) this.voiceOff(k, true); this.place.scene=null; this.place.emit=[]; },
+  forget(){ this.stop(); this.cache.clear(); this.place.failed.clear(); this._musicLists=null; this._musicAt=null; this._noBattle=false; this._fb=null; this._fbLow=null; this.musicStop(); this.weatherOff(true); this.place.region=''; this.place.weather=''; for(const k of [...this.place.voices.keys()]) this.voiceOff(k, true); this.place.scene=null; this.place.emit=[]; },
 
   /** One path's facts and waveform, read once (`fresh` asks again). */
   async infoOf(path, fresh){
@@ -351,8 +351,10 @@ const WgSound={
        so past its _Thunder_Threshold), one of _Thunder_Sound_ID_0..3 picked at random, 0
        the nearest - and the sky flashes by 1, 0.75, 0.5 or 0.25, fading at
        _Flash_Decrement a second (OpenMW's calculateThunder / lightningAndThunder).
-     - Music: Music/Explore's files in a shuffled order, one after another (there is no
-       fight to switch to Battle). */
+     - Music: Music/Explore's files in a shuffled order, one after another; Music/Battle's
+       while an actor of the scene's scripts fights the player (73_wg_scripts.js, StartCombat
+       or a blow struck), switched with a second's fade either way, as OpenMW switches its
+       playlists. With no Battle music, Explore plays on. */
   FALLBACK:{
     Weather_Minimum_Time_Between_Environmental_Sounds:'1.0', Weather_Maximum_Time_Between_Environmental_Sounds:'5.0',
     Weather_Rain_Using_Precip:'1', Weather_Rain_Rain_Loop_Sound_ID:'Rain', Weather_Rain_Ambient_Loop_Sound_ID:'None',
@@ -436,9 +438,14 @@ const WgSound={
     const freq=wx? this.fbNum('Weather_'+wx+'_Thunder_Frequency', 0) : 0;
     const dt=Math.min(0.5, Math.max(0, now-(P.thunderLast||now))); P.thunderLast=now;
     if(freq>0 && Math.random()<=freq*10/60*dt) this.thunder(wx);
-    // Music.
+    // Music: Battle while the player is fought, Explore otherwise; a track of the other kind
+    // fades out and the next tick starts the right one.
     // Wraithguard: not while the scene's scripts choose the music (OpenMW's playlists, 74_wg_lua.js).
-    if(P.musicOn && !P.music && !P.scriptMusic) this.musicNext();
+    if(P.musicOn && !P.scriptMusic){
+      const want=this.musicKind();
+      if(P.music && P.music.kind && P.music.kind!==want) this.musicFade(1);
+      if(!P.music) this.musicNext();
+    }
   },
 
   async thunder(wx){
@@ -499,21 +506,47 @@ const WgSound={
     }
   },
 
+  /** Whether an actor of the scene's scripts is fighting the player (73_wg_scripts.js). */
+  fighting(){
+    if(typeof WgScripts!=='object' || !WgScripts.actors) return false;
+    for(const A of WgScripts.actors.values()){
+      if(!A.dead && A.key!=='player' && A.combat && (A.combat.player || A.combat.key==='player')) return true;
+    }
+    return false;
+  },
+  /** The playlist the music should be on: `battle` while the player is fought (unless the
+   *  data folders have no Battle music), `explore` otherwise. */
+  musicKind(){ return this.fighting() && !this._noBattle? 'battle' : 'explore'; },
+  /** The current track faded out over `secs`, and let go so the next tick starts another. */
+  musicFade(secs){
+    const P=this.place, m=P.music; P.music=null;
+    if(!m || !m.src || !m.g) return this.musicStopTrack(m);
+    try{ const t=this.ctx.currentTime; m.g.gain.cancelScheduledValues(t); m.g.gain.setValueAtTime(m.g.gain.value, t);
+      m.g.gain.linearRampToValueAtTime(0, t+secs); m.src.onended=null; m.src.stop(t+secs+0.02); }catch(_){ }
+  },
+  musicStopTrack(m){ if(m && m.src) try{ m.src.onended=null; m.src.stop(); }catch(_){ } },
+
   async musicNext(){
     const P=this.place, ctx=this.audio();
-    const m=P.music={src:null, file:'', asked:true};
+    const kind=this.musicKind();
+    const m=P.music={src:null, file:'', asked:true, kind, g:null};
     try{
-      if(!this._musicList){ const l=await Engine.call('music_list',{kind:'explore'}); this._musicList=Array.isArray(l)? l : []; this._musicAt=0; }
-      const L=this._musicList;
-      if(!L.length){ if(typeof WgLog==='object') WgLog.add('No music: nothing in the data folders\' Music/Explore', 'warn'); P.musicOn=false; return; }
-      if(this._musicAt%L.length===0){ for(let i=L.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [L[i],L[j]]=[L[j],L[i]]; } }
-      m.file=L[this._musicAt++%L.length];
+      this._musicLists=this._musicLists||{}; this._musicAt=this._musicAt||{};
+      if(!this._musicLists[kind]){ const l=await Engine.call('music_list',{kind}); this._musicLists[kind]=Array.isArray(l)? l : []; this._musicAt[kind]=0; }
+      const L=this._musicLists[kind];
+      if(!L.length){
+        if(kind==='battle'){ this._noBattle=true; if(P.music===m) P.music=null; return; }   // Explore plays on
+        if(typeof WgLog==='object') WgLog.add('No music: nothing in the data folders\' Music/Explore', 'warn'); P.musicOn=false; return;
+      }
+      if(this._musicAt[kind]%L.length===0){ for(let i=L.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [L[i],L[j]]=[L[j],L[i]]; } }
+      m.file=L[this._musicAt[kind]++%L.length];
       // Not kept in the cache: a track is tens of megabytes as samples.
       const buf=await this.buffer({path:m.file, cache:null, info:null});
       if(P.music!==m || !P.musicOn || !P.mus) return;
+      // A gain of its own, so a switch between the playlists can fade it out.
       const src=ctx.createBufferSource(); src.buffer=buf;
-      src.connect(P.mus); src.start();
-      m.src=src;
+      const g=ctx.createGain(); src.connect(g); g.connect(P.mus); src.start();
+      m.src=src; m.g=g;
       src.onended=()=>{ if(P.music===m){ P.music=null; } };
     }catch(err){
       if(typeof WgLog==='object') WgLog.add('The music '+(m.file||'')+' did not play: '+String(err && err.message || err), 'warn');
@@ -523,7 +556,7 @@ const WgSound={
 
   musicStop(){
     const P=this.place, m=P.music; P.music=null;
-    if(m && m.src) try{ m.src.onended=null; m.src.stop(); }catch(_){ }
+    this.musicStopTrack(m);
   },
 
   async voiceOn(e){

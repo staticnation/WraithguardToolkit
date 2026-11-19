@@ -1197,7 +1197,8 @@ setTimeout(async ()=>{
     const req=JSON.parse(w.eval(`(()=>{ const o=App.R.pickables.find(p=>p.model && p.m && p.aabb && (p.aabb.x1-p.aabb.x0)<300 && (p.aabb.z1-p.aabb.z0)>8);
       if(!o) return 'null';
       const up=Object.assign({}, o, {m:Array.from(o.m)}); up.m[11]+=200;
-      return JSON.stringify(WgPhysics.request([{hit:up, ref:{}}])); })()`));
+      const b=WgPhysics.bodyOf({hit:up, ref:{}});
+      return JSON.stringify(WgPhysics.request([b], {}, WgPhysics.box([[b.m[3], b.m[7]]], 0))); })()`));
     if(!req) errors.push('physics: no small object in the cell to drop');
     else{
       const z0=req.bodies[0].m[11];
@@ -1208,6 +1209,31 @@ setTimeout(async ()=>{
       if(!got.skipped.length && !(last && last[0][2]<z0-50)) errors.push('physics: the object did not fall: '+JSON.stringify(last));
     }
   }catch(e){ errors.push('physics: '+short(e)); }
+  /* Its kinetic events: a blast beside an object of the cell, struck objects moving too - the
+     objects around go to the engine as `near`, it holds what the blacklist names and moves the
+     rest, and answers the bodies in the poses' order (`keys`). */
+  try{
+    const req=JSON.parse(w.eval(`(()=>{ const o=App.R.pickables.find(p=>p.model && p.m && p.aabb && p.refKey);
+      if(!o) return 'null';
+      const P=WgPhysics, was=P.st.all; P.st.all=true;
+      const at=[o.m[3]+20, o.m[7], o.m[11]], o0=(App._scene||{}).origin||[0,0];
+      const q=P.request([], {blast:true, at:[at[0]+o0[0], at[1]+o0[1], at[2]], radius:600, strength:900}, P.box([at], 900),
+        p=>{ const d=Math.hypot(p.m[3]-at[0], p.m[7]-at[1]); return d<=900? d : Infinity; });
+      P.st.all=was; q.near.forEach(n=>{ delete n.hit; });
+      return JSON.stringify(q); })()`));
+    if(!req) errors.push('kinetic: no object in the cell to blast beside');
+    else{
+      const P=w.eval('WgPhysics'), body=w.eval('packTables')(P.pack(req));
+      let got=null;
+      try{ got=P.readDrop(w.eval('unpackTables')(await engineCall('phys_drop',{body:Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString('base64'), headers:{}}))); }
+      catch(e){ if(!/Nothing can move/.test(String(e))) throw e; console.log('kinetic: '+String(e)); }
+      if(got){
+        console.log('kinetic: '+req.near.length+' in reach, '+got.keys.length+' moved, '+got.fixed.length+' held ('+got.fixed.slice(0,3).map(f=>f.why).join('; ')+'), '+got.frames.length+' frames');
+        if(got.keys.length+got.fixed.length!==req.near.length) errors.push('kinetic: '+req.near.length+' in reach, but '+got.keys.length+' moved and '+got.fixed.length+' held');
+        if(got.frames.some(f=>f.length!==got.keys.length)) errors.push('kinetic: a frame without a pose for every body');
+      }
+    }
+  }catch(e){ errors.push('kinetic: '+short(e)); }
   /* The Preview's OpenMW Lua (viewcore::luarun) answers: a Morrowind.ini setup has none and
      says so, and a frame asked of a Lua not running is refused, not a crash. */
   try{

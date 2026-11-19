@@ -296,8 +296,17 @@ that plugin is kept byte for byte, and the plugin as it was is kept once as
   - F2 and F3 open them for whatever is selected.
 - **In the render window:**
   - Drag to move, Alt+drag onto a surface, Shift+drag to turn, F to drop to the ground.
-  - **Physics** lets the selection fall, tumble and come to rest on what is around it,
-    hollows kept, then **Keep** or **Drop**.
+  - **Physics** sets things moving and lets them come to rest on what is around them, hollows
+    kept, then **Keep** or **Drop**:
+    - **Drop:** the selection falls.
+    - **Blast:** click a point, and what's in reach is thrown outward.
+    - **Throw:** the selection flies the way the camera faces.
+    - **Scatter:** click a point, and copies of the selection fall around it and settle; Keep
+      places them.
+
+    With **Struck objects move too**, the objects around scatter when hit. A blacklist you can
+    edit keeps buildings, walls, rocks, doors, actors and anything big from moving: mesh
+    patterns, record types and a size.
   - Grid and angle snaps, box select, copy and paste, layers, selection sets.
   - The **Q** menu for what to do with the selection.
   - Drag a record from the Object Window to place it, or keep a group as a **prefab**.
@@ -610,7 +619,7 @@ WraithguardToolkit/
 │   ├── toolscore/           The Tools, settings, Setup, the Help renderer.
 │   ├── landcore/            Merged Lands and its settings.
 │   ├── luacore/             OpenMW Lua and Teal checked.
-│   ├── physcore/            The Editor's Physics drop (Rapier).
+│   ├── physcore/            The Editor's Physics: drops, blasts, throws (Rapier).
 │   ├── gardenfell/ gardenfell-g7/ meshopt-port/
 │   │                        Vendored Gardenfell, its tes3 bridge, meshoptimizer ported.
 │   └── check/ check-commands/

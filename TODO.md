@@ -4,7 +4,7 @@ Open work only. Done items go to `CHANGELOG.md`; what a finished item taught us 
 beside its code, or in `viewer-shell/gardenfell/VENDOR.md` for the vendored crates.
 Code and decisions only: what is waiting to be tried on Static's setup is not kept here
 (2026-11-09). Cleaned up 2026-11-17: finished work, its measurements and status checks left
-for `CHANGELOG.md`; a decision stays as one line where open work depends on it. Design notes that still guide open work: `viewer-shell/SOUND.md`,
+for `CHANGELOG.md`; a decision stays as one line where open work depends on it. Design notes that still guide open work:
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
 ## Tools page
@@ -94,7 +94,6 @@ files as their source; the platforms are Windows, Linux, macOS, Android and iOS.
   paths. Then the builds in CI and a device test reading a real install.
 - An installer (the WebView2-bundled Windows package is in).
 - Lint on the scan cache.
-- Sound (`viewer-shell/SOUND.md`): Battle music (no fight to start it yet).
 - First person: the encumbrance from what the body wears rather than a slider.
 - glam (`viewer-shell/GLAM-PLAN.md`, its rules first): the NIF transform pipeline
   (`gardenfell-nif/src/nif.rs`), tests against the current code and real fixtures before

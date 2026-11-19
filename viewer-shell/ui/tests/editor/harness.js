@@ -153,9 +153,13 @@ function page(opts = {}) {
           cells_bytes:['cells', r=>r && Array.isArray(r.grid) && [
             ['grid','iissuu',r.grid.map(x=>[x[0]|0, x[1]|0, x[2]||'', x[3]||'', x[4]|0, x[5]|0])],
             ['interiors','suu',(r.interiors||[]).map(x=>[x[0]||'', x[1]|0, x[2]|0])]]],
+          // A stand-in's {names: [[found, cell, origin, refr]], plugins: [[row, plugin]]}, as the engine's tables.
+          editor_ref_names:['editor_ref_names', r=>r && Array.isArray(r.names) && [['names','ussu',r.names.map(x=>[x[0]|0, x[1]||'', x[2]||'', x[3]|0])],
+            ['plugins','us',(r.plugins||[]).map(x=>[x[0]|0, x[1]||''])]]],
           // A stand-in's phys_drop answer {frames, seconds, settled, skipped}, as the engine's tables.
           phys_drop:['phys_drop', r=>r && Array.isArray(r.frames) && [['head','duu',[[+r.seconds||0, r.settled? 1 : 0, r.frames.length]]],
-            ['poses','udddddd',r.frames.flatMap((f,i)=>f.map(p=>[i, ...p]))], ['skipped','s',(r.skipped||[]).map(k=>[k])]]],
+            ['poses','udddddd',r.frames.flatMap((f,i)=>f.map(p=>[i, ...p]))], ['skipped','s',(r.skipped||[]).map(k=>[k])],
+            ['keys','s',(r.keys||[]).map(k=>[k])], ['fixed','ss',(r.fixed||[]).map(f=>[f.key, f.why])]]],
           // A stand-in's {name: {id, text}} and {types: {id: tag}}, as the engine's tables.
           script_texts:['script_texts', r=>r && typeof r==='object' && [['scripts','sss',Object.entries(r).map(([k,s])=>[k, s.id||k, s.text||''])]]],
           lua_scene:['lua_scene', r=>r && typeof r==='object' && [['head','s',[[r.note||'']]], ['scripts','s',(r.scripts||[]).map(s=>[s.path||''])],

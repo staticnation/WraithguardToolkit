@@ -3693,6 +3693,14 @@ struct PhysRequest {
     bodies: Vec<(String, String, [f32; 12], Vec<f32>)>,
     statics: Vec<(String, [f32; 12])>,
     land: Vec<(i32, i32, Option<Vec<f32>>)>,
+    /// The kinetic event (none: a plain drop): a blast at a point, the bodies' starting speed
+    /// (a throw), and whether the objects around move too.
+    blast: Option<([f32; 3], f32, f32)>,
+    throw: [f32; 3],
+    /// The objects around that move when struck (`key`, `id`, `model`, matrix), unless the
+    /// blacklist holds them; those it holds are fixed, as statics are.
+    near: Vec<(String, String, String, [f32; 12])>,
+    blacklist: viewcore::physcore::Blacklist,
 }
 
 impl PhysRequest {
@@ -3701,7 +3709,7 @@ impl PhysRequest {
         let t = read(b).map_err(|e| format!("the drop's request: {e}"))?;
         // Each table with the columns this reads, or none: a different layout is an error,
         // not a guess.
-        for (name, cols) in [("settings", "dddduuudd"), ("bodies", "ssFF"), ("statics", "sF"), ("land", "iiuF")] {
+        for (name, cols) in [("settings", "dddduuudd"), ("bodies", "ssFF"), ("statics", "sF"), ("land", "iiuF"), ("kinetic", "udddddddd"), ("near", "sssF"), ("blacklist", "ss")] {
             if let Some(x) = t.iter().find(|x| x.name == name).filter(|x| x.cols != cols) {
                 return Err(format!("the drop's request: {name} has columns {}, not {cols}", x.cols));
             }
@@ -3730,6 +3738,24 @@ impl PhysRequest {
                 .iter()
                 .map(|r| (r[0].num() as i32, r[1].num() as i32, (r[2].num() != 0.0).then(|| r[3].floats().to_vec())))
                 .collect(),
+            blast: rows(&t, "kinetic").first().filter(|k| k[0].num() != 0.0).map(|k| {
+                ([k[1].num() as f32, k[2].num() as f32, k[3].num() as f32], k[4].num() as f32, k[5].num() as f32)
+            }),
+            throw: rows(&t, "kinetic").first().map_or([0.0; 3], |k| [k[6].num() as f32, k[7].num() as f32, k[8].num() as f32]),
+            near: rows(&t, "near").iter().map(|r| (r[0].str().to_string(), r[1].str().to_string(), r[2].str().to_string(), mat(&r[3]))).collect(),
+            blacklist: {
+                let mut b = viewcore::physcore::Blacklist::default();
+                for r in rows(&t, "blacklist") {
+                    let v = r[1].str().trim().to_string();
+                    match r[0].str() {
+                        "pattern" if !v.is_empty() => b.patterns.push(v),
+                        "tag" if !v.is_empty() => b.tags.push(v.to_uppercase()),
+                        "size" => b.max_size = v.parse().unwrap_or(0.0),
+                        _ => {}
+                    }
+                }
+                b
+            },
         })
     }
 }
@@ -3745,6 +3771,15 @@ impl PhysRequest {
 /// Static 2026-11-17: JSON only where it is needed; every frame of every body): `head` `duu`
 /// (seconds, settled 0/1, frame count), `poses` `udddddd` (its frame, x y z, rx ry
 /// rz; a frame's bodies in order) and `skipped` `s`. Read by `WgPhysics.readDrop`.
+///
+/// Kinetic events (2026-11-18): `kinetic` `udddddddd` (a blast 0/1, its point x y z in the
+/// world, its reach and strength; the bodies' starting velocity x y z, a throw), `near` `sssF`
+/// (key, id, model, matrix: the objects around that move when struck) and `blacklist` `ss`
+/// (`pattern`, `tag` or `size`, and its value; `physcore::Blacklist`). A near object the
+/// blacklist holds, by its mesh, its record's type (`record_where`) or its collision's widest
+/// side, or one with no collision, is ground; the rest are bodies after the ones asked for.
+/// The answer adds `keys` `s` (every body's key, in the poses' order) and `fixed` `ss` (a near
+/// object held, and why).
 #[tauri::command(async)]
 fn phys_drop(request: tauri::ipc::Request<'_>, state: State) -> Result<tauri::ipc::Response, String> {
     use viewcore::physcore::{self as pc, glam_mat3_from_rows};
@@ -3762,6 +3797,7 @@ fn phys_drop(request: tauri::ipc::Request<'_>, state: State) -> Result<tauri::ip
         drop_only: req.drop_only,
         fps: 30.0,
         hollow: req.hollow,
+        blast: req.blast.map(|(at, radius, strength)| pc::Blast { at, radius, strength: strength.clamp(0.0, 20000.0) }),
     };
     // The bodies: their collision's points, where they stand in the world, turned and scaled.
     let mut bodies = Vec::new();
@@ -3777,14 +3813,54 @@ fn phys_drop(request: tauri::ipc::Request<'_>, state: State) -> Result<tauri::ip
             lo[k] = lo[k].min(pos[k]);
             hi[k] = hi[k].max(pos[k]);
         }
-        bodies.push(pc::Body { key: key.to_string(), points, pos, rot, scale });
+        bodies.push(pc::Body { key: key.to_string(), points, pos, rot, scale, vel: req.throw });
+    }
+    // The objects around that join in, unless the blacklist holds them (`fixed`: why); held,
+    // or with no collision to move by, they stay as ground.
+    let mut fixed: Vec<(String, String)> = Vec::new();
+    let mut held: Vec<(String, [f32; 12])> = Vec::new();
+    for (key, id, model, m) in &req.near {
+        let Some(t) = collision_tris(&vfs, model) else {
+            held.push((model.clone(), *m));
+            fixed.push((key.clone(), "it has no collision to move by".into()));
+            continue;
+        };
+        let scale = (m[0] * m[0] + m[4] * m[4] + m[8] * m[8]).sqrt().max(1e-6);
+        let (lo3, hi3) = t.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(mut l, mut h), p| {
+            for k in 0..3 {
+                l[k] = l[k].min(p[k]);
+                h[k] = h[k].max(p[k]);
+            }
+            (l, h)
+        });
+        let size = (0..3).map(|k| hi3[k] - lo3[k]).fold(0.0f32, f32::max) * scale;
+        let tag = world
+            .as_ref()
+            .and_then(|w| w.record_where.get(&id.to_ascii_lowercase()).and_then(|d| d.last().map(|(_, t)| tag_text(t))))
+            .unwrap_or_default();
+        if let Some(why) = req.blacklist.holds(model, &tag, size) {
+            held.push((model.clone(), *m));
+            fixed.push((key.clone(), why));
+            continue;
+        }
+        let rot = pc::angles(glam_mat3_from_rows([[m[0] / scale, m[1] / scale, m[2] / scale], [m[4] / scale, m[5] / scale, m[6] / scale], [m[8] / scale, m[9] / scale, m[10] / scale]]));
+        let pos = [m[3] + origin[0], m[7] + origin[1], m[11]];
+        for k in 0..2 {
+            lo[k] = lo[k].min(pos[k]);
+            hi[k] = hi[k].max(pos[k]);
+        }
+        bodies.push(pc::Body { key: key.clone(), points: t.to_vec(), pos, rot, scale, vel: [0.0; 3] });
     }
     if bodies.is_empty() {
-        return Err("Nothing to drop: select objects in the render window".into());
+        return Err(if req.near.is_empty() {
+            "Nothing to drop: select objects in the render window".into()
+        } else {
+            format!("Nothing can move: the {} object(s) in reach are all held by the blacklist or have no collision", req.near.len())
+        });
     }
     // What they fall onto: the other objects' collision, placed, and the land around them.
     let mut statics = Vec::new();
-    for (model, m) in &req.statics {
+    for (model, m) in req.statics.iter().chain(&held) {
         if let Some(t) = collision_tris(&vfs, model) {
             statics.push(pc::Static { tris: viewcore::luarun::Shape::placed(&t, m, origin, true).tris });
         }
@@ -3826,6 +3902,16 @@ fn phys_drop(request: tauri::ipc::Request<'_>, state: State) -> Result<tauri::ip
     tb.table("skipped", "s", out.skipped.len());
     for k in &out.skipped {
         tb.s(k);
+    }
+    // The bodies in the order of each frame's poses (the ones asked for, then the objects
+    // around that joined in), and the objects around the blacklist held, with why.
+    tb.table("keys", "s", bodies.len());
+    for b in &bodies {
+        tb.s(&b.key);
+    }
+    tb.table("fixed", "ss", fixed.len());
+    for (k, why) in &fixed {
+        tb.s(k).s(why);
     }
     Ok(tauri::ipc::Response::new(tb.done()))
 }

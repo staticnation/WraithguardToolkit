@@ -13,6 +13,11 @@
 //! Rotations are Morrowind's `rot` (x, y, z radians) as the viewer turns them into a
 //! matrix (`refMatrix` in `ui/src/18_cellpreview.js`): [`matrix`] and [`angles`] are that
 //! and its inverse.
+//!
+//! Kinetic events (Static, 2026-11-18): a body can start moving ([`Body::vel`], a throw), a
+//! blast pushes the bodies within its reach outward ([`Blast`]), and the objects around can
+//! join in as bodies, so what is struck scatters. Which of them never move, but still collide,
+//! is the [`Blacklist`]'s to say: mesh path patterns, record types and a size.
 
 use rapier3d::glamx::{Mat3, Quat, Vec3};
 use rapier3d::prelude::*;
@@ -37,12 +42,91 @@ pub struct Settings {
     /// A body's hollows kept (a bowl, a cart): its triangles split into convex parts
     /// (V-HACD) instead of one hull round them all. Slower.
     pub hollow: bool,
+    /// A blast at the start: every body within its reach pushed outward.
+    pub blast: Option<Blast>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { gravity: 9.81 * UNITS_PER_METER, friction: 0.7, restitution: 0.05, max_seconds: 6.0, drop_only: false, fps: 30.0, hollow: true }
+        Settings { gravity: 9.81 * UNITS_PER_METER, friction: 0.7, restitution: 0.05, max_seconds: 6.0, drop_only: false, fps: 30.0, hollow: true, blast: None }
     }
+}
+
+/// A blast: at `at` (world units), reaching `radius`, giving a body at its middle `strength`
+/// units a second. The push falls off to nothing at the edge, points away from the middle
+/// with a lift (a third of it upward, so things are thrown rather than slid), and is more
+/// for a light body and less for a heavy one (by the square root of the mass, against the
+/// middle mass of the bodies it reaches, between half and twice as much).
+#[derive(Clone, Copy, Debug)]
+pub struct Blast {
+    pub at: [f32; 3],
+    pub radius: f32,
+    pub strength: f32,
+}
+
+/// What never moves, though it still collides: a mesh whose path matches a pattern (`*` any
+/// run, `?` one character, case and slash direction ignored, from `meshes/` on), a record of a
+/// type in `tags` (`STAT`, `DOOR`), or anything wider than `max_size` units (0: no limit).
+#[derive(Clone, Debug, Default)]
+pub struct Blacklist {
+    pub patterns: Vec<String>,
+    pub tags: Vec<String>,
+    pub max_size: f32,
+}
+
+impl Blacklist {
+    /// Morrowind's buildings, their walls, docks and bridges, and the land's rocks and trees;
+    /// doors and actors; anything wider than 512 units (about 7 m: a house, a big rock).
+    pub fn morrowind() -> Blacklist {
+        Blacklist {
+            patterns: ["x/ex_*", "i/in_*", "*_wall*", "*_bridge*", "*_dock*", "*terrain_*", "*_rock_*", "f/flora_tree*", "*_tree_*"].map(String::from).to_vec(),
+            tags: ["DOOR", "NPC_", "CREA", "LEVC"].map(String::from).to_vec(),
+            max_size: 512.0,
+        }
+    }
+
+    /// Why an object never moves, or `None` when it may: `model` its mesh's path, `tag` its
+    /// record's type, `size` its widest side in world units.
+    pub fn holds(&self, model: &str, tag: &str, size: f32) -> Option<String> {
+        let path = model.replace('\\', "/").to_lowercase();
+        let path = path.strip_prefix("meshes/").unwrap_or(&path);
+        if let Some(p) = self.patterns.iter().find(|p| glob(&p.replace('\\', "/").to_lowercase(), path)) {
+            return Some(format!("its mesh matches {p}"));
+        }
+        if let Some(t) = self.tags.iter().find(|t| t.eq_ignore_ascii_case(tag)) {
+            return Some(format!("it is a {t}"));
+        }
+        if self.max_size > 0.0 && size > self.max_size {
+            return Some(format!("it is {} units wide, over {}", size.round(), self.max_size.round()));
+        }
+        None
+    }
+}
+
+/// `*` (any run) and `?` (one character) against the whole of `text`.
+pub fn glob(pattern: &str, text: &str) -> bool {
+    let (p, t): (Vec<char>, Vec<char>) = (pattern.chars().collect(), text.chars().collect());
+    let (mut pi, mut ti, mut star, mut mark) = (0usize, 0usize, None::<usize>, 0usize);
+    while ti < t.len() {
+        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == '*' {
+            star = Some(pi);
+            mark = ti;
+            pi += 1;
+        } else if let Some(s) = star {
+            pi = s + 1;
+            mark += 1;
+            ti = mark;
+        } else {
+            return false;
+        }
+    }
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
+    }
+    pi == p.len()
 }
 
 /// Something that does not move: triangles in world units, three vertices each.
@@ -61,6 +145,8 @@ pub struct Body {
     pub pos: [f32; 3],
     pub rot: [f32; 3],
     pub scale: f32,
+    /// How it is moving at the start, units a second (a throw); none for a drop.
+    pub vel: [f32; 3],
 }
 
 /// Where each body is at one moment: `(pos, rot)` in the order the bodies were given.
@@ -240,9 +326,13 @@ pub fn drop(statics: &[Static], bodies: &[Body], s: &Settings) -> Outcome {
         if s.drop_only {
             rb = rb.lock_rotations();
         }
+        let rb = rb.linvel(Vector::new(b.vel[0], b.vel[1], b.vel[2]));
         let h = rbs.insert(rb);
         cols.insert_with_parent(shape.friction(s.friction).restitution(s.restitution).density(1.0), h, &mut rbs);
         handles.push(Some(h));
+    }
+    if let Some(blast) = &s.blast {
+        push(&mut rbs, &handles, blast);
     }
 
     let mut params = IntegrationParameters { length_unit: UNITS_PER_METER, ..Default::default() };
@@ -292,6 +382,42 @@ pub fn drop(statics: &[Static], bodies: &[Body], s: &Settings) -> Outcome {
         }
     }
     Outcome { frames, seconds: step as f32 * params.dt, settled, skipped }
+}
+
+/// The blast's push on every body within its reach (see [`Blast`]).
+fn push(rbs: &mut RigidBodySet, handles: &[Option<RigidBodyHandle>], b: &Blast) {
+    let at = Vec3::new(b.at[0], b.at[1], b.at[2]);
+    let r = b.radius.max(1.0);
+    let reached: Vec<(RigidBodyHandle, f32)> = handles
+        .iter()
+        .flatten()
+        .filter_map(|h| {
+            let d = (rbs[*h].translation() - at).length();
+            (d < r).then_some((*h, d))
+        })
+        .collect();
+    if reached.is_empty() {
+        return;
+    }
+    let mut masses: Vec<f32> = reached.iter().map(|(h, _)| rbs[*h].mass()).collect();
+    masses.sort_by(f32::total_cmp);
+    let middle = masses[masses.len() / 2].max(1e-6);
+    for (h, d) in reached {
+        let body = &mut rbs[h];
+        let away = body.translation() - at;
+        let flat = Vec3::new(away.x, away.y, 0.0);
+        let out = if flat.length() > 1e-3 { flat.normalize() } else { Vec3::X };
+        let dir = (out * 0.94 + Vec3::Z * 0.34).normalize();
+        let falloff = 1.0 - d / r;
+        let weight = (middle / body.mass().max(1e-6)).sqrt().clamp(0.5, 2.0);
+        let dv = dir * (b.strength * falloff * weight);
+        let v = body.linvel() + dv;
+        body.set_linvel(v, true);
+        // A tumble about the axis across the push: as fast as a 32-unit body would roll at that
+        // speed, at most 20 radians a second.
+        let spin = out.cross(Vec3::Z) * (dv.length() / 32.0).min(20.0);
+        body.set_angvel(body.angvel() - spin, true);
+    }
 }
 
 /// The land of an exterior square as triangles: its 65 x 65 heights (rows from the south,
@@ -353,7 +479,7 @@ mod tests {
     fn a_crate_falls_onto_the_floor_and_rests() {
         // A floor at z = 0 (two triangles, 2000 across) and a 32-unit crate 300 above it.
         let floor = Static { tris: vec![[-1000.0, -1000.0, 0.0, 1000.0, -1000.0, 0.0, -1000.0, 1000.0, 0.0], [1000.0, -1000.0, 0.0, 1000.0, 1000.0, 0.0, -1000.0, 1000.0, 0.0]] };
-        let crate_ = Body { key: "c1".into(), points: cube(16.0), pos: [0.0, 0.0, 300.0], rot: [0.0, 0.0, 0.0], scale: 1.0 };
+        let crate_ = Body { key: "c1".into(), points: cube(16.0), pos: [0.0, 0.0, 300.0], rot: [0.0, 0.0, 0.0], scale: 1.0, vel: [0.0; 3] };
         let out = drop(&[floor], &[crate_], &Settings::default());
         let last = out.frames.last().unwrap()[0];
         assert!(out.settled, "{} s", out.seconds);
@@ -364,7 +490,7 @@ mod tests {
     #[test]
     fn a_tilted_crate_tumbles_flat_unless_only_dropped() {
         let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
-        let b = Body { key: "c1".into(), points: cube(16.0), pos: [4096.0, 4096.0, 200.0], rot: [0.5, 0.3, 0.0], scale: 2.0 };
+        let b = Body { key: "c1".into(), points: cube(16.0), pos: [4096.0, 4096.0, 200.0], rot: [0.5, 0.3, 0.0], scale: 2.0, vel: [0.0; 3] };
         // Tumbling: it ends lying on a face (one axis straight up or down).
         let out = drop(std::slice::from_ref(&floor), std::slice::from_ref(&b), &Settings::default());
         let (pos, rot) = out.frames.last().unwrap()[0];
@@ -380,11 +506,11 @@ mod tests {
     #[test]
     fn a_flat_shape_lies_down_and_a_line_is_left_where_it_is() {
         let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
-        let page = Body { key: "p".into(), points: vec![[0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [0.0, 30.0, 0.0], [20.0, 30.0, 0.0]], pos: [4096.0, 4096.0, 50.0], rot: [0.0; 3], scale: 1.0 };
+        let page = Body { key: "p".into(), points: vec![[0.0, 0.0, 0.0], [20.0, 0.0, 0.0], [0.0, 30.0, 0.0], [20.0, 30.0, 0.0]], pos: [4096.0, 4096.0, 50.0], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] };
         let out = drop(std::slice::from_ref(&floor), &[page], &Settings::default());
         let z = out.frames.last().unwrap()[0].0[2];
         assert!(out.skipped.is_empty() && z < 2.0 && z > -0.5, "the page lies on the floor: {z}");
-        let line = Body { key: "l".into(), points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], pos: [0.0, 0.0, 50.0], rot: [0.0; 3], scale: 1.0 };
+        let line = Body { key: "l".into(), points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], pos: [0.0, 0.0, 50.0], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] };
         let out = drop(&[floor], &[line], &Settings { max_seconds: 0.2, ..Default::default() });
         assert_eq!(out.skipped, vec!["l".to_string()]);
         assert_eq!(out.frames.last().unwrap()[0].0, [0.0, 0.0, 50.0]);
@@ -406,8 +532,8 @@ mod tests {
         }
         let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
         let bodies = [
-            Body { key: "tray".into(), points: tray, pos: [4096.0, 4096.0, 0.5], rot: [0.0; 3], scale: 1.0 },
-            Body { key: "c".into(), points: box_tris([-12.0; 3], [12.0; 3]), pos: [4096.0, 4096.0, 150.0], rot: [0.0; 3], scale: 1.0 },
+            Body { key: "tray".into(), points: tray, pos: [4096.0, 4096.0, 0.5], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] },
+            Body { key: "c".into(), points: box_tris([-12.0; 3], [12.0; 3]), pos: [4096.0, 4096.0, 150.0], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] },
         ];
         let t = std::time::Instant::now();
         let out = drop(std::slice::from_ref(&floor), &bodies, &Settings::default());
@@ -432,8 +558,8 @@ mod tests {
         }
         let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
         let bodies = [
-            Body { key: "cup".into(), points: cup, pos: [4096.0, 4096.0, 0.5], rot: [0.0; 3], scale: 1.0 },
-            Body { key: "c".into(), points: box_tris([-2.0; 3], [2.0; 3]), pos: [4096.0, 4096.0, 300.0], rot: [0.0; 3], scale: 1.0 },
+            Body { key: "cup".into(), points: cup, pos: [4096.0, 4096.0, 0.5], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] },
+            Body { key: "c".into(), points: box_tris([-2.0; 3], [2.0; 3]), pos: [4096.0, 4096.0, 300.0], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] },
         ];
         let t = std::time::Instant::now();
         let out = drop(&[floor], &bodies, &Settings::default());
@@ -447,10 +573,52 @@ mod tests {
         // A veil (one upright quad, 400 by 1600) far from the middle of the world, over a
         // square with no land: thickened enough to weigh something, it falls to -2048.
         let pts = vec![[0.0, -200.0, 0.0], [0.0, 200.0, 0.0], [0.0, 200.0, 1600.0], [0.0, -200.0, 0.0], [0.0, 200.0, 1600.0], [0.0, -200.0, 1600.0]];
-        let b = Body { key: "v".into(), points: pts, pos: [81828.0, 77824.0, 1000.0], rot: [0.0; 3], scale: 1.0 };
+        let b = Body { key: "v".into(), points: pts, pos: [81828.0, 77824.0, 1000.0], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] };
         let floor = Static { tris: flat_square((9, 9)) };
         let out = drop(&[floor], &[b], &Settings::default());
         let z = out.frames.last().unwrap()[0].0[2];
         assert!(out.skipped.is_empty() && (z + 2048.0).abs() < 20.0, "on the ground: {z}");
+    }
+
+    #[test]
+    fn the_blacklist_holds_by_mesh_by_type_and_by_size() {
+        let b = Blacklist::morrowind();
+        assert!(b.holds("meshes\\x\\Ex_hlaalu_b_01.NIF", "STAT", 2000.0).unwrap().contains("x/ex_*"));
+        assert!(b.holds("i/in_c_wall_01.nif", "STAT", 300.0).is_some());
+        assert!(b.holds("d/door_01.nif", "DOOR", 100.0).unwrap().contains("DOOR"));
+        assert!(b.holds("m/misc_crate_01.nif", "STAT", 900.0).unwrap().contains("wide"));
+        assert_eq!(b.holds("m/misc_com_bucket_01.nif", "MISC", 30.0), None);
+        assert!(glob("a*b?c", "axxbyc") && !glob("a*b?c", "axxbc") && glob("*", "") && !glob("x/ex_*", "i/ex_a"));
+    }
+
+    #[test]
+    fn a_thrown_body_flies_and_a_blast_scatters_what_it_reaches() {
+        let floor = Static { tris: land_tris((0, 0), &vec![0.0; 65 * 65]) };
+        let at = |x: f32, y: f32| Body { key: format!("{x},{y}"), points: cube(8.0), pos: [4096.0 + x, 4096.0 + y, 8.5], rot: [0.0; 3], scale: 1.0, vel: [0.0; 3] };
+        // Thrown east at 600 units a second: it lands well east of where it started.
+        let mut thrown = at(0.0, 0.0);
+        thrown.vel = [600.0, 0.0, 300.0];
+        let out = drop(std::slice::from_ref(&floor), &[thrown], &Settings::default());
+        let x = out.frames.last().unwrap()[0].0[0] - 4096.0;
+        assert!(x > 300.0, "thrown 600 a second east: came to rest at +{x}");
+        // A blast in the middle of four crates: each goes out its own way; one outside its
+        // reach stays put.
+        let crates = [at(40.0, 0.0), at(-40.0, 0.0), at(0.0, 40.0), at(0.0, -40.0), at(-700.0, 700.0)];
+        let s = Settings { blast: Some(Blast { at: [4096.0, 4096.0, 0.0], radius: 300.0, strength: 900.0 }), ..Default::default() };
+        let out = drop(std::slice::from_ref(&floor), &crates, &s);
+        let last = out.frames.last().unwrap();
+        let moved = |i: usize| {
+            let (p, b) = (last[i].0, crates[i].pos);
+            [p[0] - b[0], p[1] - b[1]]
+        };
+        for (i, want) in [(0, [1.0, 0.0]), (1, [-1.0, 0.0]), (2, [0.0, 1.0]), (3, [0.0, -1.0])] {
+            let m = moved(i);
+            assert!(m[0] * want[0] + m[1] * want[1] > 100.0, "crate {i} pushed away from the blast: {m:?}");
+        }
+        let far = moved(4);
+        assert!(far[0].abs() < 1.0 && far[1].abs() < 1.0, "outside the reach it stays: {far:?}");
+        // Without the blast nothing moves.
+        let out = drop(&[floor], &crates, &Settings::default());
+        assert!((0..5).all(|i| (out.frames.last().unwrap()[i].0[0] - crates[i].pos[0]).abs() < 1.0));
     }
 }
