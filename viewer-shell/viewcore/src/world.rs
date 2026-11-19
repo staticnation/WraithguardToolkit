@@ -39,6 +39,9 @@ pub struct World {
     /// Wraithguard: an NPC's or creature's AI ratings from its AIDT, `[hello, fight, flee,
     /// alarm]` (0-100), for the Preview's AI (77_wg_ai.js: greeting distance, fleeing).
     pub ai_rates: HashMap<String, [u8; 4]>,
+    /// Wraithguard: an NPC's or creature's own AI packages, in order, each `(kind, args)` with
+    /// the args as MWScript's Ai* functions take them, the Reset flag last (`actor_packages`).
+    pub ai_packages: HashMap<String, Vec<(String, String)>>,
     /// Sound records (SOUN) by lowercased id: the file and DATA's volume and ranges.
     pub sounds: HashMap<String, SoundDef>,
     /// A light's (LIGH SNAM) looped sound, by the light's lowercased id: the SOUN id.
@@ -124,6 +127,9 @@ impl World {
             }
             for (k, v) in e.ai_rates {
                 self.ai_rates.insert(k, v);
+            }
+            for (k, v) in e.ai_packages {
+                self.ai_packages.insert(k, v);
             }
             // The later plugin wins; a deleting one takes the record away.
             for (k, v) in e.sounds {
@@ -224,6 +230,7 @@ struct Extras {
     gmst: Vec<(String, f32)>,
     hello: Vec<(String, u8)>,
     ai_rates: Vec<(String, [u8; 4])>,
+    ai_packages: Vec<(String, Vec<(String, String)>)>,
     sounds: Vec<(String, Option<SoundDef>)>,
     light_sounds: Vec<(String, Option<String>)>,
     region_sounds: Vec<(String, Option<Vec<(String, u8)>>)>,
@@ -283,6 +290,9 @@ fn extras_of(buf: &[u8]) -> Extras {
                 if let Some((id, r)) = actor_ai(rec.body) {
                     e.hello.push((id.clone(), r[0]));
                     e.ai_rates.push((id, r));
+                }
+                if let Some(x) = ai_packages(rec.body) {
+                    e.ai_packages.push(x);
                 }
                 if let Some(x) = carried(rec.body) {
                     e.inventories.push(x);
@@ -684,6 +694,39 @@ fn actor_stats(tag: [u8; 4], body: &[u8]) -> Option<(String, Option<[i32; 10]>)>
     st.map(|v| (id.to_ascii_lowercase(), Some(v)))
 }
 
+/// An NPC's or creature's own AI packages (AI_W, AI_T, AI_F, AI_E, AI_A), in record order,
+/// as `(kind, args)`: the args as MWScript's Ai* take them, `|` between them (an id may hold
+/// spaces), the Reset flag last -
+/// wander `distance duration time idle2 ... idle9 reset`, travel `x y z reset`, follow and
+/// escort `target duration x y z reset`, activate `target reset`. `None` without a name;
+/// an empty list for an actor with none (a plugin's record that drops them).
+fn ai_packages(body: &[u8]) -> Option<(String, Vec<(String, String)>)> {
+    let mut id = String::new();
+    let mut out = Vec::new();
+    let f = |d: &[u8], o: usize| f32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
+    let i16le = |d: &[u8], o: usize| i16::from_le_bytes([d[o], d[o + 1]]) as i32;
+    let name = |d: &[u8]| cstring(d);
+    for s in Subs::new(body) {
+        let d = s.data;
+        match &s.tag {
+            b"NAME" => id = cstring(d),
+            b"AI_W" if d.len() >= 14 => {
+                let idles: Vec<String> = d[5..13].iter().map(|b| b.to_string()).collect();
+                out.push(("wander".into(), format!("{}|{}|{}|{}|{}", i16le(d, 0), i16le(d, 2), d[4], idles.join("|"), d[13])));
+            }
+            b"AI_T" if d.len() >= 13 => out.push(("travel".into(), format!("{}|{}|{}|{}", f(d, 0), f(d, 4), f(d, 8), d[12]))),
+            b"AI_F" | b"AI_E" if d.len() >= 46 => {
+                let kind = if &s.tag == b"AI_F" { "follow" } else { "escort" };
+                let reset = d.get(46).copied().unwrap_or(0);
+                out.push((kind.into(), format!("{}|{}|{}|{}|{}|{}", name(&d[14..46]), i16le(d, 12), f(d, 0), f(d, 4), f(d, 8), reset)));
+            }
+            b"AI_A" if d.len() >= 32 => out.push(("activate".into(), format!("{}|{}", name(&d[0..32]), d.get(32).copied().unwrap_or(0)))),
+            _ => {}
+        }
+    }
+    if id.is_empty() { None } else { Some((id.to_ascii_lowercase(), out)) }
+}
+
 /// A GMST's number: its INTV or FLTV (`None` for a string setting).
 fn gmst_number(body: &[u8]) -> Option<(String, f32)> {
     let mut name = String::new();
@@ -828,6 +871,32 @@ mod wraithguard_world_tests {
         }
         let wolf = [sub(b"NAME", b"wolf\0"), sub(b"NPDT", &cdt)].concat();
         assert_eq!(super::actor_stats(*b"CREA", &wolf), Some(("wolf".into(), Some([30, 0, 0, 3, 40, 55, 45, 9, 70, -1]))));
+    }
+
+    /// The record's own AI packages, in order, as MWScript's Ai* functions take them.
+    #[test]
+    fn an_actor_s_own_ai_packages_are_read() {
+        let sub = |t: &[u8; 4], d: &[u8]| { let mut v = t.to_vec(); v.extend((d.len() as u32).to_le_bytes()); v.extend(d); v };
+        let mut w = Vec::new();
+        w.extend(512i16.to_le_bytes()); w.extend(5i16.to_le_bytes()); w.push(0); w.extend([60u8, 20, 10, 0, 0, 0, 0, 0]); w.push(1);
+        let mut t = Vec::new();
+        for v in [100.0f32, 200.0, 50.0] { t.extend(v.to_le_bytes()); }
+        t.extend([0u8, 0, 0, 0]);
+        let mut fo = Vec::new();
+        for v in [1.0f32, 2.0, 3.0] { fo.extend(v.to_le_bytes()); }
+        fo.extend(24i16.to_le_bytes());
+        let mut who = b"Caius Cosades".to_vec(); who.resize(32, 0); fo.extend(who); fo.extend([1u8, 0]);
+        let mut a = b"chest_01".to_vec(); a.resize(32, 0); a.push(0);
+        let npc = [sub(b"NAME", b"guard\0"), sub(b"AI_W", &w), sub(b"AI_T", &t), sub(b"AI_F", &fo), sub(b"AI_A", &a)].concat();
+        let (id, p) = super::ai_packages(&npc).unwrap();
+        assert_eq!(id, "guard");
+        assert_eq!(p, vec![
+            ("wander".to_string(), "512|5|0|60|20|10|0|0|0|0|0|1".to_string()),
+            ("travel".to_string(), "100|200|50|0".to_string()),
+            ("follow".to_string(), "Caius Cosades|24|1|2|3|1".to_string()),
+            ("activate".to_string(), "chest_01|0".to_string()),
+        ]);
+        assert_eq!(super::ai_packages(&sub(b"NAME", b"none\0")), Some(("none".to_string(), Vec::new())));
     }
 
     /// AIDT's Hello, Fight, Flee and Alarm (bytes 0, 2, 3, 4), for the Preview's AI.

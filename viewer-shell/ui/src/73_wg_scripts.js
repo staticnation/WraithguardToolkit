@@ -238,6 +238,7 @@ const WgScripts={
     this.actorsFrame(dt);
     this.animsFrame();
     this.loopsFrame();
+    if(this._dirtyAI && performance.now()-this._lastRebuild>1500){ this._dirtyAI=false; this._dirtyScene=true; }
     if(this._dirtyScene) this.flushScene();
   },
   runOne(run, self){
@@ -535,6 +536,8 @@ const WgScripts={
         // script already plays on it, 1 at once, 2 at once and looping until something else.
         if(!t || t.player) return;
         const lg=fn==='loopgroup', flag=this.num(a[lg? 2 : 1])|0;
+        // Asked again while it plays (every frame, in some scripts): nothing to do or to say.
+        if(flag!==0 && this.animPlaying(t.key, String(a[0])) && !lg) return;
         const loops=flag===2? Infinity : lg? Math.max(0, this.num(a[1])|0) : 0;
         this.playAnim(t.key, String(a[0]), loops, 1, lg? 'LoopGroup' : 'PlayGroup', {queued:flag===0});
         did((fn==='playgroup'? 'PlayGroup ' : 'LoopGroup ')+a.join(' ')); this.drawLive(); return;
@@ -578,7 +581,7 @@ const WgScripts={
    *  order says it carries and its health, magicka and fatigue (an NPC whose stats the game
    *  works out starts at 100 each). The player starts with nothing and 100s; the panel sets
    *  both. */
-  actorOf(t){
+  actorOf(t, quiet){
     if(!t) return null;
     const key=t.player? 'player' : t.key; if(!key) return null;
     let A=this.actors.get(key);
@@ -597,7 +600,7 @@ const WgScripts={
       move:{speed:st[8]!=null? st[8] : 50, athletics:st[9]!=null? st[9] : (def && def.tag==='CREA'? -1 : 30), creature:!!(def && def.tag==='CREA')},
       rates:(def && def.rates)||[0, 0, 0, 0]};
     this.actors.set(key, A);
-    this.drawState();
+    if(!quiet) this.drawState();
     return A;
   },
   dist(a, b){ if(!a || !b) return Infinity; const p=this.posOf(a), q=this.posOf(b); return Math.hypot(p[0]-q[0], p[1]-q[1], p[2]-q[2]); },
@@ -620,21 +623,35 @@ const WgScripts={
   /** An AI package for an actor: `AiWander range, duration, time, idles…`, `AiTravel x, y,
    *  z`, `AiFollow target, duration, x, y, z`, `AiEscort target, duration, x, y, z`,
    *  `AiActivate target`. A duration is game hours (30 game seconds a real one). */
-  ai(t, kind, a, ctx){
-    const A=this.actorOf(t); if(!A || A.dead || t.player) return;
+  /** An AI package on an actor, from MWScript's Ai* or a record's own (`own`: no redraw of
+   *  the panel per actor). The Reset flag, last, has it start again once done (OpenMW's
+   *  repeat); AiWander's `time` is kept as read (OpenMW keeps it and does not act on it). */
+  ai(t, kind, a, ctx, own){
+    const A=this.actorOf(t, own); if(!A || A.dead || t.player) return;
     const hours=x=>this.num(x)>0? this.num(x)*3600/30 : Infinity;
-    const p=this.posOf(t);
-    // AiWander range duration time idle2 ... idle9: the idles' chances, for the waits.
-    if(kind==='wander') A.ai={kind, home:p, range:Math.max(0, this.num(a[0])), left:hours(a[1]), goal:null, wait:0, idle:a.slice(3, 11).map(x=>this.num(x))};
-    else if(kind==='travel') A.ai={kind, goal:[this.num(a[0]), this.num(a[1]), this.num(a[2])]};
+    const p=this.posOf(t), reset=x=>this.num(x)!==0;
+    // AiWander range duration time idle2 ... idle9 [reset]: the idles' chances, for the waits.
+    if(kind==='wander') A.ai={kind, home:p, range:Math.max(0, this.num(a[0])), left:hours(a[1]), time:this.num(a[2]), goal:null, wait:0, idle:a.slice(3, 11).map(x=>this.num(x)), repeat:reset(a[11])};
+    else if(kind==='travel') A.ai={kind, goal:[this.num(a[0]), this.num(a[1]), this.num(a[2])], repeat:reset(a[3])};
     else if(kind==='follow' || kind==='escort'){
       const who=this.target(String(a[0]).toLowerCase(), ctx);
       const goal=a.length>=5 && (this.num(a[2]) || this.num(a[3]) || this.num(a[4]))? [this.num(a[2]), this.num(a[3]), this.num(a[4])] : null;
-      A.ai={kind, who, left:hours(a[1]), goal};
+      A.ai={kind, who, left:hours(a[1]), goal, repeat:reset(a[5])};
     }
-    else if(kind==='activate') A.ai={kind, who:this.target(String(a[0]).toLowerCase(), ctx)};
-    if(A.ai) A.ai.done=false;
-    this.drawState();
+    else if(kind==='activate') A.ai={kind, who:this.target(String(a[0]).toLowerCase(), ctx), repeat:reset(a[1])};
+    if(A.ai){ A.ai.done=false; A.ai.args=a.slice(); A.ai.own=!!own; A._route=null; }
+    if(!own){ A.packages=null; this.drawState(); }
+  },
+  /** A package done: again when it repeats, else the record's next one, if it has more. */
+  nextPackage(A){
+    const ai=A.ai; if(!ai || !ai.done || A.dead) return;
+    const t=A.t;
+    if(ai.repeat){ this.ai(t, ai.kind, ai.args, {self:t}, ai.own); if(!ai.own) A.packages=null; return; }
+    if(A.packages && A.pkg<A.packages.length-1){
+      A.pkg++;
+      const [k, args]=A.packages[A.pkg];
+      this.ai(t, k, args, {self:t}, true);
+    }
   },
   /** One frame of every actor that has somewhere to go: a fight first, then its package.
    *  Routes over the pathgrid and the walk while it moves are 77_wg_ai.js's (`go`). */
@@ -647,7 +664,8 @@ const WgScripts={
       const pace=W? W.speeds(A) : {walk, run};
       if(!A.dead && !this.disabled.has(A.key)) this.actorStep(A, dt, pace.walk, pace.run, W);
       // The walk while it moves; its idle once it stops (a script's own group wins, `WgAI.loop`).
-      if(W && A.key){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }
+      // Only near the camera: farther off a walk is not seen, and each change is a new mesh.
+      if(W && A.key && W.near(A)){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }
     }
   },
   actorStep(A, dt, walk, run, W){
@@ -672,6 +690,7 @@ const WgScripts={
       }
       return;
     }
+    if(A.ai && A.ai.done) this.nextPackage(A);
     const ai=A.ai;
     // A greeting: within its Hello's reach of the player, one standing or wandering turns to it and stands.
     if(W && (!ai || ai.done || ai.kind==='wander') && W.greet(A)) return;
@@ -833,8 +852,18 @@ const WgScripts={
     const o=opt||{}, mask=(o.mask|0)&15 || 15;
     let st=this.anims.get(key);
     if(!st){ st={slots:[null, null, null, null], queue:[]}; this.anims.set(key, st); }
-    const p={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, mask, by:by||'animation', at:0, t0:0, ends:null, len:null, quiet:!!o.quiet, onLack:o.onLack||null};
-    if(o.queued && st.slots.some((x, i)=>x && (mask>>i)&1)){ st.queue.push(p); return null; }
+    /* The same group already on those bones (a script that calls PlayGroup every frame, as the
+       mist and banner mods do): left playing, not started over - which would draw the scene
+       again every frame. */
+    const same=[0, 1, 2, 3].filter(i=>(mask>>i)&1).map(i=>st.slots[i]);
+    if(!o.queued && same[0] && same.every(x=>x===same[0]) && same[0].group.toLowerCase()===String(group).toLowerCase() && same[0].mask===mask) return same[0];
+    const p={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, mask, by:by||'animation', at:0, t0:0, ends:null, len:null, quiet:!!o.quiet, onLack:o.onLack||null, fixedAt:o.at};
+    if(o.queued && st.slots.some((x, i)=>x && (mask>>i)&1)){
+      // Queued once: a script asking every frame does not pile up a queue.
+      const g=p.group.toLowerCase();
+      if(!st.queue.some(q=>q.group.toLowerCase()===g && q.mask===mask) && !st.slots.some((x, i)=>x && (mask>>i)&1 && x.group.toLowerCase()===g)) st.queue.push(p);
+      return null;
+    }
     this.startPlay(key, st, p);
     return p;
   },
@@ -842,37 +871,48 @@ const WgScripts={
    *  it), the actor told, the scene drawn again, and its length asked of the `.kf`. */
   startPlay(key, st, p){
     const R=App.R;
-    p.at=Math.round((((R && R._uvSecs)||0))*1000)/1000; p.t0=performance.now();
+    // `fixedAt`: the AI's looping walk begins at 0, so an actor's walk is one request whenever it starts.
+    p.at=p.fixedAt!=null? p.fixedAt : Math.round((((R && R._uvSecs)||0))*1000)/1000; p.t0=performance.now();
     for(let i=0;i<4;i++) if((p.mask>>i)&1) st.slots[i]=p;
-    const A=this.actorOf(this.inst.get(key) || {key, id:''}); if(A) A.anim={group:p.group, loops:p.loops};
-    this._dirtyScene=true;
+    const A=this.actorOf(this.inst.get(key) || {key, id:''}, true); if(A) A.anim={group:p.group, loops:p.loops};
+    this.redraw(p);
     const model=this.modelOfKey(key);
     if(!model) return;
     this.groupsOf(model).then(list=>{
       if(!st.slots.includes(p)) return;
       const g=list.find(x=>String(x[0]).toLowerCase()===p.group.toLowerCase());
+      // A group with no length (a banner's Idle, its still pose): the mesh's own idle.
+      if(g && !((+g[2])-(+g[1])>1e-6)){ this.endPlay(key, st, p); return; }
       if(!g){
         this.endPlay(key, st, p);
         if(p.onLack) p.onLack();
         if(p.quiet) return;   // the AI's walk on a mesh without one: it just slides, as before
+        // Said once a mesh and group, however often a script asks.
+        const said='nogroup|'+model+'|'+p.group.toLowerCase();
+        if(this._logged.has(said)) return;
+        this._logged.add(said);
         this.say('', 'skip', p.by+': '+model+' has no group '+p.group+(list.length? ' (it has '+list.map(x=>x[0]).join(', ')+')' : ' (no .kf beside it)'));
         return;
       }
       p.group=String(g[0]); p.len=Math.max(0, (+g[2])-(+g[1]));
       if(A && A.anim) A.anim.group=p.group;   // the file's spelling
       if(isFinite(p.loops)) p.ends=p.t0+p.len*(p.loops+1)/p.speed*1000;
-      this._dirtyScene=true;
+      this.redraw(p);
     });
   },
   /** A play off its bones (they go back to the idle), and whatever waited for them started. */
   endPlay(key, st, p){
     for(let i=0;i<4;i++) if(st.slots[i]===p) st.slots[i]=null;
-    this._dirtyScene=true;
+    this.redraw(p);
     while(st.queue.length && !st.slots.some((x, i)=>x && (st.queue[0].mask>>i)&1)) this.startPlay(key, st, st.queue.shift());
     const live=st.slots.find(Boolean);
     const A=this.actors.get(key); if(A) A.anim=live? {group:live.group, loops:live.loops} : null;
     if(!live && !st.queue.length) this.anims.delete(key);
   },
+  /** The scene drawn again for a play that changed: at once for a script's; for the AI's walks
+   *  and idles, gathered up and drawn at most every second and a half (`frame`) - a town of
+   *  wanderers would otherwise have it drawn again all the time. */
+  redraw(p){ if(p && p.by==='AI') this._dirtyAI=true; else this._dirtyScene=true; },
   /** Stop `group` (every group, when not given) on `key`, playing or queued. */
   stopAnim(key, group){
     const st=this.anims.get(key); if(!st) return;
@@ -939,7 +979,7 @@ const WgScripts={
   flushScene(){
     const now=performance.now();
     if(now-this._lastRebuild<350) return;
-    this._dirtyScene=false; this._lastRebuild=now;
+    this._dirtyScene=false; this._dirtyAI=false; this._lastRebuild=now;
     if(typeof schedulePreview==='function') schedulePreview();
   },
   fade(to, secs){
@@ -1127,6 +1167,8 @@ const WgScripts={
     for(const [row,v] of tb.actor_stats||[]) rows[row].stats.push(v);
     // Wraithguard: the AI ratings, [hello, fight, flee, alarm] (77_wg_ai.js).
     for(const [row,h,f,fl,al] of tb.actor_rates||[]) if(rows[row]) rows[row].rates=[h,f,fl,al];
+    // Its own AI packages, in order: [kind, args] (MWScript's Ai* arguments, `|` between).
+    for(const [row,kind,args] of tb.actor_packages||[]) if(rows[row]) (rows[row].packages=rows[row].packages||[]).push([kind, String(args).split('|')]);
     return {objects:Object.fromEntries(tb.objects||[]), scripts:Object.fromEntries((tb.scripts||[]).map(([k,id,text])=>[k,{id,text}])),
             start:(tb.start||[]).map(r=>r[0]), globals:(tb.globals||[]).map(([name,kind,value])=>({name, kind, value})), actors};
   },
@@ -1157,6 +1199,20 @@ const WgScripts={
       if(!s || this.inst.has(r.key)) continue;
       this.inst.set(r.key, {key:r.key, id, script:s, locals:null, cell:c.kind==='int'? String(c.name||'').toLowerCase() : c.gx+','+c.gy,
         base:{pos:(r.pos||[0,0,0]).slice(), rot:(r.rot||[0,0,0]).slice()}, _ref:r});
+    }
+    /* The actors' own AI packages (their records' AI_W, AI_T, AI_F, AI_E, AI_A): the first
+       started on each actor of the scene that has any, the rest after it in order - which is
+       what has a town's people walk about. Once per reference; a script's own Ai* replaces it. */
+    this._packed=this._packed||new Set();
+    for(const [, r] of refs){
+      if(this._packed.has(r.key) || this.disabled.has(r.key)) continue;
+      const d=this.actorDefs.get(String(r.id).toLowerCase());
+      if(!d || !d.packages || !d.packages.length) continue;
+      this._packed.add(r.key);
+      const t=this.inst.get(r.key) || {key:r.key, id:String(r.id).toLowerCase(), ref:r};
+      const A=this.actorOf(t, true); if(!A || A.ai) continue;
+      A.packages=d.packages; A.pkg=0;
+      this.ai(t, A.packages[0][0], A.packages[0][1], {self:t}, true);
     }
     this.drawState(); this.drawWhich();
     if(typeof WgAI==='object') WgAI.load();
@@ -1194,7 +1250,7 @@ const WgScripts={
   reset(off){
     this.disabled.clear(); this.moved.clear(); this.anims.clear(); this.placed=[]; this.inst.clear(); this.globalRun.clear();
     for(const k of [...this.loops.keys()]) this.loopStop(k);
-    this._globalsRead=false; this._asked=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
+    this._globalsRead=false; this._asked=null; this._packed=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
     this.actors.clear(); this.actorDefs.clear(); this.playing.clear(); this.topics.clear(); this.msg=null; this.drawMsg();
     this.fade(0, 0);
     if(typeof WgLua==='object') WgLua.stop();

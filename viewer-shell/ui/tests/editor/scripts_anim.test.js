@@ -152,4 +152,17 @@ module.exports = async (t) => {
   t.ok(slot('n1', 0) && slot('n1', 0).group === 'Idle' && S.anims.get('n1').queue.length === 1 && S.anims.get('n1').queue[0].group.toLowerCase() === 'idle3', 'PlayGroup 1 at once, PlayGroup queued ' + JSON.stringify(S.animSlots('n1')));
   S.frame(0.05); await tick();
   t.ok(slot('n1', 0).group === 'Idle3' && slot('n1', 0).loops === Infinity && slot('n1', 0).ends === null, 'LoopGroup with flag 2 cuts in and loops ' + JSON.stringify(slot('n1', 0)));
+
+  // A group with no length (a banner's Idle, its still pose) is the mesh's own idle: nothing
+  // played, nothing said. The same group asked for again while it plays: not started over.
+  ctx.Engine._call = ctx.Engine.call;
+  ctx.Engine.call = async (c, a) => c === 'anim_groups' ? JSON.stringify({ 'f/furn_banner.nif': [['Idle', 0, 0], ['Idle2', 0, 2]] }) : ctx.Engine._call(c, a);
+  S._groups.clear(); S.anims.delete('a1');
+  const logged = S.log.length;
+  S.playAnim('a1', 'Idle', 0, 1, 'PlayGroup'); await tick();
+  t.ok(!S.anims.has('a1') && S.log.length === logged, 'PlayGroup Idle on a banner: its still pose, quietly');
+  const first = S.playAnim('a1', 'Idle2', 0, 1, 'PlayGroup'); await tick();
+  const again = S.playAnim('a1', 'Idle2', 0, 1, 'PlayGroup');
+  t.ok(first && again === first, 'asked again while it plays: the same play, not started over');
+  ctx.Engine.call = ctx.Engine._call;
 };

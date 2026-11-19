@@ -192,9 +192,34 @@ module.exports = async (t) => {
   W.nav = W.buildNav([sq(0, 0), sq(100, 0), sq(500, 500), { a: 1, v: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0]) }], 0);
   t.ok(W.nav.polys.length === 3 && W.nav.adj[0].length === 1 && W.nav.adj[0][0][0] === 1, 'joined by the shared edge, the other agent left out');
   const nr = W.routeNav([50, 50, 0], [150, 50, 0]);
-  t.ok(JSON.stringify(nr) === '[[100,50,0],[150,50,0]]', 'through the shared edge\'s middle ' + JSON.stringify(nr));
+  t.ok(JSON.stringify(nr) === '[[150,50,0]]', 'straight through the shared edge ' + JSON.stringify(nr));
   t.ok(W.routeNav([50, 50, 0], [550, 550, 0]) === null, 'not joined: the pathgrid is tried');
-  t.ok(JSON.stringify(W.route([50, 50, 0], [150, 50, 0])) === '[[100,50,0],[150,50,0]]', 'route takes the navmesh first');
+  // The funnel: round a bend by its inside corner, both ways; round a U by its two corners.
+  W.nav = W.buildNav([sq(0, 0), sq(100, 0), sq(100, 100)], 0);
+  t.ok(JSON.stringify(W.routeNav([20, 80, 0], [180, 180, 0])) === '[[100,100,0],[180,180,0]]', 'the bend by its corner');
+  t.ok(JSON.stringify(W.routeNav([180, 180, 0], [20, 80, 0])) === '[[100,100,0],[20,80,0]]', 'and back');
+  t.ok(JSON.stringify(W.route([20, 80, 0], [180, 180, 0])) === '[[100,100,0],[180,180,0]]', 'route takes the navmesh first');
+  W.nav = W.buildNav([sq(0, 0), sq(100, 0), sq(200, 0), sq(200, 100), sq(200, 200), sq(100, 200), sq(0, 200)], 0);
+  t.ok(JSON.stringify(W.routeNav([50, 50, 0], [50, 250, 0])) === '[[200,100,0],[200,200,0],[50,250,0]]', 'a U by its two corners ' + JSON.stringify(W.routeNav([50, 50, 0], [50, 250, 0])));
   t.ok(W.agentOf([{ h: [10, 10, 10] }, { h: [29, 28, 66] }]) === 1, 'the agent of a person\'s size');
   W.nav = null;
+
+  // The actors' own packages: started from the record when the scene is gathered, in order,
+  // the next once one is done, and one with Reset again.
+  ctx.App.R.cam.tx = 99999;
+  const defs = S.actorDefs.get('guard_b');
+  defs.packages = [['travel', ['400', '100', '0', '0']], ['wander', ['0', '0', '7', '0', '0', '0', '0', '0', '0', '0', '0', '1']]];
+  S.actors.delete('n1'); S._packed = null; S._asked = new Set(['guard_b', 'rat']);
+  S.place(guard, { pos: [100, 100, 0] });
+  await S.gather();
+  const G = S.actors.get('n1');
+  t.ok(G && G.ai && G.ai.kind === 'travel' && G.ai.own && G.pkg === 0, 'its first package started from its record ' + JSON.stringify(G && G.ai && G.ai.kind));
+  for (let i = 0; i < 200 && G.pkg === 0; i++) S.actorsFrame(0.1);
+  t.ok(G.pkg === 1 && G.ai.kind === 'wander' && G.ai.time === 7 && G.ai.repeat === true, 'then its next, AiWander\'s time kept and Reset read ' + JSON.stringify({ k: G.ai.kind, time: G.ai.time, r: G.ai.repeat }));
+  await S.gather();
+  t.ok(S.actors.get('n1').pkg === 1, 'gathered again, not started over');
+  G.ai.done = true; S.actorsFrame(0.1);
+  t.ok(G.ai.kind === 'wander' && !G.ai.done, 'with Reset, again once done');
+  S.ai(guard, 'travel', [500, 500, 0], {});
+  t.ok(G.packages === null && !G.ai.own, 'a script\'s own package replaces the record\'s');
 };

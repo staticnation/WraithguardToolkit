@@ -105,10 +105,11 @@ const WgAI={
       const id=P.length; P.push({v, c}); adj.push([]);
       for(let i=0;i<n;i++){
         const j=(i+1)%n, a=vk(v, i), b=vk(v, j), k=a<b? a+'|'+b : b+'|'+a;
-        const mid=[(v[i*3]+v[j*3])/2, (v[i*3+1]+v[j*3+1])/2, (v[i*3+2]+v[j*3+2])/2];
+        const e0=[v[i*3], v[i*3+1], v[i*3+2]], e1=[v[j*3], v[j*3+1], v[j*3+2]];
+        const mid=[(e0[0]+e1[0])/2, (e0[1]+e1[1])/2, (e0[2]+e1[2])/2];
         const was=edges.get(k);
         if(was==null) edges.set(k, {id, mid});
-        else if(was.id!==id){ adj[id].push([was.id, mid]); adj[was.id].push([id, mid]); }
+        else if(was.id!==id){ adj[id].push([was.id, mid, e0, e1]); adj[was.id].push([id, mid, e0, e1]); }
       }
     }
     return P.length? {polys:P, adj} : null;
@@ -147,17 +148,47 @@ const WgAI={
       if(i===b) break;
       if(shut.has(i)) continue;
       shut.add(i);
-      for(const [j, mid] of N.adj[i]){
+      for(const [j, mid, e0, e1] of N.adj[i]){
         if(shut.has(j)) continue;
         const c=g.get(i)+Math.hypot(C(i)[0]-mid[0], C(i)[1]-mid[1])+Math.hypot(mid[0]-C(j)[0], mid[1]-C(j)[1]);
-        if(c<(g.has(j)? g.get(j) : Infinity)){ g.set(j, c); came.set(j, [i, mid]); open.push([c+h(j), j]); }
+        if(c<(g.has(j)? g.get(j) : Infinity)){ g.set(j, c); came.set(j, [i, mid, e0, e1]); open.push([c+h(j), j]); }
       }
     }
     if(!came.has(b)) return null;
-    const path=[];
-    for(let i=b; came.has(i); i=came.get(i)[0]) path.unshift(came.get(i)[1].slice());
-    path.push(to.slice());
-    return path;
+    // The edges crossed, each as [left, right] seen walking from the one polygon into the next.
+    const portals=[];
+    for(let i=b; came.has(i); i=came.get(i)[0]){
+      const [from_, , e0, e1]=came.get(i), dir=[C(i)[0]-C(from_)[0], C(i)[1]-C(from_)[1]];
+      const side=dir[0]*(e0[1]-C(from_)[1])-dir[1]*(e0[0]-C(from_)[0]);
+      portals.unshift(side>0? [e0, e1] : [e1, e0]);
+    }
+    return this.funnel(from, portals, to);
+  },
+  /** The shortest way through a row of portals ([left, right] each): the simple stupid
+   *  funnel - the route turns only at a portal's corner, so it hugs the inside of a bend
+   *  rather than zig-zagging through the edges' middles. Ends with `to`. */
+  funnel(from, portals, to){
+    const P=[[from, from], ...portals, [to, to]];
+    const cross=(a, b, c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);   // > 0: c left of a->b
+    const same=(a, b)=>Math.abs(a[0]-b[0])<1e-6 && Math.abs(a[1]-b[1])<1e-6;
+    const out=[];
+    let apex=from, left=P[0][0], right=P[0][1], ai=0, li=0, ri=0;
+    for(let i=1;i<P.length;i++){
+      const [l, r]=P[i];
+      // The right side: narrower, or past the left (a turn at the left corner).
+      if(cross(apex, right, r)>=0){
+        if(same(apex, right) || cross(apex, left, r)<0){ right=r; ri=i; }
+        else{ out.push(left.slice()); apex=left; ai=li; left=right=apex; li=ri=ai; i=ai; continue; }
+      }
+      // The left side, the same the other way.
+      if(cross(apex, left, l)<=0){
+        if(same(apex, left) || cross(apex, right, l)>0){ left=l; li=i; }
+        else{ out.push(right.slice()); apex=right; ai=ri; left=right=apex; li=ri=ai; i=ai; continue; }
+      }
+    }
+    out.push(to.slice());
+    // A corner reached twice (the end portal is a point) is one corner.
+    return out.filter((p, i)=>i===0 || !same(p, out[i-1]));
   },
 
   /* ---- pace, greetings, fleeing, room --------------------------------------------------- */
@@ -322,6 +353,12 @@ const WgAI={
 
   /* ---- the walk ------------------------------------------------------------------------- */
 
+  /** How near the camera an actor's walk and idles are played. */
+  NEAR:4096,
+  near(A){
+    const S=WgScripts, p=S.posOf(A.t), c=S.posOf({player:true});
+    return !(App.R && App.R.cam) || Math.hypot(p[0]-c[0], p[1]-c[1])<=this.NEAR;
+  },
   /** Whether a script (not the AI) is playing a group on `key`. */
   scripted(key){
     const st=WgScripts.anims.get(key);
@@ -342,7 +379,7 @@ const WgAI={
     const model=S.modelOfKey(key);
     if(this.lacks.has(model+'|'+group.toLowerCase())) return;
     if(cur) S.stopAnim(key, cur.group);
-    S.playAnim(key, group, Infinity, 1, 'AI', {quiet:true, onLack:()=>this.lacks.add(model+'|'+group.toLowerCase())});
+    S.playAnim(key, group, Infinity, 1, 'AI', {quiet:true, at:0, onLack:()=>this.lacks.add(model+'|'+group.toLowerCase())});
   },
   /** The AI's looping walk off the actor (back to its idle); an idle it chose is left to end. */
   still(key){

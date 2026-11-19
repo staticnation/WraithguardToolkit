@@ -3486,6 +3486,14 @@ fn scene_scripts(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response,
     for (row, r) in &rated {
         tb.u(*row as u64).u(r[0] as u64).u(r[1] as u64).u(r[2] as u64).u(r[3] as u64);
     }
+    /* Wraithguard: each actor's own AI packages, in order, `actor_packages` `uss` (row; kind;
+       args as MWScript's Ai* take them, `|` between, the Reset flag last), started when the Scripts run. */
+    let packs: Vec<(usize, &(String, String))> =
+        actors.iter().enumerate().flat_map(|(i, a)| w.ai_packages.get(&a.0).into_iter().flatten().map(move |p| (i, p))).collect();
+    tb.table("actor_packages", "uss", packs.len());
+    for (row, (kind, args)) in &packs {
+        tb.u(*row as u64).s(kind).s(args);
+    }
     Ok(tauri::ipc::Response::new(tb.done()))
 }
 

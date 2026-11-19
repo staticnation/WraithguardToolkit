@@ -194,11 +194,12 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 - **MWSE-Lua** for Morrowind.ini and MO2 setups (Static, 2026-11-18): `mwse.*`, `tes3.*` and
   `event.register`, run against the same scene layer as MWScript and OpenMW Lua, with the
   animation groups and Which scripts run shared. Not started.
-- AI (`77_wg_ai.js`): the navmesh route goes through the middles of the shared edges, with no
-  funnel to straighten it, and the navmesh is read only when one was chosen in the overlay.
-  Fleeing, greeting and keeping room are approximations of OpenMW's (no weighing by
-  disposition, no greeting voice, no actor-to-actor collision past the room kept). A
-  wanderer's `time` argument and AiWander's reset are not read.
+- AI (`77_wg_ai.js`): a change of animation (walk to idle, an idle played) is a new mesh and
+  so a rebuild of the scene. The AI's are gathered up and drawn at most every 1.5 s, and only
+  for actors within 4,096 units of the camera. If a busy town still stutters, the next step is
+  swapping one live actor's mesh in place (`previewMoveRef`'s batches) rather than rebuilding.
+  Fleeing, greeting and keeping room are approximations of OpenMW's (no disposition, no
+  greeting voice, no actor collision past the room kept).
 - MWScript the preview still does not run: a spell's effects (Cast is counted for GetSpellEffects
   for ten seconds; GetEffect is not answered). Combat has no weapons, armor or fatigue.
   A torch an actor carries stays where it was until the scene is drawn again (The viewer, above).

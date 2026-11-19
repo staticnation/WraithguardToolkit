@@ -331,6 +331,31 @@
 
 ### Added
 
+- **The town's people walk about: each actor's own AI packages are run** (`World::ai_packages`,
+  `scene_scripts`' `actor_packages`; `73_wg_scripts.js` `gather`, `ai`, `nextPackage`). Only the
+  packages scripts started were run, and a town's people have theirs in their records, so
+  everyone stood in their idle. Now, while the Scripts run:
+  - **Their own packages.** Each actor's AI_W, AI_T, AI_F, AI_E and AI_A start from its record,
+    in order, the next once one is done. A script's own Ai* replaces them.
+  - **Reset and time.** The Reset flag (OpenMW's repeat) starts a package again once done, for
+    the record's packages and for MWScript's Ai* alike. AiWander's `time` is read and kept;
+    OpenMW keeps it too and does not act on it.
+  - **Navmesh routes are straightened.** They go through the edges the polygons share by a
+    funnel, so a route turns only at a corner, on the inside of a bend, instead of zig-zagging
+    through the edges' middles.
+  - **Animation churn.**
+    - A script that plays the same group every frame (the mist and banner mods' `PlayGroup
+      idle2 1`) no longer starts it over, which drew the scene again every frame.
+    - A queued group a script asks for every frame is queued once.
+    - A group with no length, a banner's `Idle` (its still pose), is the mesh's own idle,
+      quietly.
+    - A group a mesh lacks is logged once per mesh and group.
+    - The AI's walks and idles are drawn at most every 1.5 s, and only within 4,096 units of
+      the camera. A walk starts at 0, so an actor's walking mesh is one request each time.
+  - Tests: `world`'s `an_actor_s_own_ai_packages_are_read`, `viewcore::anim` (a group with no
+    length is listed), `ai_routes.test.js` (record packages in order, Reset, a script's
+    package first; the funnel round a bend and a U), and `scripts_anim.test.js` (a banner's
+    still Idle, the same group asked again).
 - **Actors glide, walk at their own pace, flee, greet, and keep out of each other's way**
   (`18_cellpreview.js` `previewMoveRef`, `06_gl.js` `moveInstance`; `77_wg_ai.js`; `World::ai_rates`,
   the stats' Speed and Athletics, `scene_scripts`' `actor_rates`).

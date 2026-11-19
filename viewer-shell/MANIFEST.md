@@ -124,7 +124,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `74_wg_lua.js` | 19 KB | OpenMW Lua in the scene: the engine's copy of the scene kept current a frame at a time, and what the scripts did applied (luarun.rs runs them). |
 | `75_wg_luaui.js` | 11 KB | The windows OpenMW Lua scripts make (ui.create), drawn over the Preview, their clicks and text sent back. |
 | `76_wg_physics.js` | 11 KB | The Editor's Physics drop: the selection falls and comes to rest on the scene's collision and the land (phys_drop, physcore); the fall as ghosts, then Keep or Drop. |
-| `77_wg_ai.js` | 18 KB | The actors' AI carried out: routes over the navmesh or the pathgrids (A*), wander points and idle chances, pace from the record, fleeing, greetings, room, the walk and run on the mesh. |
+| `77_wg_ai.js` | 20 KB | The actors' AI carried out: routes over the navmesh (A*, funnelled) or the pathgrids (A*), wander points and idle chances, pace from the record, fleeing, greetings, room, the walk and run on the mesh. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs`: 145)
@@ -194,7 +194,7 @@ names a command that is not defined, or one is left unregistered.
 
 | Module | Lines | What it does |
 |---|---|---|
-| `anim.rs` | 360 | Named animation groups for the scripts: the `__grp/` request, OpenMW's bone groups, a `.kf` laid out in a band per bone group and the parts timed to it, the groups a `.kf` marks. |
+| `anim.rs` | 370 | Named animation groups for the scripts: the `__grp/` request, OpenMW's bone groups, a `.kf` laid out in a band per bone group and the parts timed to it, the groups a `.kf` marks. |
 | `audio.rs` | 274 | Sounds decoded (Symphonia) for the page to play; the checks Verify uses (silent, clipped). |
 | `bcx.rs` | 488 | BC4, BC5 and BC7 decoding, for a webview that cannot take the blocks. |
 | `coverage.rs` | 168 | Land-texture coverage per cell, and which plugins touch each cell. |
@@ -220,7 +220,7 @@ names a command that is not defined, or one is left unregistered.
 | `usage.rs` | 186 | Where a mesh, texture or base record is used, cell by cell. |
 | `vfsindex.rs` | 346 | The overlay's file index, kept between connects. |
 | `weather.rs` | 89 | Gardenfell's weather, plus the setup's sound and weather fallbacks (openmw.cfg or Morrowind.ini). |
-| `world.rs` | 854 | Gardenfell's world, wrapped with Wraithguard's extras pass (records index, GMSTs, path grids, land edits, NPCs and their AI ratings, groundcover, sounds, regions, script loops). |
+| `world.rs` | 923 | Gardenfell's world, wrapped with Wraithguard's extras pass (records index, GMSTs, path grids, land edits, NPCs and their AI ratings and packages, groundcover, sounds, regions, script loops). |
 
 Re-exports of Gardenfell's modules (`gardenfell/`), with our additions where noted: `bsa.rs`, `esp.rs`, `json.rs`, `land.rs`, `layout.rs`, `mge.rs`, `nif.rs`, `plugins.rs`, `pool.rs`, `renderer.rs`, `toml.rs`, `vfs.rs`, `worldmap.rs`.
 

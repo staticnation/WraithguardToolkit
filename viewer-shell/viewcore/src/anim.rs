@@ -222,9 +222,14 @@ pub fn retime(parts: &mut [DrawPart], bands: &[Option<Band>; 4]) {
     }
 }
 
+/// When `name: Start` is keyed, for a group with no length.
+fn start_of(kf: &KfSequence, name: &str) -> Option<f32> {
+    let want = format!("{name}: start").to_ascii_lowercase();
+    kf.text_keys.iter().find(|(_, k)| k.lines().any(|l| l.trim().to_ascii_lowercase() == want)).map(|(t, _)| *t)
+}
+
 /// The groups a `.kf` marks, in file order, each with the window [`KfSequence::clip`]
-/// gives it (its loop when it has one). Groups with no length are left out: there is
-/// nothing to play.
+/// gives it (its loop when it has one); a group with no length with its one instant.
 pub fn groups(kf: &KfSequence) -> Vec<(String, f32, f32)> {
     let mut seen: Vec<String> = Vec::new();
     let mut out = Vec::new();
@@ -240,8 +245,13 @@ pub fn groups(kf: &KfSequence) -> Vec<(String, f32, f32)> {
                 continue;
             }
             seen.push(name.to_string());
+            /* A group with no length - a banner's `Idle`, its still pose - is listed with its
+               one instant, so a script's `PlayGroup Idle` finds it (the page takes it as the
+               mesh's own idle). */
             if let Some((a, b)) = kf.clip(name) {
                 out.push((name.to_string(), a, b));
+            } else if let Some(t) = start_of(kf, name) {
+                out.push((name.to_string(), t, t));
             }
         }
     }
@@ -355,6 +365,6 @@ mod tests {
     #[test]
     fn groups_are_listed_with_their_windows() {
         let g = groups(&kf());
-        assert_eq!(g, vec![("Idle".to_string(), 0.0, 2.0), ("Idle2".to_string(), 2.5, 4.0)]);
+        assert_eq!(g, vec![("Idle".to_string(), 0.0, 2.0), ("Idle2".to_string(), 2.5, 4.0), ("Death1".to_string(), 6.0, 6.0)]);
     }
 }
