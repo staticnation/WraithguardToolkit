@@ -5,7 +5,8 @@
    actor's mesh while it moves - its idle when it stops, a script's own group first, and a
    mesh with no walk not asked again. And the glide: an actor drawn live is moved where it
    stands (18_cellpreview.js `previewMoveRef`), its matrix, cull run and pickable with it,
-   without the scene drawn again. */
+   without the scene drawn again; and its mesh swapped alone when it starts or stops walking
+   (`previewSwapActor`). */
 'use strict';
 const { wgtb, addTables, sceneTables } = require('./harness');
 const vm = require('vm');
@@ -124,7 +125,7 @@ module.exports = async (t) => {
 
   // The glide: a live actor moved in place, the scene not drawn again.
   const cp = fs.readFileSync(path.join(UI, 'src', '18_cellpreview.js'), 'utf8');
-  const pick = name => { const i = cp.search(new RegExp('^function ' + name + '\\b', 'm')); const j = cp.slice(i + 1).search(/^(function |const |\/\*\*|\/\* )/m); return cp.slice(i, i + 1 + j); };
+  const pick = name => { const i = cp.search(new RegExp('^(async )?function ' + name + '\\b', 'm')); if (i < 0) throw new Error('no ' + name); const j = cp.slice(i + 1).search(/^(async function |function |const |\/\*\*|\/\* )/m); return cp.slice(i, i + 1 + j); };
   vm.runInContext(['refMatrix', 'worldAabb', 'previewMoveRef'].map(pick).join('\n'), ctx);
   const moved = [];
   ctx.App.R.moveInstance = (b, k, m) => { moved.push([b.id, k, m[3], m[7]]); return !!b.live; };
@@ -222,4 +223,32 @@ module.exports = async (t) => {
   t.ok(G.ai.kind === 'wander' && !G.ai.done, 'with Reset, again once done');
   S.ai(guard, 'travel', [500, 500, 0], {});
   t.ok(G.packages === null && !G.ai.own, 'a script\'s own package replaces the record\'s');
+
+  // The swap: a live actor's own mesh changed alone when its walk starts or stops.
+  vm.runInContext(['animModel', 'previewSwapActor'].map(pick).join('\n') + "\nvar NPC_MESH_PREFIX='__npc/', CORPSE_SLAB='__corpse_slab';", ctx);
+  const loads = [], swaps = [];
+  let hold = null;
+  ctx.loadMeshes = async (asks) => { loads.push(asks[0]); if (hold) await hold; return [{ parts: [{ idx: [0, 1, 2], glTex: null, n: asks[0] }], visAabb: { x0: 0, y0: 0, z0: 0, x1: 1, y1: 1, z1: 1 } }]; };
+  ctx.App.R.buildStaticBatch = (part, inst) => ({ part, n: inst.n, m: inst.m });
+  ctx.App.R.swapLive = (old, add) => swaps.push([old.map(b => b.id || b.part.n), add.map(b => b.part.n)]);
+  const L = { arr: new Float32Array(12), i: 0, batches: [{ id: 'idle', live: true }], runs: [], vis: null, full: null, k: 0, pick: { model: '__npc/guard_b' }, model: '__npc/guard_b', base: '__npc/guard_b', still: false, ask: 0 };
+  L.full = L.arr;
+  ctx.App._liveRefs = new Map([['n1', L]]);
+  S.stopAnim('n1'); S.anims.delete('n1');
+  S._dirtyScene = false; S._dirtyAI = false;
+  const A3 = S.actors.get('n1');   // the guard as gathered again above
+  S.ai(guard, 'travel', [9000, 100, 0], {}); A3.combat = null; A3.rates = [0, 0, 0, 0];
+  { const gp = S.posOf(guard); Object.assign(ctx.App.R.cam, { tx: gp[0], ty: gp[1] }); }   // near enough to see its walk
+  S.actorsFrame(0.1); await tick();
+  t.ok(swaps.length >= 1 && swaps[0][1][0] === '__npc/guard_b?group=WalkForward@0', 'walking: its mesh swapped for the walking one ' + JSON.stringify(swaps));
+  t.ok(L.model === '__npc/guard_b?group=WalkForward@0' && L.pick.model === L.model && S._dirtyScene === false && S._dirtyAI === false, 'alone: the scene is not drawn again');
+  A3.ai.done = true; S.actorsFrame(0.1); await tick();
+  t.ok(L.model === '__npc/guard_b' && swaps[swaps.length - 1][1][0] === '__npc/guard_b', 'stopped: back to its idle mesh ' + JSON.stringify(swaps[swaps.length - 1]));
+  // A newer ask wins over one still loading.
+  let open; hold = new Promise(r => { open = r; });
+  const first = ctx.previewSwapActor('n1', 'Idle2@1');
+  hold = null;
+  const second = ctx.previewSwapActor('n1', 'Idle3@1');
+  open();
+  t.ok((await first) === false && (await second) === true && L.model === '__npc/guard_b?group=Idle3@1', 'the newer ask wins ' + L.model);
 };

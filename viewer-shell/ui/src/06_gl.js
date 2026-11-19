@@ -4338,6 +4338,20 @@ class Renderer{
    *  Scripts run, see 18_cellpreview.js `previewMoveRef`) moved without a rebuild - its
    *  matrix written into the batch's instance buffer, when the batch has made one (it reads
    *  `mats` when it does). The caller has already written `mats` and the run boxes. */
+  /** Wraithguard: a live actor's batches swapped for others (its mesh playing another
+   *  animation group, see 18_cellpreview.js `previewSwapActor`) without building the scene's
+   *  groups again: live batches are never in them, so the old ones are taken out of the
+   *  statics and the list drawn one by one, freed, and the new ones put in their place. */
+  swapLive(old, add){
+    const gone=new Set(old||[]);
+    const keep=b=>!gone.has(b);
+    this.statics=this.statics.filter(keep).concat(add||[]);
+    if(this._legacyStatics) this._legacyStatics=this._legacyStatics.filter(keep).concat(add||[]);
+    for(const b of gone) this._dropVao(b);
+    this._anyUvAnim=this._anyUvAnim || (add||[]).some(x=>x&&(x.uvAnim||x.uvAnim2||x.anim||x.skin));
+    this._casterRev=(this._casterRev|0)+1;   // the shadow casters changed
+    this.dirty=true;
+  }
   moveInstance(b, k, m){
     if(!b || !b.live) return false;
     if(b.mb){ const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, b.mb); gl.bufferSubData(gl.ARRAY_BUFFER, k*48, m); }

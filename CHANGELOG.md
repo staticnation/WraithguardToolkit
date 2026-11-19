@@ -342,6 +342,18 @@
 
 ### Added
 
+- **An actor's walk starting or stopping no longer draws the whole scene again**
+  (`18_cellpreview.js` `previewSwapActor`, `06_gl.js` `swapLive`; `73_wg_scripts.js` `redraw`).
+  - **Each live actor draws on its own.** While the Scripts run, each actor has batches of its
+    own, one instance.
+  - **Only its mesh is swapped.** When its animation changes (a walk starting or stopping, an
+    idle played, a script's group), its new mesh is loaded, cached after the first time, and
+    batches are built for it where it stands. Its old batches are taken out and freed. The
+    scene's material groups are left as they are, since live batches are never in them.
+  - **A newer change wins** over one still loading.
+  - An actor that is not live still waits for the scene to be drawn again.
+  - Tests: `ai_routes.test.js` (walking swaps its mesh with no redraw, stopping swaps it back,
+    the newer change wins).
 - **The town's people walk about: each actor's own AI packages are run** (`World::ai_packages`,
   `scene_scripts`' `actor_packages`; `73_wg_scripts.js` `gather`, `ai`, `nextPackage`). Only the
   packages scripts started were run, and a town's people have theirs in their records, so

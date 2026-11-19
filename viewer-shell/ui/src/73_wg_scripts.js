@@ -875,7 +875,7 @@ const WgScripts={
     p.at=p.fixedAt!=null? p.fixedAt : Math.round((((R && R._uvSecs)||0))*1000)/1000; p.t0=performance.now();
     for(let i=0;i<4;i++) if((p.mask>>i)&1) st.slots[i]=p;
     const A=this.actorOf(this.inst.get(key) || {key, id:''}, true); if(A) A.anim={group:p.group, loops:p.loops};
-    this.redraw(p);
+    this.redraw(p, key);
     const model=this.modelOfKey(key);
     if(!model) return;
     this.groupsOf(model).then(list=>{
@@ -897,13 +897,13 @@ const WgScripts={
       p.group=String(g[0]); p.len=Math.max(0, (+g[2])-(+g[1]));
       if(A && A.anim) A.anim.group=p.group;   // the file's spelling
       if(isFinite(p.loops)) p.ends=p.t0+p.len*(p.loops+1)/p.speed*1000;
-      this.redraw(p);
+      this.redraw(p, key);
     });
   },
   /** A play off its bones (they go back to the idle), and whatever waited for them started. */
   endPlay(key, st, p){
     for(let i=0;i<4;i++) if(st.slots[i]===p) st.slots[i]=null;
-    this.redraw(p);
+    this.redraw(p, key);
     while(st.queue.length && !st.slots.some((x, i)=>x && (st.queue[0].mask>>i)&1)) this.startPlay(key, st, st.queue.shift());
     const live=st.slots.find(Boolean);
     const A=this.actors.get(key); if(A) A.anim=live? {group:live.group, loops:live.loops} : null;
@@ -912,7 +912,16 @@ const WgScripts={
   /** The scene drawn again for a play that changed: at once for a script's; for the AI's walks
    *  and idles, gathered up and drawn at most every second and a half (`frame`) - a town of
    *  wanderers would otherwise have it drawn again all the time. */
-  redraw(p){ if(p && p.by==='AI') this._dirtyAI=true; else this._dirtyScene=true; },
+  redraw(p, key){
+    // A live actor (an actor while the Scripts run) has its own mesh swapped, alone and at once
+    // (18_cellpreview.js `previewSwapActor`); the scene is drawn again only if that cannot be.
+    if(key && typeof previewSwapActor==='function' && App._liveRefs && App._liveRefs.has(key)){
+      const spec=this.animSpec(key);
+      previewSwapActor(key, spec).then(ok=>{ if(!ok && this.animSpec(key)===spec){ if(p && p.by==='AI') this._dirtyAI=true; else this._dirtyScene=true; } }, ()=>{ this._dirtyScene=true; });
+      return;
+    }
+    if(p && p.by==='AI') this._dirtyAI=true; else this._dirtyScene=true;
+  },
   /** Stop `group` (every group, when not given) on `key`, playing or queued. */
   stopAnim(key, group){
     const st=this.anims.get(key); if(!st) return;

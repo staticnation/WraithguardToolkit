@@ -1416,6 +1416,10 @@ async function _rebuildCellPreview(){
           }
         }
         // Wraithguard: a group a script plays on it (never on a static: the game gives those no animation).
+        /* Wraithguard: an actor while the Scripts run is moved by them every frame, so its
+           batches draw on their own and it is moved in place (`previewMoveRef`). */
+        const live=!!actor && typeof WgScripts==='object' && WgScripts.on;
+        const baseModel=model;   // before a script's group: what `previewSwapActor` builds from
         if(ref.anim && (actor || !ref.still)) model=animModel(model, ref.anim);
         const local=[ref.pos[0]-c.origin[0]+off[0], ref.pos[1]-c.origin[1]+off[1], ref.pos[2]];
         /* Round 18ez: a reference the game never animates - a static, whatever file it
@@ -1424,7 +1428,9 @@ async function _rebuildCellPreview(){
            of two different faces of the file. `still` comes from the engine, per
            reference, off the record's class (see `refs_json`). An actor never says it. */
         const still=!actor && !!ref.still;
-        const face=still? model+'|still' : model;
+        /* Wraithguard: a live actor has batches of its own, so its mesh can be swapped alone
+           when it starts or stops walking (`previewSwapActor`). */
+        const face=still? model+'|still' : (live && ref.key)? model+'|live|'+ref.key : model;
         let a=byMesh.get(face); if(!a){ a=[]; byMesh.set(face,a); }
         /* Round 18hi: the run key is a tile, not the cell. The renderer culls instances in
            runs (17r), one per key, and a run's box is the box of its instances; by cell a
@@ -1434,10 +1440,7 @@ async function _rebuildCellPreview(){
            and an exterior cell is sixteen a layer rather than one. Three dimensions,
            because that room stacks its areas 32,000 units tall. The cell comes first in
            the key so a cell's runs stay together. */
-        /* Wraithguard: an actor while the Scripts run is moved by them every frame, so its
-           batches draw on their own and it is moved in place (`previewMoveRef`). */
-        const live=!!actor && typeof WgScripts==='object' && WgScripts.on;
-        const entry={ref,local,id:ref.id,model,still,live,cellKey:c.gx+','+c.gy,
+        const entry={ref,local,id:ref.id,model,baseModel,still,live,cellKey:c.gx+','+c.gy,
                      tileKey:c.gx+','+c.gy+'|'+Math.floor(local[0]/CULL_TILE)+','+Math.floor(local[1]/CULL_TILE)+','+Math.floor(local[2]/CULL_TILE)};
         /* Round 17m: a reference to a LIGH record carries a light. Where exactly is not
            known until the mesh is read — the game hangs it on a node called AttachLight
@@ -1644,7 +1647,8 @@ async function _rebuildCellPreview(){
         }
         if(liveMesh) (bin.all? list.map((_,k)=>k) : bin.idx).forEach((k,i)=>{
           const r=list[k]; if(!r.live || !r.ref.key) return;
-          liveRefs.set(r.ref.key, {arr:sub.m, i, batches:binBatches, runs:sub.groups||[], vis:info.visAabb, full:m, k, pick:null});
+          liveRefs.set(r.ref.key, {arr:sub.m, i, batches:binBatches, runs:sub.groups||[], vis:info.visAabb, full:m, k, pick:null,
+                                   model, base:r.baseModel||model, still:!!r.still, ask:0});
         });
       }
       /* Round 17w: the mesh's particle systems, one live set per placed instance — a
@@ -2682,6 +2686,38 @@ function cellRuns(list, m, visAabb){
     }
   }
   return groups;
+}
+
+/** Wraithguard: a live actor's mesh swapped for the one playing `spec` (73_wg_scripts.js
+ *  `animSpec`; null: its own idle) - its walk starting or stopping, an idle played - without
+ *  drawing the scene again: the new mesh loaded (`loadMeshes`, cached after the first time),
+ *  batches built for this one instance where it stands, and the old ones swapped out
+ *  (`R.swapLive`). Resolves true once swapped; false when it is not live, is already that
+ *  mesh, or was asked for something newer meanwhile - the caller draws the scene again then. */
+async function previewSwapActor(key, spec){
+  const L=App._liveRefs && App._liveRefs.get(key), R=App.R;
+  if(!L || !R || !R.swapLive) return false;
+  const model=spec? animModel(L.base, spec) : L.base;
+  if(model===L.model) return true;
+  const ask=++L.ask;
+  L.want=model;
+  let info=null;
+  try{
+    const isOwn=model===CORPSE_SLAB || model.startsWith(NPC_MESH_PREFIX) || model.startsWith('__');
+    [info]=await loadMeshes([isOwn? model : {path:'Meshes\\'+model, still:false}]);
+  }catch(_){ info=null; }
+  // Something newer was asked for meanwhile, or the scene was built again under it.
+  if(ask!==L.ask || App._liveRefs.get(key)!==L) return false;
+  if(!info || info.err || !info.parts || !info.parts.length) return false;
+  const add=info.parts.map(part=>{
+    const bt=R.buildStaticBatch(part, {m:L.arr, n:L.arr.length/12|0, groups:L.runs, lamp:null}, part.glTex? part.glTex.gl : null, true);
+    bt.live=true;
+    return bt;
+  });
+  R.swapLive(L.batches, add);
+  L.batches=add; L.model=model; L.vis=info.visAabb||L.vis;
+  if(L.pick){ L.pick.model=model; L.pick.parts=info.parts; L.pick.phase=null; }
+  return true;
 }
 
 /** Wraithguard: a live reference (an actor while the Scripts run) moved where the scripts put

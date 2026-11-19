@@ -194,10 +194,10 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 - **MWSE-Lua** for Morrowind.ini and MO2 setups (Static, 2026-11-18): `mwse.*`, `tes3.*` and
   `event.register`, run against the same scene layer as MWScript and OpenMW Lua, with the
   animation groups and Which scripts run shared. Not started.
-- AI (`77_wg_ai.js`): a change of animation (walk to idle, an idle played) is a new mesh and
-  so a rebuild of the scene. The AI's are gathered up and drawn at most every 1.5 s, and only
-  for actors within 4,096 units of the camera. If a busy town still stutters, the next step is
-  swapping one live actor's mesh in place (`previewMoveRef`'s batches) rather than rebuilding.
+- AI (`77_wg_ai.js`): a live actor's change of animation swaps its own mesh alone
+  (`previewSwapActor`); an actor that is not live (Scripts off when the scene was built) still
+  waits for the scene to be drawn again, its AI changes gathered up every 1.5 s. Walks and
+  idles are played within 4,096 units of the camera.
   Fleeing, greeting and keeping room are approximations of OpenMW's (no disposition, no
   greeting voice, no actor collision past the room kept).
 - MWScript the preview still does not run: a spell's effects (Cast is counted for GetSpellEffects
