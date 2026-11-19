@@ -2729,10 +2729,11 @@ async function previewSwapActor(key, spec){
 function previewMoveRef(key, pos, rot, scale){
   const L=App._liveRefs && App._liveRefs.get(key), R=App.R, o=(App._scene && App._scene.origin)||[0,0];
   if(!L || !R || !R.moveInstance || !L.batches.length) return false;
-  const m=refMatrix([pos[0]-o[0], pos[1]-o[1], pos[2]], rot, scale);
+  const m=new Float32Array(refMatrix([pos[0]-o[0], pos[1]-o[1], pos[2]], rot, scale));
   L.arr.set(m, L.i*12);
   if(L.full!==L.arr) L.full.set(m, L.k*12);
-  for(const b of L.batches) if(!R.moveInstance(b, L.i, m)) return false;
+  // A move the renderer refuses is drawn by the next rebuild instead, never thrown into the frame.
+  try{ for(const b of L.batches) if(!R.moveInstance(b, L.i, m)) return false; }catch(e){ console.warn('previewMoveRef', e); return false; }
   if(L.vis){
     const box=worldAabb(L.vis, m);
     for(const g of L.runs) if(L.i>=g.at && L.i<g.at+g.n){

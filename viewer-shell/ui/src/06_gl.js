@@ -4354,7 +4354,8 @@ class Renderer{
   }
   moveInstance(b, k, m){
     if(!b || !b.live) return false;
-    if(b.mb){ const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, b.mb); gl.bufferSubData(gl.ARRAY_BUFFER, k*48, m); }
+    // WebGL takes a typed array only: a plain one throws (and every move was lost with it).
+    if(b.mb){ const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, b.mb); gl.bufferSubData(gl.ARRAY_BUFFER, k*48, m instanceof Float32Array? m : new Float32Array(m)); }
     this.dirty=true;
     return true;
   }

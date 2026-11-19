@@ -9,6 +9,8 @@
 //   cargo build --profile serve --manifest-path ../../check-commands/Cargo.toml --bin wg-view-serve
 //   npm install && node boot.js
 //
+// Env: WG_AI_CHECK=1 (the Scripts on for a few seconds, and what the AI did: with a WG_VIEW_CFG
+// whose cell has an actor with its own AI package),
 // Env: WG_VIEW_SERVE (engine path), WG_VIEW_CFG / WG_VIEW_CELL (override the fixture),
 // WG_DEBUG (an expression to evaluate in the page and print), WG_MESH_VIEW=1 (the mesh
 // viewer on the fixture's anim.nif (its tr.dds has tr_n.dds and tr_spec.dds beside it), from the
@@ -1246,6 +1248,21 @@ setTimeout(async ()=>{
     }
     await engineCall('lua_run_stop',{});
   }catch(e){ errors.push('OpenMW Lua: '+short(e)); }
+  /* WG_AI_CHECK=1: the Scripts turned on in the page, a few seconds run, and what the AI did -
+     each actor with a package, where it began and where it is now (a setup whose cell has an
+     actor with its own AI package: WG_VIEW_CFG). */
+  if(process.env.WG_AI_CHECK){
+    try{
+      w.eval('WgScripts.setOn(true)');
+      await new Promise(r=>setTimeout(r, 4000));
+      const r=JSON.parse(w.eval(`JSON.stringify((()=>{ const S=WgScripts, out=[];
+        for(const A of S.actors.values()){ if(A.key==='player') continue;
+          const r=S.refOf(A.t)||{}; out.push({id:A.id, key:A.key, ai:A.ai&&{kind:A.ai.kind, range:A.ai.range, done:A.ai.done, goal:A.ai.goal, wait:A.ai.wait},
+            from:(r.pos||[]).map(Math.round), now:S.posOf(A.t).map(Math.round), live:!!(App._liveRefs&&App._liveRefs.has(A.key)), anim:S.animSlots(A.key)}); }
+        return {on:S.on, paused:S.paused, actors:out, live:App._liveRefs? App._liveRefs.size : -1, log:S.log.slice(-6).map(l=>l.script+': '+l.text)}; })())`));
+      console.log('ai:', JSON.stringify(r));
+    }catch(e){ errors.push('ai check: '+short(e)); }
+  }
   if(process.env.WG_TAINT){ console.log('unescaped:', tainted.size); [...tainted].forEach(t=>console.log(' -',t)); }
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
   try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);

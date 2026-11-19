@@ -287,6 +287,20 @@
 
 ### Fixed
 
+- **Actors' AI moves them on screen** (`06_gl.js` `moveInstance`, `18_cellpreview.js`
+  `previewMoveRef`; Static, 2026-11-19: "npcs dont wander ... the ai doesnt actually affect the
+  scene").
+  - **The cause.** The packages ran and the actors' positions changed, but each move handed
+    WebGL's `bufferSubData` a plain array, which it refuses with a throw. That threw inside the
+    frame, after the position was recorded and before anything was drawn, so no move reached
+    the screen. Now:
+    - The matrix is a `Float32Array`.
+    - A move the renderer refuses falls back to the next rebuild rather than throwing.
+    - One actor's AI failing is logged once and does not stop the others.
+  - **Tested end to end.** `boot.js` `WG_AI_CHECK=1` turns the Scripts on in the page with the
+    real engine and reports what each actor's AI did. With a one-NPC plugin carrying its own
+    AiWander, the NPC wanders. The test's stand-in renderer now refuses a plain array as WebGL
+    does (`ai_routes.test.js`).
 - **The Scripts panel's globals list scrolls** (`73_wg_scripts.js` `drawState`, `drawLog`).
   - **Redraws are coalesced.** A script that does something every frame rebuilt the game state
     every frame, and a list rebuilt under the wheel never moves. The state and the log are now

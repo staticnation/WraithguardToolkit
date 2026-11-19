@@ -662,7 +662,11 @@ const WgScripts={
       A._moved=false; A._running=false;
       // Its own pace, from its record (77_wg_ai.js `speeds`).
       const pace=W? W.speeds(A) : {walk, run};
-      if(!A.dead && !this.disabled.has(A.key)) this.actorStep(A, dt, pace.walk, pace.run, W);
+      // One actor's failure is said once and does not stop the others' frame.
+      if(!A.dead && !this.disabled.has(A.key)){
+        try{ this.actorStep(A, dt, pace.walk, pace.run, W); }
+        catch(e){ const k='aierr|'+A.key; if(!this._logged.has(k)){ this._logged.add(k); this.say(A.id, 'error', 'AI: '+String(e && e.message || e)); } }
+      }
       // The walk while it moves; its idle once it stops (a script's own group wins, `WgAI.loop`).
       // Only near the camera: farther off a walk is not seen, and each change is a new mesh.
       if(W && A.key && W.near(A)){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }

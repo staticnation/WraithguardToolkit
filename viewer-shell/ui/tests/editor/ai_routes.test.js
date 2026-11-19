@@ -128,7 +128,8 @@ module.exports = async (t) => {
   const pick = name => { const i = cp.search(new RegExp('^(async )?function ' + name + '\\b', 'm')); if (i < 0) throw new Error('no ' + name); const j = cp.slice(i + 1).search(/^(async function |function |const |\/\*\*|\/\* )/m); return cp.slice(i, i + 1 + j); };
   vm.runInContext(['refMatrix', 'worldAabb', 'previewMoveRef'].map(pick).join('\n'), ctx);
   const moved = [];
-  ctx.App.R.moveInstance = (b, k, m) => { moved.push([b.id, k, m[3], m[7]]); return !!b.live; };
+  // As WebGL's bufferSubData: a typed array only (a plain one threw, and every move was lost).
+  ctx.App.R.moveInstance = (b, k, m) => { if (!ArrayBuffer.isView(m)) throw new TypeError('bufferSubData: not an ArrayBufferView'); moved.push([b.id, k, m[3], m[7]]); return !!b.live; };
   const arr = new Float32Array(24), runs = [{ at: 0, n: 2, b: [0, 0, 0, 10, 10, 10] }], pk = { m: null };
   ctx.App._liveRefs = new Map([['n1', { arr, i: 1, batches: [{ id: 'a', live: true }, { id: 'b', live: true }], runs, vis: { x0: -10, y0: -10, z0: 0, x1: 10, y1: 10, z1: 100 }, full: arr, k: 1, pick: pk }]]);
   S.actorOf(rat).ai = null;   // the rat (not drawn live here) stands
