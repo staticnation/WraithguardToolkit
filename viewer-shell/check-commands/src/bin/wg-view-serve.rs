@@ -181,6 +181,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "script_texts" => Reply::Bytes(t::script_texts(strs(a, "names"), st())?.0),
         "lua_scene" => Reply::Bytes(t::lua_scene(strs(a, "ids"), st())?.0),
         "anim_groups" => Reply::Json(t::anim_groups(strs(a, "models"), st())?),
+        "anim_blend_config" => Reply::Json(t::anim_blend_config(strs(a, "models"), st())?),
         "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), Some(s(a, "openmw")).filter(|x| !x.is_empty()), Some(strs(a, "off")), st())?),
         "lua_run_step" => Reply::Json(t::lua_run_step(s(a, "frame"), st())?),
         "lua_run_stop" => Reply::Json(t::lua_run_stop()?),

@@ -438,6 +438,7 @@
 
 ### Added
 
+- Scripts: animation blending, as OpenMW's "Smooth animation transitions": a walking actor's change of animation (walk, run, idles, a script's group) eases in from the pose it was in instead of snapping - each node's rotation slerped and its translation lerped by the rule's easing over its duration, the scale at once. The rules are OpenMW's: the load order's `animations/animation-config.yaml` (or `.json`; OpenMW's own from its resources folder; its defaults otherwise) and a model's own beside its `.kf`, matched by `group:key` with `*` and `$`, the bottom-most rule winning; OpenMW's fifteen easings. New engine command `anim_blend_config`.
 - **An actor's walk starting or stopping no longer draws the whole scene again**
   (`18_cellpreview.js` `previewSwapActor`, `06_gl.js` `swapLive`; `73_wg_scripts.js` `redraw`).
   - **Each live actor draws on its own.** While the Scripts run, each actor has batches of its

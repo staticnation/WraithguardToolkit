@@ -3542,7 +3542,12 @@ class Renderer{
       const rest=b.blend? b.blend.alpha : 1;
       this._u1f(pr,'uMatAlpha', b.anim? animAlphaAt(b.anim, secs, rest) : rest);
     }
-    if(pr.u.uAnim) this._uAnim(pr, b.anim? animMatrixAt(b.anim, secs) : null);
+    if(pr.u.uAnim){
+      // Wraithguard: a live actor's rigid part blending into its new animation (78_wg_animblend.js).
+      let from=null, f;
+      if(b._blend && typeof WgAnimBlend==='object'){ f=WgAnimBlend.factor(b._blend.B, this._uvSecs||0); if(f==null) b._blend=null; else from=b._blend.nodes; }
+      this._uAnim(pr, b.anim? animMatrixAt(b.anim, secs, from, f) : null);
+    }
     /* Wraithguard: the mesh viewer's per-map switches ({detail, dark, decal, env, glow,
        normal, specular} - true is off). */
     const off=this.opts.mapsOff||NO_MAPS_OFF;
@@ -5329,6 +5334,9 @@ class Renderer{
     const sk=part.skin, mo=part.morph, g=part._gpu;
     if((!sk && !mo) || !g || g.gl!==this.gl || part._skinAt===secs) return;
     part._skinAt=secs;
+    // Wraithguard: a live actor's skinned part blending into its new animation (78_wg_animblend.js).
+    let bFrom=null, bF;
+    if(part._blend && typeof WgAnimBlend==='object'){ bF=WgAnimBlend.factor(part._blend.B, this._uvSecs||0); if(bF==null) part._blend=null; else bFrom=part._blend.skin; }
     /* Round 18ff: a skinned shape without morph targets is posed by the vertex shader
        (SKIN_GLSL). What changes per frame is the bones' matrices - a handful of 3x4s -
        written into the part's bone texture; the vertex buffers are never touched. The
@@ -5337,7 +5345,7 @@ class Renderer{
     if(sk && !mo && this.gpuSkin!==false){
       const gl=this.gl;
       const t=secs*(part._animSpeed||1)+(part._animShift||0);
-      const mats=skinBoneMats(sk, t), nb=sk.bones.length;
+      const mats=skinBoneMats(sk, t, bFrom, bF), nb=sk.bones.length;
       let bt=part._skinTex;
       if(!bt || bt.gl!==gl || bt.n!==nb){
         if(bt && bt.gl===gl){ try{ gl.deleteTexture(bt.tex); }catch(_){ } }
@@ -5377,7 +5385,7 @@ class Renderer{
     // Round 18ai: a phase bin's copy of the part carries its own shift into the clip, and
     // (18aj) its own rate.
     const t=secs*(part._animSpeed||1)+(part._animShift||0);
-    if(sk) skinVerts(sk, skinBoneMats(sk, t), part._skinPos, part._skinNrm);
+    if(sk) skinVerts(sk, skinBoneMats(sk, t, bFrom, bF), part._skinPos, part._skinNrm);
     else part._skinPos.set(part.pos);
     // Round 18au: and the morph targets on top - the moths' wingbeat.
     if(mo) morphVerts(mo, t, part._skinPos);

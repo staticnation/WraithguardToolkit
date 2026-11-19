@@ -3543,6 +3543,39 @@ fn anim_groups(models: Vec<String>, state: State) -> Result<String, String> {
     Ok(serde_json::Value::Object(out).to_string())
 }
 
+/// Wraithguard: OpenMW's animation blending rules (the Preview's transitions between an actor's
+/// groups, `ui/src/79_wg_animblend.js`), as text for the page to read: `global`, the load
+/// order's `animations/animation-config.yaml` (or `.json`) - a mod's, else OpenMW's own in its
+/// resources folder - and `files`, per model asked about, the `.yaml` or `.json` beside the
+/// `.kf` it animates with, which OpenMW reads for that file's animations
+/// (docs/source/reference/modding/animation-blending.rst). Null where there is none.
+#[tauri::command(async)]
+fn anim_blend_config(models: Vec<String>, state: State) -> Result<String, String> {
+    let v = vfs_of(&state)?;
+    let text = |b: Vec<u8>| String::from_utf8_lossy(&b).into_owned();
+    let read = |p: &str| v.resolve(p).and_then(|l| v.load(&l)).map(text);
+    let global = read("animations/animation-config.yaml")
+        .or_else(|| read("animations/animation-config.json"))
+        .or_else(|| {
+            let r = LUA_RESOURCES.lock().ok()?.clone()?;
+            let d = r.join("vfs").join("animations");
+            std::fs::read(d.join("animation-config.yaml")).or_else(|_| std::fs::read(d.join("animation-config.json"))).ok().map(text)
+        });
+    let mut files = serde_json::Map::new();
+    for m in models {
+        let file = if viewcore::npc::npc_id_of(&m).is_some() { "xbase_anim.nif".to_string() } else { viewcore::anim::model_of(&m).to_string() };
+        let Some(dot) = file.rfind('.') else { continue };
+        let stem = &file[..dot];
+        let beside = |ext: &str| {
+            let p = format!("{stem}.{ext}");
+            v.resolve_mesh(&p).or_else(|| v.resolve(&p)).and_then(|l| v.load(&l)).map(text)
+        };
+        let t = beside("yaml").or_else(|| beside("json"));
+        files.insert(m, t.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+    }
+    Ok(serde_json::json!({"global": global, "files": files}).to_string())
+}
+
 /// Wraithguard: what the scene's OpenMW Lua (`ui/src/74_wg_lua.js`) starts from: the load
 /// order's registered scripts, `scripts: [{path, flags}]` in load order (none, and a `note`,
 /// for a Morrowind.ini setup), and the record type of each object id asked about,
@@ -4330,6 +4363,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             dialogue_state_from_save,
             phys_drop,
             lua_ui_font,
+            anim_blend_config,
             write_bytes,
             editor_open,
             editor_link,

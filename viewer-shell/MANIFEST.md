@@ -125,6 +125,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `75_wg_luaui.js` | 11 KB | The windows OpenMW Lua scripts make (ui.create), drawn over the Preview, their clicks and text sent back. |
 | `76_wg_physics.js` | 11 KB | The Editor's Physics drop: the selection falls and comes to rest on the scene's collision and the land (phys_drop, physcore); the fall as ghosts, then Keep or Drop. |
 | `77_wg_ai.js` | 20 KB | The actors' AI carried out: routes over the navmesh (A*, funnelled) or the pathgrids (A*), wander points and idle chances, pace from the record, fleeing, greetings, room, the walk and run on the mesh. |
+| `78_wg_animblend.js` | 9 KB | Animation blending as OpenMW's: the load order's and each model's blending rules (`animation-config.yaml` / `.json`, OpenMW's defaults otherwise), its easings, and a live actor's new animation eased in from the pose it was in. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs`: 145)

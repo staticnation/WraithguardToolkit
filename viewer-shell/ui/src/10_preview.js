@@ -274,6 +274,42 @@ function mul3x3(a,b){
           a[6]*b[0]+a[7]*b[3]+a[8]*b[6], a[6]*b[1]+a[7]*b[4]+a[8]*b[7], a[6]*b[2]+a[7]*b[5]+a[8]*b[8]];
 }
 
+/** Wraithguard: a row-major rotation 3x3 as a unit quaternion `[w,x,y,z]` (`quatMat3`'s inverse). */
+function mat3Quat(m){
+  const tr=m[0]+m[4]+m[8];
+  let w,x,y,z;
+  if(tr>0){ const s=Math.sqrt(tr+1)*2; w=0.25*s; x=(m[7]-m[5])/s; y=(m[2]-m[6])/s; z=(m[3]-m[1])/s; }
+  else if(m[0]>m[4] && m[0]>m[8]){ const s=Math.sqrt(1+m[0]-m[4]-m[8])*2; w=(m[7]-m[5])/s; x=0.25*s; y=(m[1]+m[3])/s; z=(m[2]+m[6])/s; }
+  else if(m[4]>m[8]){ const s=Math.sqrt(1+m[4]-m[0]-m[8])*2; w=(m[2]-m[6])/s; x=(m[1]+m[3])/s; y=0.25*s; z=(m[5]+m[7])/s; }
+  else{ const s=Math.sqrt(1+m[8]-m[0]-m[4])*2; w=(m[3]-m[1])/s; x=(m[2]+m[6])/s; y=(m[5]+m[7])/s; z=0.25*s; }
+  const L=Math.hypot(w,x,y,z)||1;
+  return [w/L,x/L,y/L,z/L];
+}
+/** Wraithguard: a spherical step from `a` to `b` by `f` (osg::Quat::slerp: the short way). */
+function slerpQ(a,b,f){
+  let d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3], s=1;
+  if(d<0){ d=-d; s=-1; }
+  let ka, kb;
+  if(d>0.9995){ ka=1-f; kb=f; }
+  else{ const th=Math.acos(d), sn=Math.sin(th); ka=Math.sin((1-f)*th)/sn; kb=Math.sin(f*th)/sn; }
+  const q=[a[0]*ka+s*b[0]*kb, a[1]*ka+s*b[1]*kb, a[2]*ka+s*b[2]*kb, a[3]*ka+s*b[3]*kb];
+  const L=Math.hypot(q[0],q[1],q[2],q[3])||1;
+  return [q[0]/L,q[1]/L,q[2]/L,q[3]/L];
+}
+/** Wraithguard: animation blending (79_wg_animblend.js), one node: from the pose `a` it was in
+ *  toward the new animation's `b` by `f` - the rotation slerped, the translation lerped, the
+ *  scale the new one's at once - as OpenMW's AnimBlendController does each bone. */
+function blendTS(a,b,f){
+  if(!a || !(f<1)) return b;
+  const r=quatMat3(slerpQ(mat3Quat(a.m), mat3Quat(b.m), f));
+  return {m:[...r, a.m[9]+(b.m[9]-a.m[9])*f, a.m[10]+(b.m[10]-a.m[10])*f, a.m[11]+(b.m[11]-a.m[11])*f], s:b.s};
+}
+/** Wraithguard: each node of a chain at `secs`, its own transform (blended from `from` by `f`
+ *  when it is blending): the pose a blend starts from when the animation changes again. */
+function animLinksAt(nodes, secs, from, f){
+  return (nodes||[]).map((L,j)=>blendTS(from && from[j], animNodeAt(L,secs), f));
+}
+
 /** `parent × child` for the engine's `[3x3 row-major, translation]` + scale pairs. */
 function mulTS(pm,ps,cm,cs){
   const r=mul3x3(pm,cm);
@@ -324,13 +360,13 @@ function animVisibleAt(anim, secs){
 /** Hidden: every vertex to one point, so no pass (colour, depth, shadow) draws it. */
 const ANIM_HIDDEN=new Float32Array([0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1]);
 
-function animMatrixAt(anim, secs){
+function animMatrixAt(anim, secs, from, f){
   if(anim && anim.vis && anim.vis.length && !animVisibleAt(anim, secs)) return ANIM_HIDDEN;
   if(!anim || !anim.nodes || !anim.nodes.length) return ANIM_IDENT;
-  let m=[1,0,0,0,1,0,0,0,1,0,0,0], s=1;
+  let m=[1,0,0,0,1,0,0,0,1,0,0,0], s=1, j=0;
   for(const L of anim.nodes){
     const pre=mulTS(m,s,L.pre,L.preS==null? 1 : +L.preS);
-    const n=animNodeAt(L,secs);
+    const n=blendTS(from && from[j++], animNodeAt(L,secs), f);
     const c=mulTS(pre.m,pre.s,n.m,n.s);
     m=c.m; s=c.s;
   }
@@ -350,11 +386,11 @@ function animMatrixAt(anim, secs){
    against a bone-matrix array the vertex shader would have to be given room for. */
 
 /** A chain of animated nodes at `secs` as the engine's `[3x3, translation]` + scale. */
-function animChainTS(nodes, secs){
-  let m=[1,0,0,0,1,0,0,0,1,0,0,0], s=1;
+function animChainTS(nodes, secs, from, f){
+  let m=[1,0,0,0,1,0,0,0,1,0,0,0], s=1, j=0;
   for(const L of (nodes||[])){
     const pre=mulTS(m,s,L.pre,L.preS==null? 1 : +L.preS);
-    const n=animNodeAt(L,secs);
+    const n=blendTS(from && from[j++], animNodeAt(L,secs), f);
     const c=mulTS(pre.m,pre.s,n.m,n.s);
     m=c.m; s=c.s;
   }
@@ -363,9 +399,9 @@ function animChainTS(nodes, secs){
 
 /** Every bone's skinning matrix at `secs`: its chain, then the still tail down to the
  *  bone, then the skin-to-bone transform. */
-function skinBoneMats(skin, secs){
-  return skin.bones.map(b=>{
-    const c=animChainTS(b.chain,secs);
+function skinBoneMats(skin, secs, from, f){
+  return skin.bones.map((b,i)=>{
+    const c=animChainTS(b.chain,secs,from && from[i],f);
     const p=mulTS(c.m,c.s,b.post,b.postS==null? 1 : +b.postS);
     return mulTS(p.m,p.s,b.trafo,b.trafoS==null? 1 : +b.trafoS);
   });

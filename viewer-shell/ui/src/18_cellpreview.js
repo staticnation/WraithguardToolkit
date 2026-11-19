@@ -1653,7 +1653,7 @@ async function _rebuildCellPreview(){
         if(liveMesh) (bin.all? list.map((_,k)=>k) : bin.idx).forEach((k,i)=>{
           const r=list[k]; if(!r.live || !r.ref.key) return;
           liveRefs.set(r.ref.key, {arr:sub.m, i, batches:binBatches, runs:sub.groups||[], vis:info.visAabb, full:m, k, pick:null,
-                                   model, base:r.baseModel||model, still:!!r.still, ask:0});
+                                   model, base:r.baseModel||model, still:!!r.still, ask:0, spec:r.ref.anim||null});
         });
       }
       /* Round 17w: the mesh's particle systems, one live set per placed instance — a
@@ -2730,8 +2730,14 @@ async function previewSwapActor(key, spec){
     for(let i=sc.length-1;i>=0;i--) if(gone.has(sc[i])) sc.splice(i,1);
     for(const b of add) sc.push(b);
   }
+  /* Animation blending (78_wg_animblend.js): the new mesh's nodes start from the pose the old
+     one is in, and ease into the new animation over the rule's duration, as OpenMW's do. */
+  if(typeof WgAnimBlend==='object'){
+    WgAnimBlend.begin(L.batches, add, L.spec, spec||null, L.base, R._uvSecs||0);
+    WgAnimBlend.load([L.base]);
+  }
   R.swapLive(L.batches, add);
-  L.batches=add; L.model=model; L.vis=info.visAabb||L.vis;
+  L.batches=add; L.model=model; L.spec=spec||null; L.vis=info.visAabb||L.vis;
   if(L.pick){ L.pick.model=model; L.pick.parts=info.parts; L.pick.phase=null; }
   return true;
 }
