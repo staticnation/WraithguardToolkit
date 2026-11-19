@@ -239,7 +239,31 @@ const WgScripts={
     this.animsFrame();
     this.loopsFrame();
     if(this._dirtyAI && performance.now()-this._lastRebuild>1500){ this._dirtyAI=false; this._dirtyScene=true; }
+    /* A change to what they play is drawn once it has lasted 300 ms: a group played once and
+       played again by its script the next frame (the mist's) is gone for a frame between. */
+    if(this._dirtyAnim || this._animSince){
+      this._dirtyAnim=false;
+      const t=performance.now();
+      if(this.animSig()===this._animSigDrawn) this._animSince=0;
+      else if(!this._animSince) this._animSince=t;
+      else if(t-this._animSince>=300){ this._animSince=0; this._dirtyScene=true; }
+    }
     if(this._dirtyScene) this.flushScene();
+    this.keepLive();
+  },
+  /** Once the scene has been drawn again, every live actor put straight where the scripts
+   *  have it: a drawing takes where each stood when it began, and they walk on meanwhile -
+   *  left alone, each snapped back until its next step (Static: "the movement rubberbands"). */
+  keepLive(){
+    const L=App._liveRefs;
+    if(!L || L===this._liveSeen) return;
+    this._liveSeen=L;
+    if(typeof previewMoveRef!=='function') return;
+    for(const [k, m] of this.moved){
+      if(!m.pos || !L.has(k)) continue;
+      const r=this.refByKey(k);
+      previewMoveRef(k, m.pos, m.rot || (r && r.rot) || [0,0,0], m.scale!=null? m.scale : ((r && r.scale) || 1));
+    }
   },
   runOne(run, self){
     if(this.mwOff.has(String(run.script||'').toLowerCase())) return;
@@ -766,7 +790,16 @@ const WgScripts={
     if(moving) R.pts[R.pts.length-1]=dest.slice();
     for(let n=0;n<64;n++){
       const last=R.pts.length===1;
-      if(!this.stepTo(A.t, R.pts[0], speed*dt, last? near : 48)){ A._moved=true; return false; }
+      const st=this.stepTo(A.t, R.pts[0], speed*dt, last? near : 48);
+      if(st==='blocked'){
+        // Held by a wall or an object: a moment, then this leg is given up - a wanderer
+        // picks somewhere else, anything else plans its way again.
+        A._blockedT=(A._blockedT||0)+dt;
+        if(A._blockedT>0.75){ A._blockedT=0; A._route=null; return true; }
+        return false;
+      }
+      A._blockedT=0;
+      if(!st){ A._moved=true; return false; }
       if(last){ A._route=null; A._moved=false; return true; }   // arrived: it stands (its idle, or one the AI plays)
       R.pts.shift();
     }
@@ -778,10 +811,17 @@ const WgScripts={
     const p=this.posOf(t), dx=goal[0]-p[0], dy=goal[1]-p[1], d=Math.hypot(dx, dy);
     if(d<=near) return true;
     const s=Math.min(step, d-near*0.9);
-    p[0]+=dx/d*s; p[1]+=dy/d*s;
-    // Room: out of the other actors' way (77_wg_ai.js).
-    if(typeof WgAI==='object' && t.key) WgAI.room(t.key, p);
     const R=App.R, o=(App._scene && App._scene.origin)||[0,0];
+    /* What the walking camera collides with stops an actor too (71_wg_walk.js `aiBlocked`:
+       the objects' collision shapes, at the knee and the chest): it stands, facing the way
+       it meant to go, and `go` gives the leg up after a moment. */
+    if(typeof WgWalk==='object' && WgWalk.aiBlocked && t.key && WgWalk.aiBlocked([p[0]-o[0], p[1]-o[1], p[2]], dx/d*s, dy/d*s)){
+      const r=this.rotOf(t); r[2]=Math.atan2(dx, dy); this.place(t, {rot:r});
+      return 'blocked';
+    }
+    p[0]+=dx/d*s; p[1]+=dy/d*s;
+    // Room: out of the other actors' way, and the walking player's (77_wg_ai.js).
+    if(typeof WgAI==='object' && t.key) WgAI.room(t.key, p);
     const gz=R && R.groundZ? R.groundZ(p[0]-o[0], p[1]-o[1]) : null;
     p[2]=gz!=null? gz : (goal[2]!=null && Math.abs(goal[2]-p[2])<400? p[2]+(goal[2]-p[2])*Math.min(1, s/d) : p[2]);
     const r=this.rotOf(t); r[2]=Math.atan2(dx, dy);
@@ -948,7 +988,22 @@ const WgScripts={
       previewSwapActor(key, spec).then(ok=>{ if(!ok && this.animSpec(key)===spec){ if(p && p.by==='AI') this._dirtyAI=true; else this._dirtyScene=true; } }, ()=>{ this._dirtyScene=true; });
       return;
     }
-    if(p && p.by==='AI') this._dirtyAI=true; else this._dirtyScene=true;
+    /* Anything else shows a group only by the scene being drawn again - but only when what
+       the objects play has changed (`animSig`): a mist that plays its idle2 again and again
+       (MWScript `PlayGroup idle2 1`, every frame) drew the scene again three times a second,
+       and each time put every walking actor back where it stood when the drawing began. */
+    this._dirtyAnim=true;
+  },
+  /** What the objects not drawn live play, as the scene draws it: each one's groups and
+   *  speeds, not when each began (a group begun again looks the same). */
+  animSig(){
+    const live=App._liveRefs, out=[];
+    for(const k of this.anims.keys()){
+      if(live && live.has(k)) continue;
+      const sp=this.animSpec(k);
+      if(sp) out.push(k+'='+sp.replace(/@[^,*]*/g, ''));
+    }
+    return out.sort().join('|');
   },
   /** Stop `group` (every group, when not given) on `key`, playing or queued. */
   stopAnim(key, group){
@@ -1023,6 +1078,7 @@ const WgScripts={
     const now=performance.now();
     if(now-this._lastRebuild<350) return;
     this._dirtyScene=false; this._dirtyAI=false; this._lastRebuild=now;
+    this._animSigDrawn=this.animSig();
     if(typeof schedulePreview==='function') schedulePreview();
   },
   fade(to, secs){

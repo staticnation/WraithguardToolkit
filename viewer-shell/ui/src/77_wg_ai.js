@@ -245,6 +245,12 @@ const WgAI={
   /** Room: `p`, where a moving actor is about to stand, pushed out of every other actor's. */
   room(key, p){
     const S=WgScripts;
+    // The player too, while the camera walks as the player's body (its feet under the eye).
+    const R=App.R;
+    if(R && R.walk){
+      const q=S.posOf({player:true}), dx=p[0]-q[0], dy=p[1]-q[1], d=Math.hypot(dx, dy), need=this.ROOM;
+      if(d<need && Math.abs(p[2]-q[2])<128){ if(d<1e-3) p[0]+=need; else { p[0]+=dx/d*(need-d); p[1]+=dy/d*(need-d); } }
+    }
     for(const B of S.actors.values()){
       if(B.key===key || B.key==='player' || B.dead || S.disabled.has(B.key)) continue;
       const q=S.posOf(B.t), dx=p[0]-q[0], dy=p[1]-q[1], d=Math.hypot(dx, dy);

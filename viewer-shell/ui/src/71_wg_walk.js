@@ -53,6 +53,9 @@ const WgWalk={
   _el:null, _stride:0, _left:false, _sounds:new Map(),
   // The collision world: shapes by mesh, and the triangles of the objects near the body.
   _shapes:new Map(), _world:null, _picksRef:null, _building:false, _builtAt:null,
+  /* The actors' own collision world (73_wg_scripts.js `stepTo`): the same shapes, built
+     around the camera and kept apart from the body's, which follows the body. */
+  _ai:{_world:null, _picksRef:null, _building:false, _builtAt:null},
   CELL:256, NEAR:12000,
 
   restore(){
@@ -133,6 +136,10 @@ const WgWalk={
     const R=App.R; if(!R) return undefined;
     this.watch(o);
     const W=this._world; if(!W) return undefined;
+    return this.rayIn(W, o, d, max);
+  },
+  /** A ray against a built world: the nearest hit within `max`, or null. */
+  rayIn(W, o, d, max){
     max=max||1e5;
     const keys=new Set(), C=this.CELL;
     if(!d[0] && !d[1]) keys.add(Math.floor(o[0]/C)+','+Math.floor(o[1]/C));
@@ -170,7 +177,20 @@ const WgWalk={
   /** An actor where the body would stand: an upright cylinder from its bounds. */
   actorAt(x, y, feet, r){
     const W=this._world; if(!W || !this.st.collide) return false;
+    // While the Scripts run their actors walk: where each stands now, not where it stood
+    // when the world was built (73_wg_scripts.js).
+    if(typeof WgScripts==='object' && WgScripts.on){
+      const o=(App._scene && App._scene.origin)||[0,0];
+      for(const A of WgScripts.actors.values()){
+        if(A.key==='player' || A.dead || WgScripts.disabled.has(A.key)) continue;
+        const q=WgScripts.posOf(A.t), qx=q[0]-o[0], qy=q[1]-o[1];
+        if(feet+WALK.eye<q[2] || feet>q[2]+128) continue;
+        if(Math.hypot(x-qx, y-qy)<30+r) return true;
+      }
+    }
+    const moving=typeof WgScripts==='object' && WgScripts.on? WgScripts.actors : null;
     for(const a of W.actors){
+      if(moving && a.key && moving.has(a.key)) continue;   // where it stands now, above
       if(feet+WALK.eye<a.z0 || feet>a.z1) continue;
       if(Math.hypot(x-a.x, y-a.y)<a.r+r) return true;
     }
@@ -182,21 +202,42 @@ const WgWalk={
   },
   /** Builds the world again when the scene's objects change or the body walks far from
    *  where it was built. */
-  watch(o){
+  watch(o, S){
+    S=S||this;
     const R=App.R, picks=(R && R.pickables)||null;
-    const far=this._builtAt && Math.hypot(o[0]-this._builtAt[0], o[1]-this._builtAt[1])>this.NEAR/3;
-    if((picks!==this._picksRef || far) && !this._building) this.build(picks, [o[0], o[1]]);
+    const far=S._builtAt && Math.hypot(o[0]-S._builtAt[0], o[1]-S._builtAt[1])>this.NEAR/3;
+    if((picks!==S._picksRef || far) && !S._building) this.build(picks, [o[0], o[1]], S);
   },
-  async build(picks, at){
-    this._building=true;
+  /** Whether an actor's step from `o` (renderer units) along (dx, dy) runs into what the
+   *  body collides with: the camera's rays (06_gl.js `_blocked`), at the knee above a step
+   *  and at the chest, its half-width beyond. False while the world is not built yet, or
+   *  with the Collision shapes off. */
+  aiBlocked(o, dx, dy){
+    if(!this.st.collide) return false;
+    const l=Math.hypot(dx, dy); if(!(l>0)) return false;
+    const R=App.R; if(!R) return false;
+    // Built around the camera: the actors that walk are the ones near it (77_wg_ai.js NEAR).
+    const c=R.cam, at=c? [c.tx, c.ty] : [o[0], o[1]];
+    this.watch(at, this._ai);
+    const W=this._ai._world; if(!W) return false;
+    const d=[dx/l, dy/l, 0];
+    for(const z of [o[2]+WALK.step+4, o[2]+WALK.eye*0.6]){
+      const h=this.rayIn(W, [o[0], o[1], z], d, l+WALK.radius);
+      if(h && h.t<l+WALK.radius) return true;
+    }
+    return false;
+  },
+  async build(picks, at, S){
+    S=S||this;
+    S._building=true;
     try{
       const near=(picks||[]).filter(p=>p && p.m && Math.hypot(p.m[3]-at[0], p.m[7]-at[1])<this.NEAR);
       const actors=[], solid=[];
       for(const p of near){
         if(this.isActor(p)){
           const a=p.aabb;
-          if(a) actors.push({x:(a.x0+a.x1)/2, y:(a.y0+a.y1)/2, z0:a.z0, z1:a.z1, r:Math.min(40, Math.max(18, Math.min(a.x1-a.x0, a.y1-a.y0)/2))});
-          else actors.push({x:p.m[3], y:p.m[7], z0:p.m[11], z1:p.m[11]+128, r:30});
+          if(a) actors.push({key:p.refKey, x:(a.x0+a.x1)/2, y:(a.y0+a.y1)/2, z0:a.z0, z1:a.z1, r:Math.min(40, Math.max(18, Math.min(a.x1-a.x0, a.y1-a.y0)/2))});
+          else actors.push({key:p.refKey, x:p.m[3], y:p.m[7], z0:p.m[11], z1:p.m[11]+128, r:30});
         }else if(p.model && p.model!==(typeof CORPSE_SLAB==='string'? CORPSE_SLAB : '')) solid.push(p);
       }
       const want=[...new Set(solid.map(p=>p.model))].filter(m=>!this._shapes.has(m));
@@ -236,9 +277,9 @@ const WgWalk={
           t++;
         }
       }
-      this._world={tris, grid, actors, count:t};
-      this._picksRef=picks; this._builtAt=at;
-    }finally{ this._building=false; }
+      S._world={tris, grid, actors, count:t};
+      S._picksRef=picks; S._builtAt=at;
+    }finally{ S._building=false; }
   },
 
   /* ---- sound ------------------------------------------------------------------------- */
