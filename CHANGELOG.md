@@ -331,6 +331,26 @@
 
 ### Added
 
+- **Scripts play animation groups on the mesh** (`viewcore::anim`, `anim_groups`; `73_wg_scripts.js`
+  `playAnim`, `18_cellpreview.js` `animModel`; luarun.lua's `openmw.animation`). MWScript's
+  PlayGroup and LoopGroup and OpenMW Lua's `playBlended`/`playQueued` used to name the group
+  and leave the mesh standing. Now the object is drawn playing it: the engine is asked for
+  `__grp/<group>/<model>` (an NPC: `group=<group>` among its flags), which is the model's `.kf`
+  narrowed to that group. It starts at the group's first frame and runs at the script's speed.
+  It goes back to the idle once its loops are done: once for PlayGroup, the count more for
+  LoopGroup, and until cancelled for a Lua `loops` of infinity or `forceLoop`. A group the
+  `.kf` lacks is named in the log with the groups it does have, and nothing changes. Lua's
+  `isPlaying`, `getActiveGroup` and `cancel` answer from what the page is playing. Blending,
+  bone groups and queues are not drawn; a queued group just plays. Tests:
+  `viewcore::anim` (requests, group windows, narrowing), `npc_request`'s `group=`,
+  `luarun::tests::animation_groups_are_played_and_end_where_the_page_says`, and
+  `ui/tests/editor/scripts_anim.test.js`.
+- **Which scripts run** (the Scripts panel; `luarun::start_json`'s `off`, `lua_run_start`'s
+  `off`). Each of the load order's registered Lua scripts, OpenMW's built-ins as one switch, and
+  each of the scene's MWScripts can be turned off, with a filter and All/None over what it
+  shows. The choices are kept between sessions. Turning a Lua script off starts the Lua again
+  without it; its text is still read, so a script that `require`s it still finds it. An
+  MWScript turned off stops at once.
 - **Kinetic physics in the Editor** (the Physics panel, `76_wg_physics.js`; `physcore::Blast`,
   `Body::vel`, `Blacklist`; `phys_drop`'s `kinetic`, `near` and `blacklist` tables). Besides the
   drop:

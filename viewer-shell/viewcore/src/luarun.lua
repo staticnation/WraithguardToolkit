@@ -123,6 +123,7 @@ local S = {
   objects = {}, player = { pos = { 0, 0, 0 }, yaw = 0, cell = { name = '', ext = true, gx = 0, gy = 0 } },
   hour = 12, day = 16, month = 7, year = 427, weather = 0, weathers = {}, content = {}, contentIndex = {}, globals = {}, actors = {},
   sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {}, keysDown = {}, exteriorsSeen = {},
+  anims = {},
 }
 local OUT, LOG = {}, {}
 local current          -- the script running now
@@ -790,6 +791,54 @@ packages['openmw.nearby'] = function(inst)
   end })
 end
 packages['openmw.types'] = function() return types end
+-- openmw.animation: the group played on the object's mesh in the Preview (73_wg_scripts.js
+-- `playAnim`); the page says what is playing (`anims`), so isPlaying turns false when the
+-- group ends there. One group at a time: blending, bone groups and queues are not drawn,
+-- and a queued group simply plays.
+packages['openmw.animation'] = function(inst)
+  local function play(o, group, opt)
+    local k = keyOf(o)
+    if not k or k == 'player' then return end
+    opt = opt or {}
+    local loops = tonumber(opt.loops) or 0
+    if loops == math.huge or opt.forceLoop then loops = -1 end
+    S.anims[k] = group
+    emit({ k = 'anim', key = k, group = group, loops = loops, speed = tonumber(opt.speed) or 1 })
+  end
+  local function playing(o, group)
+    local g = S.anims[keyOf(o)]
+    return g ~= nil and (group == nil or string.lower(g) == string.lower(group))
+  end
+  local function cancel(o, group)
+    local k = keyOf(o)
+    if playing(o, group) then S.anims[k] = nil emit({ k = 'animStop', key = k, group = group }) end
+  end
+  return setmetatable({
+    playBlended = function(o, group, opt) play(o, group, opt) end,
+    playQueued = function(o, group, opt) play(o, group, opt) end,
+    cancel = function(o, group) cancel(o, group) end,
+    clearAnimationQueue = function(o) cancel(o, nil) end,
+    isPlaying = function(o, group) return playing(o, group) end,
+    getActiveGroup = function(o) return S.anims[keyOf(o)] or '' end,
+    hasAnimation = function(o) local d = obj_of(keyOf(o)) return d ~= nil and (d.tag == 'NPC_' or d.tag == 'CREA' or d.tag == 'ACTI' or d.tag == 'CONT' or d.tag == 'DOOR' or d.tag == 'LIGH') end,
+    -- Which groups a `.kf` has is the page's to know; a group it lacks is reported there when played.
+    hasGroup = function(o) return true end,
+    hasBone = function() return true end,
+    getCurrentTime = function(o, group) return playing(o, group) and 0 or -1 end,
+    getCompletion = function(o, group) if playing(o, group) then return 0 end return nil end,
+    getLoopCount = function() return 0 end,
+    getSpeed = function() return 1 end,
+    setSpeed = function() end,
+    setLoopingEnabled = function() end,
+    skipAnimationThisFrame = function() end,
+    addVfx = function() once('anim:vfx', 'skip', 'animation.addVfx is not drawn in the preview') end,
+    removeVfx = function() end,
+    removeAllVfx = function() end,
+    PRIORITY = { Default = 0, WeaponLowerBody = 1, SneakIdleLowerBody = 2, SwimIdle = 3, Jump = 4, Movement = 5, Hit = 6, Weapon = 7, Block = 8, Knockdown = 9, Torch = 10, Storm = 11, Death = 12, Scripted = 13 },
+    BLEND_MASK = { LowerBody = 1, Torso = 2, LeftArm = 4, RightArm = 8, UpperBody = 14, All = 15 },
+    BONE_GROUP = { LowerBody = 0, Torso = 1, LeftArm = 2, RightArm = 3 },
+  }, { __index = function(_, n) once('anim:' .. tostring(n), 'skip', 'animation.' .. tostring(n) .. ' is not run in the preview') return function() end end })
+end
 packages['openmw.ambient'] = function(inst)
   if inst.ctx ~= 'player' then error('openmw.ambient is only for player scripts', 3) end
   return {
@@ -1158,6 +1207,7 @@ function __wg_merge(a)
   if a.sounds then S.sounds = {} for _, s in ipairs(a.sounds) do S.sounds[s] = true end end
   for k, m in pairs(a.mwlocals or {}) do S.mwlocals[k] = m end
   for k, v in pairs(a.journal or {}) do S.journal[k] = v end
+  if a.anims then S.anims = a.anims end
 end
 
 -- `{dt, ...what changed, activations: [{key, by}]}` -> `{effects, log, status}`

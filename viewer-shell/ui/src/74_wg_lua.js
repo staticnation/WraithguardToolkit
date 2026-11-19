@@ -21,6 +21,11 @@ const WgLua={
   sent:new Map(),        // object key -> what was last sent of it (a signature)
   _sentG:new Map(), _sentA:new Map(), _sentL:new Map(), _sentJ:new Map(), _sentP:'',
   _dt:0, _acts:[], _all:true,
+  /* Which scripts are not run (Static: "give ability to filter/turn on/off lua scripts that
+     run (eg selective running)"): registered scripts' paths, lower case, and `@builtins`
+     for OpenMW's own (viewcore luarun `OFF_BUILTINS`). Kept across sessions. */
+  off:(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('wgLuaOff')||'[]')); }catch(_){ return new Set(); } })(),
+  _list:null,
 
   say(path, kind, text){ WgScripts.say(path? String(path).replace(/^scripts\//i, '') : 'lua', kind==='print'? 'do' : kind, text); },
   weathers(){
@@ -38,15 +43,15 @@ const WgLua={
     }
     let got;
     let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
-    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null}); }
+    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null, off:[...this.off]}); }
     catch(e){ this.say('', 'error', 'OpenMW Lua did not start: '+String(e && e.message || e)); return; }
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
     if(!got.answer){ if(this.note) this.say('', 'skip', this.note); return; }
     this.running=true; this._all=true;
-    this.sent.clear(); this._sentG.clear(); this._sentA.clear(); this._sentL.clear(); this._sentJ.clear(); this._sentP='';
+    this.sent.clear(); this._sentG.clear(); this._sentA.clear(); this._sentL.clear(); this._sentJ.clear(); this._sentP=''; this._sentAn='';
     // OpenMW's playlists choose the music while its built-ins run.
     if(this.resources && typeof WgSound==='object') WgSound.place.scriptMusic=true;
-    this.say('', 'do', 'OpenMW Lua on '+this.backend+(this.note? ' - '+this.note : ''));
+    this.say('', 'do', 'OpenMW Lua on '+this.backend+(this.note? ' - '+this.note : '')+(this.off.size? ' ('+this.off.size+' turned off in Which scripts run)' : ''));
     this.listenKeys();
     this.apply(got.answer);
     await this.gather();
@@ -97,6 +102,32 @@ const WgLua={
     this._all=true;
   },
   activate(key){ if(this.running) this._acts.push({key, by:'player'}); },
+
+  /* ---- which scripts run ------------------------------------------------------------- */
+
+  /** The load order's registered scripts, `[{path, flags}]` (the engine's `lua_scene`). */
+  async scriptList(){
+    if(this._list) return this._list;
+    try{
+      const tb=unpackTables(await Engine.bytes('lua_scene',{ids:[]}));
+      const rows=(tb.scripts||[]).map(([p])=>({path:String(p), flags:[]}));
+      for(const [i, f] of tb.script_flags||[]) if(rows[i]) rows[i].flags.push(String(f));
+      this._list=rows.filter(r=>!r.flags.length || r.flags.some(f=>f!=='MENU' && f!=='LOAD'));
+      this._note=(tb.head && tb.head[0] && tb.head[0][0]) || '';
+    }catch(_){ this._list=[]; }
+    return this._list;
+  },
+  isOff(path){ return this.off.has(String(path).replace(/\\/g, '/').toLowerCase()); },
+  /** Turn scripts on or off (`paths`, or `@builtins`); a running Lua starts again without them. */
+  setOff(paths, off){
+    for(const p of [].concat(paths)){ const k=String(p).replace(/\\/g, '/').toLowerCase(); if(off) this.off.add(k); else this.off.delete(k); }
+    try{ localStorage.setItem('wgLuaOff', JSON.stringify([...this.off])); }catch(_){ }
+    if(this.running){
+      clearTimeout(this._restartT);
+      this._restartT=setTimeout(()=>{ if(this.running) this.start().then(()=>{ if(typeof WgScripts==='object') WgScripts.drawLive(); }); }, 400);
+    }
+  },
+
 
   /* ---- what is sent ------------------------------------------------------------------ */
 
@@ -170,6 +201,9 @@ const WgLua={
       const sig=JSON.stringify(a); if(this._sentA.get(k)!==sig){ this._sentA.set(k, sig); actors[k]=a; }
     }
     if(Object.keys(actors).length) out.actors=actors;
+    // The groups scripts are playing (openmw.animation's isPlaying, getActiveGroup), whole when one changes.
+    const anims={}; for(const [k, a] of S.anims) anims[k]=a.group;
+    const as=JSON.stringify(anims); if(as!==this._sentAn){ this._sentAn=as; out.anims=anims; }
     const mw={};
     // Global scripts too (StartScript's), by `global:<id>`, for world.mwscript.getGlobalScript.
     for(const [k, it] of [...S.inst, ...[...S.globalRun.values()].map(g=>[g.key, g])]){
@@ -257,6 +291,13 @@ const WgLua={
     stop3d(e){ WgScripts.loopStop(e.key+'|'+String(e.id).toLowerCase()); },
     sound(e){ this.say('', 'do', 'playSound '+e.id); WgScripts.sound(String(e.id), e.vol==null? 1 : e.vol, null); },
     say(e){ this.say('', 'do', 'say '+e.file+(e.text? ': '+e.text : '')); WgScripts.voice(String(e.file), this.thing(e.key)); },
+    anim(e){
+      const t=this.thing(e.key); if(!t || t.player) return;
+      const loops=e.loops==null? 0 : (e.loops<0 || e.loops>1e6)? Infinity : e.loops;
+      WgScripts.playAnim(e.key, String(e.group), loops, e.speed>0? e.speed : 1, 'openmw.animation');
+      this.say('', 'do', 'animation '+e.group+' on '+this.name(e.key));
+    },
+    animStop(e){ WgScripts.stopAnim(e.key, e.group||''); },
     music(e){ this.say('', 'do', 'music '+e.path); WgScripts.music(String(e.path)); },
     stopMusic(){ if(typeof WgSound==='object' && WgSound.musicStop) WgSound.musicStop(); },
     weather(e){

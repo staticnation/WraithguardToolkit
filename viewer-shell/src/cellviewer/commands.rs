@@ -2070,6 +2070,19 @@ fn mesh_payload(v: &Vfs, w: Option<&World>, path: &str, still: bool) -> Result<(
         let kf = std::fs::read(disk.with_extension("kf")).ok().and_then(|b| viewcore::nif::parse_kf(&b));
         return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(path)));
     }
+    /* Wraithguard: a group a script plays on the reference (`viewcore::anim`), asked for
+       as `__grp/<group>/<model>`: the model's `.kf` narrowed to that group, played in a
+       loop. A group the file does not have draws the model's own idle. */
+    if let Some((group, model)) = viewcore::anim::group_request(path) {
+        let p = v
+            .resolve_mesh(model)
+            .or_else(|| v.resolve(model))
+            .ok_or_else(|| viewcore::msg!("eng.not_in_load_order", path = model))?;
+        let bytes = v.load(&p).ok_or_else(|| viewcore::msg!("eng.could_not_read", path = model))?;
+        let kf = kf_beside(v, model);
+        let kf = kf.as_ref().and_then(|k| viewcore::anim::only(k, group)).or(kf);
+        return Ok(mesh_payload_of(&bytes, kf.as_ref(), None, Some(model)));
+    }
     let p = v
         .resolve_mesh(path)
         .or_else(|| v.resolve(path))
@@ -2442,6 +2455,8 @@ fn mesh_save(path: String, edits: String, out: String, state: State) -> Result<S
 }
 
 pub(crate) fn collision_payload(v: &Vfs, path: &str) -> Result<Vec<u8>, String> {
+    // A group a script plays changes the picture, not what the object is: its file's hull.
+    let path = viewcore::anim::model_of(path);
     let disk = std::path::Path::new(path.strip_prefix("file:").unwrap_or(path));
     let (bytes, kf) = if path.starts_with("file:") || (disk.is_absolute() && disk.is_file()) {
         let b = std::fs::read(disk).map_err(|e| format!("{}: {}", path, e))?;
@@ -3482,6 +3497,24 @@ fn script_texts(names: Vec<String>, state: State) -> Result<tauri::ipc::Response
     Ok(tauri::ipc::Response::new(tb.done()))
 }
 
+/// Wraithguard: the animation groups each model's `.kf` marks (`viewcore::anim::groups`),
+/// for the scripts' PlayGroup, LoopGroup and `openmw.animation`: `{model: [[group, start,
+/// stop], ...]}`, the window in seconds. An NPC (`__npc/<id>`) answers the shared
+/// skeleton's, `xbase_anim`; a model with no `.kf` answers an empty list.
+#[tauri::command(async)]
+fn anim_groups(models: Vec<String>, state: State) -> Result<String, String> {
+    let v = vfs_of(&state)?;
+    let mut out = serde_json::Map::new();
+    for m in models {
+        let file = if viewcore::npc::npc_id_of(&m).is_some() { "xbase_anim.nif".to_string() } else { viewcore::anim::model_of(&m).to_string() };
+        let list: Vec<serde_json::Value> = kf_beside(&v, &file)
+            .map(|k| viewcore::anim::groups(&k).into_iter().map(|(g, a, b)| serde_json::json!([g, a, b])).collect())
+            .unwrap_or_default();
+        out.insert(m, serde_json::Value::Array(list));
+    }
+    Ok(serde_json::Value::Object(out).to_string())
+}
+
 /// Wraithguard: what the scene's OpenMW Lua (`ui/src/74_wg_lua.js`) starts from: the load
 /// order's registered scripts, `scripts: [{path, flags}]` in load order (none, and a `note`,
 /// for a Morrowind.ini setup), and the record type of each object id asked about,
@@ -3539,8 +3572,10 @@ static LUA_RUN: std::sync::Mutex<Option<viewcore::luarun::Runner>> = std::sync::
 /// player scripts started. `weathers` are the Preview's weather names, in order.
 /// `{backend, resources, note, answer: {effects, log, status}}`; a Morrowind.ini setup has
 /// no Lua and gets only a `note`.
+/// `off`: the scripts turned off in the Scripts panel (paths, and `@builtins` for all of
+/// OpenMW's own), which are not started (`luarun::start_json`).
 #[tauri::command(async)]
-fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, state: State) -> Result<String, String> {
+fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<String>>, state: State) -> Result<String, String> {
     let (vfs, order) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
@@ -3563,7 +3598,7 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, state: State) ->
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;
     let content = viewcore::luascan::content(order.as_deref());
-    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content);
+    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content, &off.unwrap_or_default());
     let answer = run.call("__wg_start", &start)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);
@@ -4257,6 +4292,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             scene_scripts,
             script_texts,
             lua_scene,
+            anim_groups,
             lua_run_start,
             lua_run_step,
             lua_run_stop,

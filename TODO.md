@@ -188,10 +188,14 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 ## Scripts in the scene (`73_wg_scripts.js`)
 
 - OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): the camera, input bindings, console and
-  HUD built-ins are left out (they need the game); `openmw.animation` answers but nothing
-  is animated; `ui.create`'s keys go to a node once it is clicked.
-- MWScript the preview still does not run: animations are named but not drawn (PlayGroup,
-  LoopGroup: the mesh stands still), a spell's effects (Cast is counted for GetSpellEffects
+  HUD built-ins are left out (they need the game); `ui.create`'s keys go to a node once it is
+  clicked. `openmw.animation` plays one group at a time: no blending, bone groups or queue,
+  and `addVfx` is not drawn.
+- **AI packages carried out** (next): Wander, Travel, Escort, Follow, Activate, and Combat as
+  approach-and-face, from MWScript's Ai* and Lua's `I.AI`. Walked over the pathgrid or the
+  navmesh at the record's speed, with the walk and idle groups playing (`playAnim`). Today the
+  package is only recorded and the actor stands.
+- MWScript the preview still does not run: a spell's effects (Cast is counted for GetSpellEffects
   for ten seconds; GetEffect is not answered). Combat has no weapons, armor or fatigue.
   Actors step rather than glide (The viewer, above).
 

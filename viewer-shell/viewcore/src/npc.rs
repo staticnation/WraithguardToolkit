@@ -43,11 +43,14 @@ pub fn npc_id_of(path: &str) -> Option<&str> {
 }
 
 /// How the page wants an NPC drawn, after a `?` on its path: `night` (a torch, where it
-/// carries one, in place of its shield) and `drawn` (its weapon in its hand).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// carries one, in place of its shield) and `drawn` (its weapon in its hand), and
+/// `group=<name>`: the animation group a script is playing on it (`crate::anim`), in
+/// place of its idle.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NpcOpts {
     pub night: bool,
     pub drawn: bool,
+    pub group: Option<String>,
 }
 
 /// The NPC id and the options in a mesh path the page asked for.
@@ -62,6 +65,7 @@ pub fn npc_request(path: &str) -> Option<(&str, NpcOpts)> {
         match f {
             "night" => o.night = true,
             "drawn" => o.drawn = true,
+            g if g.starts_with("group=") && g.len() > 6 => o.group = Some(g[6..].to_string()),
             _ => {}
         }
     }
@@ -459,7 +463,7 @@ fn part_file(vfs: &Vfs, model: &str) -> std::sync::Arc<Option<Vec<DrawPart>>> {
 
 /// The skeleton an NPC stands on, with the idle bound when there is one, read once per
 /// skeleton file and `.kf` pair.
-fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<std::sync::Arc<Option<nif::Skeleton>>> {
+fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&str>) -> Option<std::sync::Arc<Option<nif::Skeleton>>> {
     let base = if !npc.model.is_empty() {
         npc.model.clone()
     } else if beast {
@@ -474,18 +478,19 @@ fn skeleton(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<std::
     let kf_of = |p: &str| p.rfind('.').map(|d| format!("{}.kf", &p[..d])).unwrap_or_default();
     let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
     let key = format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         loc_key(vfs, &file),
         loc_key(vfs, &base),
         twin.as_deref().map(|p| loc_key(vfs, &kf_of(p))).unwrap_or_default(),
-        loc_key(vfs, &kf_of(shared))
+        loc_key(vfs, &kf_of(shared)),
+        group.unwrap_or("").to_ascii_lowercase()
     );
-    let s = cached(&SKELETONS, key, || skeleton_read(t, vfs, npc, beast));
+    let s = cached(&SKELETONS, key, || skeleton_read(t, vfs, npc, beast, group));
     if s.is_some() { Some(s) } else { None }
 }
 
 /// [`skeleton`], read from the files.
-fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<nif::Skeleton> {
+fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool, group: Option<&str>) -> Option<nif::Skeleton> {
     let base = if !npc.model.is_empty() {
         npc.model.clone()
     } else if beast {
@@ -504,6 +509,18 @@ fn skeleton_read(t: &NpcTables, vfs: &Vfs, npc: &NpcDef, beast: bool) -> Option<
     if kf.is_none() {
         let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
         kf = crate::world::kf_beside(vfs, shared).filter(|k| k.idle().is_some());
+    }
+    /* Wraithguard: a group a script plays (`crate::anim`): from the skeleton's own `.kf`
+       when it has the group, else from the shared one, else the idle stands. */
+    if let Some(g) = group {
+        let own = twin.as_deref().and_then(|p| crate::world::kf_beside(vfs, p)).and_then(|k| crate::anim::only(&k, g));
+        let picked = own.or_else(|| {
+            let shared = if beast { "xbase_animkna.nif" } else { "xbase_anim.nif" };
+            crate::world::kf_beside(vfs, shared).and_then(|k| crate::anim::only(&k, g))
+        });
+        if picked.is_some() {
+            kf = picked;
+        }
     }
     nif::Skeleton::read(&bytes, kf.as_ref())
 }
@@ -663,7 +680,7 @@ pub fn assemble(t: &NpcTables, vfs: &Vfs, id: &str, opts: NpcOpts) -> Option<Ass
     let npc = t.npcs.get(&id.to_ascii_lowercase())?;
     let race = t.races.get(&npc.race.to_ascii_lowercase());
     let beast = race.map(|r| r.beast).unwrap_or(false);
-    let skel_read = skeleton(t, vfs, npc, beast)?;
+    let skel_read = skeleton(t, vfs, npc, beast, opts.group.as_deref())?;
     let skel: &nif::Skeleton = skel_read.as_ref().as_ref()?;
     let kit = choose_kit(t, npc, beast);
     let chosen = &kit.chosen;
@@ -845,7 +862,11 @@ mod tests {
 
     #[test]
     fn options_follow_the_id() {
-        assert_eq!(npc_request("__npc/caius cosades?night&drawn"), Some(("caius cosades", NpcOpts { night: true, drawn: true })));
+        assert_eq!(npc_request("__npc/caius cosades?night&drawn"), Some(("caius cosades", NpcOpts { night: true, drawn: true, group: None })));
+        assert_eq!(
+            npc_request("__npc/fargoth?group=Idle3"),
+            Some(("fargoth", NpcOpts { group: Some("Idle3".into()), ..Default::default() }))
+        );
         assert_eq!(npc_request("__npc/fargoth"), Some(("fargoth", NpcOpts::default())));
         assert_eq!(npc_id_of("__npc/fargoth?night"), Some("fargoth"));
     }

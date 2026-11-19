@@ -5,6 +5,7 @@
 //! generation, scatter, painting and export removed: the viewer displays a setup, it
 //! does not generate anything.
 
+pub mod anim;
 pub mod audio;
 pub mod bcx;
 pub mod bsa;

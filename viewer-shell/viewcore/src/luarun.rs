@@ -606,17 +606,30 @@ pub fn api_revision(resources: Option<&Path>) -> i64 {
     if r > 0 { r } else { luacore::api::for_version(None).revision }
 }
 
+/// The entry of `start_json`'s `off` that turns every OpenMW built-in off at once.
+pub const OFF_BUILTINS: &str = "@builtins";
+
+/// Whether `path` is one the person turned off: `off` holds script paths (any case, either
+/// slash) and [`OFF_BUILTINS`].
+pub fn is_off(off: &[String], path: &str) -> bool {
+    let k = path.replace('\\', "/").to_ascii_lowercase();
+    off.iter().any(|o| o.replace('\\', "/").eq_ignore_ascii_case(&k))
+}
+
 /// What `__wg_start` is given. `content` is the load order's `content=` names, in order
-/// (`core.contentFiles`).
-pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String]) -> String {
+/// (`core.contentFiles`). `off`: the scripts the person turned off in the Scripts panel
+/// (Static: "selective running"), which are not started; their text is still read, so a
+/// script that `require`s one as a module still finds it.
+pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String], off: &[String]) -> String {
     let mut scripts: Vec<(String, Vec<String>)> = Vec::new();
-    if let Some(r) = resources {
+    let builtins_off = off.iter().any(|o| o == OFF_BUILTINS);
+    if let Some(r) = resources.filter(|_| !builtins_off) {
         for sub in ["vfs", "vfs-mw"] {
             let Ok(text) = std::fs::read(r.join(sub).join("builtin.omwscripts")) else { continue };
             let parsed = luacore::omwscripts::parse_omwscripts(&luacore::scan::text_of(&text), "builtin.omwscripts");
             for e in parsed.entries {
                 let p = e.path.replace('\\', "/").to_ascii_lowercase();
-                if BUILTINS.contains(&p.as_str()) && !scripts.iter().any(|(q, _)| q.eq_ignore_ascii_case(&p)) {
+                if BUILTINS.contains(&p.as_str()) && !is_off(off, &p) && !scripts.iter().any(|(q, _)| q.eq_ignore_ascii_case(&p)) {
                     scripts.push((e.path, e.flags));
                 }
             }
@@ -625,7 +638,7 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
     // The menu's and the loader's scripts have no scene to run in.
     for (p, f) in registered {
         let f: Vec<String> = f.iter().filter(|x| *x != "MENU" && *x != "LOAD").cloned().collect();
-        if !f.is_empty() {
+        if !f.is_empty() && !is_off(off, p) {
             scripts.push((p.clone(), f));
         }
     }
@@ -776,7 +789,7 @@ mod tests {
             I.AI.startPackage({ type = 'Travel', destPosition = util.vector3(600, 0, 0) }) print('package', I.AI.getActivePackage().type)\n\
             print('interfaces', I.Combat ~= nil, I.AnimationController ~= nil) end } }";
         let vfs = Vfs::with_roots(&[]);
-        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[]);
+        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[], &[]);
         // The mod's script, as the load order would register it.
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         start = start.replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/ai.lua\",\"flags\":[\"NPC\"]},", 1)
@@ -892,6 +905,42 @@ mod tests {
         assert!(got.contains(r#""text":"clicked""#) && got.contains(r#""text":"Bye""#), "{got}");
     }
 
+    /// `openmw.animation` (Static: "Work on LUA stuff"): a group played is sent to the page,
+    /// `isPlaying` and `getActiveGroup` answer it at once, and the page's word on what is
+    /// playing (`anims`) is what they answer after - empty once the group ended there.
+    #[test]
+    fn animation_groups_are_played_and_end_where_the_page_says() {
+        let script = "local anim = require('openmw.animation') local self = require('openmw.self') local n = 0\n\
+            return { engineHandlers = { onUpdate = function() n = n + 1\n\
+              if n == 1 then anim.playBlended(self, 'idle3', { loops = 2, speed = 1.5 }) end\n\
+              print('frame', n, anim.isPlaying(self, 'Idle3'), anim.getActiveGroup(self, anim.BONE_GROUP.LowerBody), anim.isPlaying(self, 'Hit1'))\n\
+              if n == 3 then anim.cancel(self, 'idle3') end end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/a.lua","flags":["NPC"]}}],"sources":{{"scripts/t/a.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
+        let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
+        assert!(a.contains(r#""k":"anim""#) && a.contains(r#""group":"idle3""#) && a.contains(r#""loops":2"#) && a.contains(r#""speed":1.5"#), "{a}");
+        assert!(a.contains(r#""text":"frame 1 true idle3 false""#), "{a}");
+        // The page says it is still playing, then that it ended.
+        let b = r.call("__wg_step", r#"{"dt":0.05,"anims":{"n1":"Idle3"}}"#).unwrap();
+        assert!(b.contains(r#""text":"frame 2 true Idle3 false""#), "{b}");
+        let c = r.call("__wg_step", r#"{"dt":0.05,"anims":{"n1":"Idle3"}}"#).unwrap();
+        assert!(c.contains(r#""k":"animStop""#), "cancel tells the page: {c}");
+        let d = r.call("__wg_step", r#"{"dt":0.05,"anims":{}}"#).unwrap();
+        assert!(d.contains(r#""text":"frame 4 false  false""#), "{d}");
+    }
+
+    #[test]
+    fn scripts_turned_off_are_named_by_path_in_any_case() {
+        let off = vec!["scripts/mod/a.lua".to_string(), OFF_BUILTINS.to_string()];
+        assert!(is_off(&off, "Scripts\\Mod\\A.lua"));
+        assert!(!is_off(&off, "scripts/mod/b.lua"));
+    }
+
     /// What mods on a real install called that the preview lacked (Static, 2026-11-03):
     /// `core.getRealFrameDuration`, `camera.getThirdPersonDistance`, `types.Player.quests`,
     /// `world.mwscript.getGlobalScript`; and a handler failing every frame is named once.
@@ -988,7 +1037,7 @@ mod tests {
             ui.create({ layer = 'Windows', template = I.MWUI.templates.boxSolid, content = ui.content { { template = I.MWUI.templates.textHeader, props = { text = 'Mod window' } } } }) end } }";
         let vfs = Vfs::with_roots(&[]);
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
-        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[])
+        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[], &[])
             .replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/w.lua\",\"flags\":[\"PLAYER\"]},", 1)
             .replacen("\"sources\":{", &format!("\"sources\":{{\"scripts/t/w.lua\":{},", q(script)), 1);
         let a = r.call("__wg_start", &start).unwrap();

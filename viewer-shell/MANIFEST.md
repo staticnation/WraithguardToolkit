@@ -162,7 +162,7 @@ names a command that is not defined, or one is left unregistered.
 - **ori**: `ori`, `ori_dialogue`
 - **find**: `find_record`
 - **editor**: `editor_tags`, `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs`, `editor_cell_refs_bytes`, `editor_ref_names`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`
-- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`
+- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`
 - **wg**: `wg_post`, `wg_save_edited` (the page tests' seam to a stand-in host; nothing serves them since 5.0)
 - **scan**: `scan_cache_warm`
 - **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`
@@ -193,6 +193,7 @@ names a command that is not defined, or one is left unregistered.
 
 | Module | Lines | What it does |
 |---|---|---|
+| `anim.rs` | 110 | Named animation groups for the scripts: a `.kf` narrowed to one group, the groups it marks, the `__grp/` request. |
 | `audio.rs` | 274 | Sounds decoded (Symphonia) for the page to play; the checks Verify uses (silent, clipped). |
 | `bcx.rs` | 488 | BC4, BC5 and BC7 decoding, for a webview that cannot take the blocks. |
 | `coverage.rs` | 168 | Land-texture coverage per cell, and which plugins touch each cell. |
@@ -202,13 +203,13 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 61 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luarun.rs` | 951 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
+| `luarun.rs` | 1049 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
 | `luascan.rs` | 313 | The load order's Lua scripts checked through the overlay (luacore, Teal). |
 | `markers.rs` | 36 | The Construction Set markers the viewer carries itself. |
 | `mland.rs` | 434 | The merged-lands preview: one cell's landscape as Merge Lands would write it (landcore). |
 | `navmesh.rs` | 863 | OpenMW's `navmesh.db` read for drawing (its own LZ4 decoder; written from the file's layout, not OpenMW's code). |
 | `nifx.rs` | 178 | Wraithguard's additions to Gardenfell's mesh reading (embedded textures, gloss, names). |
-| `npc.rs` | 952 | NPCs assembled for drawing: race, body parts, worn items by OpenMW's priorities, the skeleton. |
+| `npc.rs` | 973 | NPCs assembled for drawing: race, body parts, worn items by OpenMW's priorities, the skeleton. |
 | `objects.rs` | 30 | Gardenfell's object index (`ObjKind`, `ObjectDef`, leveled lists). |
 | `preview.rs` | 594 | Meshes packed as the bytes the viewport draws, and their animation as JSON. |
 | `profiles.rs` | 629 | Files beside the program: the remembered install, theme, cell-picker choice. |

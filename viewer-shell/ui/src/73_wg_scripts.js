@@ -40,6 +40,12 @@ const WgScripts={
   objScript:new Map(),   // lowercased object id -> lowercased script id
   // What the scripts did to the scene: by ref key.
   disabled:new Set(), moved:new Map(), placed:[], _placeN:0,
+  // The animation group a script plays on an object (PlayGroup, LoopGroup, openmw.animation),
+  // by ref key: {group, loops, speed, at (the renderer's clock when it began), t0, ends}.
+  anims:new Map(), _groups:new Map(),
+  // MWScripts turned off in Which scripts run (lower-case ids), kept across sessions.
+  mwOff:(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('wgMwOff')||'[]')); }catch(_){ return new Set(); } })(),
+  _whichQ:'',
   log:[], _logged:new Set(), _dirtyScene:false, _lastRebuild:0, _raf:0, _last:0, _sceneSeen:null,
   loops:new Map(),       // key|sound -> the looping voice
   playing:new Map(),     // key|sound -> when a one-shot ends (GetSoundPlaying, SayDone)
@@ -230,10 +236,12 @@ const WgScripts={
     // OpenMW Lua (74_wg_lua.js), against the same scene.
     if(typeof WgLua==='object') WgLua.frame(dt);
     this.actorsFrame(dt);
+    this.animsFrame();
     this.loopsFrame();
     if(this._dirtyScene) this.flushScene();
   },
   runOne(run, self){
+    if(this.mwOff.has(String(run.script||'').toLowerCase())) return;
     const sc=this.script(run.script);
     if(!sc || sc.error) return;
     if(!run.locals){ run.locals=new Map(); for(const l of sc.locals) run.locals.set(l.name, {kind:l.kind, v:0}); }
@@ -516,10 +524,10 @@ const WgScripts={
         did((fn==='cast'? 'Cast ' : 'ExplodeSpell ')+a[0]+(fn==='cast'? ' on '+(on.player? 'the player' : on.id) : '')+' (its effects are not worked out)'); return;
       }
       case 'playgroup': case 'loopgroup': {
-        // Which animation each actor is playing, for the scripts that ask and the Actors list;
-        // the mesh itself is drawn standing.
-        const A=this.actorOf(t); if(!A) return;
-        A.anim={group:String(a[0]), loops:fn==='loopgroup'? this.num(a[1])|0 : 0};
+        // Played on the object's mesh (`playAnim`): once for PlayGroup, the count's times
+        // more for LoopGroup, then back to its idle.
+        if(!t || t.player) return;
+        this.playAnim(t.key, String(a[0]), fn==='loopgroup'? Math.max(0, this.num(a[1])|0) : 0, 1, fn==='playgroup'? 'PlayGroup' : 'LoopGroup');
         did((fn==='playgroup'? 'PlayGroup ' : 'LoopGroup ')+a.join(' ')); this.drawLive(); return;
       }
       case 'skipanim': return;
@@ -722,17 +730,84 @@ const WgScripts={
     this._dirtyScene=true;
   },
 
+  /* ---- animation groups ------------------------------------------------------------------ */
+
+  /** The groups a model's `.kf` marks, `[[group, start, stop], ...]` (the engine's
+   *  `anim_groups`), asked once a model. */
+  async groupsOf(model){
+    // An NPC's groups are its skeleton's, whatever it is dressed in: one ask for every flag.
+    const k=String(model||'').replace(/^(__npc\/[^?]*)\?.*$/, '$1');
+    if(!k) return [];
+    if(!this._groups.has(k)){
+      this._groups.set(k, (async()=>{ try{ const r=await Engine.call('anim_groups',{models:[k]}); const o=typeof r==='string'? JSON.parse(r) : r; return (o && o[k])||[]; }catch(_){ return []; } })());
+    }
+    return this._groups.get(k);
+  },
+  /** The model an object is drawn with (the renderer's pickable), without a group a
+   *  script is playing on it. */
+  modelOfKey(key){
+    const pk=((App.R && App.R.pickables)||[]).find(o=>o.refKey===key);
+    const m=pk && pk.model || '';
+    return m.replace(/^__grp\/[^\/]+\//, '').replace(/([?&])group=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  },
+  /** A script plays `group` on the object `key`: drawn from the start of the group, `loops`
+   *  times more after the first (Infinity: until something else is played), at `speed`,
+   *  then back to the idle. The group's length comes from the `.kf`; one the file does not
+   *  have is reported and nothing changes. `by` names the caller for the log. */
+  playAnim(key, group, loops, speed, by){
+    const R=App.R, now=performance.now();
+    const a={group:String(group), loops:loops==null? 0 : loops, speed:speed>0? speed : 1, at:(R && R._uvSecs)||0, t0:now, ends:null, len:null};
+    this.anims.set(key, a);
+    const A=this.actorOf(this.inst.get(key) || {key, id:''}); if(A) A.anim={group:a.group, loops:a.loops};
+    this._dirtyScene=true;
+    const model=this.modelOfKey(key);
+    if(!model) return a;
+    this.groupsOf(model).then(list=>{
+      if(this.anims.get(key)!==a) return;
+      const g=list.find(x=>String(x[0]).toLowerCase()===a.group.toLowerCase());
+      if(!g){
+        this.anims.delete(key); if(A) A.anim=null; this._dirtyScene=true;
+        this.say('', 'skip', (by||'animation')+': '+model+' has no group '+a.group+(list.length? ' (it has '+list.map(x=>x[0]).join(', ')+')' : ' (no .kf beside it)'));
+        return;
+      }
+      a.group=String(g[0]); a.len=Math.max(0, (+g[2])-(+g[1]));
+      if(isFinite(a.loops)) a.ends=a.t0+a.len*(a.loops+1)/a.speed*1000;
+    });
+    return a;
+  },
+  /** Stop what a script plays on `key` (`group` given: only that one), back to the idle. */
+  stopAnim(key, group){
+    const a=this.anims.get(key);
+    if(!a || (group && a.group.toLowerCase()!==String(group).toLowerCase())) return;
+    this.anims.delete(key); this._dirtyScene=true;
+    const A=this.actors.get(key); if(A) A.anim=null;
+  },
+  /** Whether `group` (any, when not given) is playing on `key` now. */
+  animPlaying(key, group){
+    const a=this.anims.get(key);
+    return !!a && (!group || a.group.toLowerCase()===String(group).toLowerCase());
+  },
+  /** The groups whose time is up go back to the idle. */
+  animsFrame(){
+    if(!this.anims.size) return;
+    const now=performance.now();
+    for(const [k, a] of this.anims) if(a.ends!=null && now>=a.ends){ this.anims.delete(k); const A=this.actors.get(k); if(A) A.anim=null; this._dirtyScene=true; }
+  },
+
   /* ---- what the scene shows ------------------------------------------------------------ */
 
   /** A cell as the scripts leave it (17_cell.js `live`): disabled references out, moved
    *  ones where the scripts put them, placed ones in the cell they were placed in. */
   overlay(rec){
     if(!this.on || !rec || !rec.refs) return rec;
-    const touch=this.disabled.size || this.moved.size || this.placed.length;
+    const touch=this.disabled.size || this.moved.size || this.placed.length || this.anims.size;
     if(!touch) return rec;
     const refs=[];
-    for(const r of rec.refs){
-      if(this.disabled.has(r.key)) continue;
+    // A group a script plays: on the reference for the renderer (18_cellpreview.js `animModel`).
+    const withAnim=(r)=>{ const a=this.anims.get(r.key); return a? Object.assign({}, r, {anim:a.group, animAt:a.at, animSpeed:a.speed}) : r; };
+    for(const r0 of rec.refs){
+      if(this.disabled.has(r0.key)) continue;
+      const r=withAnim(r0);
       const m=this.moved.get(r.key);
       if(!m){ refs.push(r); continue; }
       const n=Object.assign({}, r);
@@ -746,7 +821,7 @@ const WgScripts={
       if(!isInt){ const gx=Math.floor(p.pos[0]/8192), gy=Math.floor(p.pos[1]/8192); if(p.cell || gx!==rec.gx || gy!==rec.gy) continue; }
       else if(p.cell!==String(rec.name||'').toLowerCase()) continue;
       const m=this.moved.get(p.key);
-      refs.push(m? Object.assign({}, p, m.pos? {pos:m.pos.slice()} : {}, m.rot? {rot:m.rot.slice()} : {}, m.scale!=null? {scale:m.scale} : {}) : p);
+      refs.push(withAnim(m? Object.assign({}, p, m.pos? {pos:m.pos.slice()} : {}, m.rot? {rot:m.rot.slice()} : {}, m.scale!=null? {scale:m.scale} : {}) : p));
     }
     return Object.assign({}, rec, {refs});
   },
@@ -971,7 +1046,7 @@ const WgScripts={
       this.inst.set(r.key, {key:r.key, id, script:s, locals:null, cell:c.kind==='int'? String(c.name||'').toLowerCase() : c.gx+','+c.gy,
         base:{pos:(r.pos||[0,0,0]).slice(), rot:(r.rot||[0,0,0]).slice()}, _ref:r});
     }
-    this.drawState();
+    this.drawState(); this.drawWhich();
   },
   loopRun(){
     cancelAnimationFrame(this._raf);
@@ -1000,7 +1075,7 @@ const WgScripts={
   /** Back to the scene as the load order has it: every change the scripts made undone, their
    *  locals and the started scripts forgotten. */
   reset(off){
-    this.disabled.clear(); this.moved.clear(); this.placed=[]; this.inst.clear(); this.globalRun.clear();
+    this.disabled.clear(); this.moved.clear(); this.anims.clear(); this.placed=[]; this.inst.clear(); this.globalRun.clear();
     for(const k of [...this.loops.keys()]) this.loopStop(k);
     this._globalsRead=false; this._asked=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
     this.actors.clear(); this.actorDefs.clear(); this.playing.clear(); this.topics.clear(); this.msg=null; this.drawMsg();
@@ -1032,6 +1107,7 @@ const WgScripts={
       '<div id="wgScrMsg" hidden></div>'+
       '<div class="orisec">Game state</div><div id="wgScrState"></div>'+
       '<div class="orisec">Running</div><div id="wgScrLive" class="hint"></div>'+
+      '<div class="orisec">Which scripts run</div><div id="wgScrWhich"></div>'+
       '<div class="orisec">The player</div><div id="wgScrPlayer"></div>'+
       '<div class="orisec">Actors</div><div id="wgScrActors" class="hint"></div>'+
       '<div class="orisec">What they did <button class="btn dim sm" id="wgScrClear">Clear</button></div><div id="wgScrLog" style="max-height:220px;overflow:auto;font-family:var(--mono);font-size:11px"></div></div>';
@@ -1042,6 +1118,7 @@ const WgScripts={
     d.querySelector('#wgScrStep').onclick=()=>{ this.frame(1/30); this.drawLive(); };
     d.querySelector('#wgScrReset').onclick=()=>{ this.reset(false); this.gather().then(()=>this.startLua()); };
     d.querySelector('#wgScrClear').onclick=()=>{ this.log=[]; this.drawLog(); };
+    this.drawWhich();
     // Ctrl+click on an object activates it (OnActivate is true for its script's next frame).
     const R=App.R;
     if(R && R.cv && !this._actWired){
@@ -1055,6 +1132,47 @@ const WgScripts={
       }, true);
     }
     this.drawState();
+  },
+  /** Which scripts run: a switch for each of the scene's MWScripts and the load order's
+   *  Lua scripts (and one for OpenMW's built-ins), a filter over both, and All/None for what
+   *  the filter shows. A Lua change starts the Lua again; an MWScript change is at once. */
+  async drawWhich(force){
+    const box=this._el && this._el.querySelector('#wgScrWhich'); if(!box) return;
+    if(!force && box.contains(document.activeElement) && document.activeElement.id==='wgWhichQ') return;   // not under the person typing
+    const lua=typeof WgLua==='object'? await WgLua.scriptList() : [];
+    const mw=[...new Set([...[...this.inst.values()].map(i=>String(i.script||'').toLowerCase()), ...[...this.globalRun.keys()]].filter(Boolean))].sort();
+    const q=this._whichQ.toLowerCase();
+    const show=t=>!q || t.toLowerCase().includes(q);
+    const row=(kind, key, label, on, sub)=>'<label class="wgWhich" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" data-kind="'+kind+'" data-key="'+escHtml(key)+'"'+(on? ' checked' : '')+'>'+
+      '<span style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(key)+'">'+escHtml(label)+'</span>'+(sub? '<span class="hint">'+escHtml(sub)+'</span>' : '')+'</label>';
+    let h='<div style="display:flex;gap:4px;margin-bottom:4px"><input id="wgWhichQ" class="inp" placeholder="Filter scripts" style="flex:1" value="'+escHtml(this._whichQ)+'">'+
+      '<button class="btn sm" id="wgWhichAll" title="Run every script the filter shows">All</button><button class="btn sm" id="wgWhichNone" title="Run none of the scripts the filter shows">None</button></div>';
+    const luaRows=lua.filter(r=>show(r.path));
+    const bi=typeof WgLua==='object' && !WgLua.isOff('@builtins');
+    h+='<div class="hint">OpenMW Lua</div>';
+    if(show('openmw built-ins @builtins')) h+=row('lua', '@builtins', 'OpenMW\'s built-ins', bi, 'I.AI, activation, music, combat');
+    h+=luaRows.map(r=>row('lua', r.path, r.path.replace(/^scripts\//i, ''), !WgLua.isOff(r.path), r.flags.join(' '))).join('');
+    if(!lua.length) h+='<div class="hint">'+escHtml((typeof WgLua==='object' && WgLua._note) || 'No registered Lua scripts.')+'</div>';
+    h+='<div class="hint" style="margin-top:4px">MWScript (this scene)</div>';
+    const mwRows=mw.filter(show);
+    h+=mwRows.map(k=>row('mw', k, k, !this.mwOff.has(k), '')).join('') || '<div class="hint">None in the scene.</div>';
+    box.innerHTML=h;
+    const qi=box.querySelector('#wgWhichQ');
+    qi.oninput=()=>{ this._whichQ=qi.value; clearTimeout(this._whichT); this._whichT=setTimeout(()=>this.drawWhich(true).then(()=>{ const n=box.querySelector('#wgWhichQ'); if(n){ n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }), 150); };
+    const set=(kind, keys, on)=>{
+      if(!keys.length) return;
+      if(kind==='lua') WgLua.setOff(keys, !on);
+      else{ for(const k of keys){ if(on) this.mwOff.delete(k); else this.mwOff.add(k); } try{ localStorage.setItem('wgMwOff', JSON.stringify([...this.mwOff])); }catch(_){ } }
+      this.say('', 'do', (on? 'turned on ' : 'turned off ')+(keys.length===1? keys[0].replace('@builtins', 'OpenMW\'s built-ins') : keys.length+' scripts')+(kind==='lua' && WgLua.running? ' (the Lua starts again)' : ''));
+    };
+    box.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.onchange=()=>set(cb.dataset.kind, [cb.dataset.key], cb.checked));
+    const all=on=>{
+      const shownLua=[...box.querySelectorAll('input[data-kind=lua]')].map(c=>c.dataset.key);
+      const shownMw=[...box.querySelectorAll('input[data-kind=mw]')].map(c=>c.dataset.key);
+      set('lua', shownLua, on); set('mw', shownMw, on); this.drawWhich(true);
+    };
+    box.querySelector('#wgWhichAll').onclick=()=>all(true);
+    box.querySelector('#wgWhichNone').onclick=()=>all(false);
   },
   drawState(){
     const box=this._el && this._el.querySelector('#wgScrState'); if(!box) return;
