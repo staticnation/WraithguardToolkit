@@ -374,12 +374,21 @@ local function typeOf(name, tags)
   end
   -- A record: its id, and the model it is drawn with when the scene has one of it.
   t.record = function(o)
+    if o == nil then return nil end
     local id = type(o) == 'string' and o or o.recordId
     if not id then return nil end
     local d = type(o) == 'table' and obj_of(keyOf(o)) or nil
-    return { id = id, name = id, model = d and d.model or '', icon = '', mwscript = nil }
+    return { id = id, name = id, model = d and d.model or '', icon = '', mwscript = d and d.script or nil }
   end
-  t.records = {}
+  -- By id as OpenMW's lists answer too (`self.type.records[self.recordId].mwscript`,
+  -- FriendlierFire): a placed object's id is a record; a number or an id not placed, nil.
+  t.records = setmetatable({}, { __index = function(_, k)
+    if type(k) ~= 'string' then return nil end
+    local lk = string.lower(k)
+    for key, d in pairs(S.objects) do if d.id and string.lower(d.id) == lk then return { id = k, name = k, model = d.model or '', icon = '', mwscript = d.script } end end
+    if lk == 'player' then return { id = 'player', name = 'player', model = '', icon = '' } end
+    return nil
+  end })
   -- An enum the preview does not list (`Armor.TYPE`, `Actor.EQUIPMENT_SLOT`): each value is its name.
   return setmetatable(t, { __index = function(tt, k)
     if type(k) == 'string' and k:match('^[A-Z][A-Z_]*$') then
@@ -641,6 +650,43 @@ local function weatherRecord(i)
 end
 
 packages['openmw.util'] = function() return util end
+-- core.stats: Morrowind's attributes and skills as OpenMW lists them (by index, and by id:
+-- `core.stats.Skill.records.unarmored`, skill-evolution; `...Attribute.records.personality`, MRF),
+-- each skill with its governing attribute and specialization.
+local STATS
+do
+  local function list(rows)
+    local l = {}
+    for i, r in ipairs(rows) do l[i] = r end
+    return setmetatable(l, { __index = function(_, k) if type(k) == 'string' then local lk = string.lower(k) for _, r in ipairs(rows) do if r.id == lk then return r end end end return nil end })
+  end
+  local attrs = {}
+  for _, a in ipairs({ { 'strength', 'Strength' }, { 'intelligence', 'Intelligence' }, { 'willpower', 'Willpower' }, { 'agility', 'Agility' },
+    { 'speed', 'Speed' }, { 'endurance', 'Endurance' }, { 'personality', 'Personality' }, { 'luck', 'Luck' } }) do
+    attrs[#attrs + 1] = { id = a[1], name = a[2], description = '', icon = 'icons/k/attribute_' .. a[1] .. '.dds' }
+  end
+  local skills = {}
+  -- id, name, governing attribute, specialization: in Morrowind's order (SKIL's index).
+  for _, k in ipairs({ { 'block', 'Block', 'agility', 'combat' }, { 'armorer', 'Armorer', 'endurance', 'combat' },
+    { 'mediumarmor', 'Medium Armor', 'endurance', 'combat' }, { 'heavyarmor', 'Heavy Armor', 'endurance', 'combat' },
+    { 'bluntweapon', 'Blunt Weapon', 'strength', 'combat' }, { 'longblade', 'Long Blade', 'strength', 'combat' },
+    { 'axe', 'Axe', 'strength', 'combat' }, { 'spear', 'Spear', 'endurance', 'combat' }, { 'athletics', 'Athletics', 'speed', 'combat' },
+    { 'enchant', 'Enchant', 'intelligence', 'magic' }, { 'destruction', 'Destruction', 'willpower', 'magic' },
+    { 'alteration', 'Alteration', 'willpower', 'magic' }, { 'illusion', 'Illusion', 'personality', 'magic' },
+    { 'conjuration', 'Conjuration', 'intelligence', 'magic' }, { 'mysticism', 'Mysticism', 'willpower', 'magic' },
+    { 'restoration', 'Restoration', 'willpower', 'magic' }, { 'alchemy', 'Alchemy', 'intelligence', 'magic' },
+    { 'unarmored', 'Unarmored', 'speed', 'magic' }, { 'security', 'Security', 'intelligence', 'stealth' },
+    { 'sneak', 'Sneak', 'agility', 'stealth' }, { 'acrobatics', 'Acrobatics', 'strength', 'stealth' },
+    { 'lightarmor', 'Light Armor', 'agility', 'stealth' }, { 'shortblade', 'Short Blade', 'speed', 'stealth' },
+    { 'marksman', 'Marksman', 'agility', 'stealth' }, { 'mercantile', 'Mercantile', 'personality', 'stealth' },
+    { 'speechcraft', 'Speechcraft', 'personality', 'stealth' }, { 'handtohand', 'Hand-to-hand', 'speed', 'stealth' } }) do
+    skills[#skills + 1] = { id = k[1], name = k[2], attribute = k[3], specialization = k[4], description = '',
+      icon = 'icons/k/' .. k[1] .. '.dds', skillGain = { 1, 1, 1, 1 }, school = nil }
+  end
+  local A, Sk = list(attrs), list(skills)
+  STATS = { Attribute = { records = A, record = function(id) return A[id] end },
+            Skill = { records = Sk, record = function(id) return Sk[id] end } }
+end
 packages['openmw.core'] = function(inst)
   local core = {
     -- The install's (luarun.rs `api_revision`); scripts refuse an OpenMW older than they need.
@@ -668,12 +714,17 @@ packages['openmw.core'] = function(inst)
         FontColor_color_negative = '200,60,30', FontColor_color_health = '200,60,30', FontColor_color_magic = '53,69,159',
         FontColor_color_fatigue = '0,150,60', FontColor_color_misc = '0,205,205', FontColor_color_weapon_fill = '200,60,30',
         FontColor_color_magic_fill = '200,60,30', FontColor_color_background = '0,0,0', FontColor_color_focus = '80,80,80' }
-      if t[k] then return t[k] end
-      -- A font colour not listed: the normal one, rather than nil.
-      if type(k) == 'string' and k:match('^FontColor_') then return '202,165,96' end
-      -- The load order's own numbers (the GMSTs it sets), by name in any case.
-      local n = type(k) == 'string' and S.gmst[string.lower(k)]
+      if type(k) ~= 'string' then return nil end
+      local lk = string.lower(k)
+      -- The load order's own settings first (numbers and text), by name in any case: a GMST's
+      -- name is not case-sensitive (InventoryExtender asks 'fontcolor_color_normal').
+      local n = S.gmst[lk]
       if n ~= nil then return n end
+      n = S.gmstText[lk]
+      if n ~= nil then return n end
+      for name, v in pairs(t) do if string.lower(name) == lk then return v end end
+      -- A font colour not listed: the normal one, rather than nil.
+      if lk:match('^fontcolor_') then return '202,165,96' end
       return nil
     end,
     -- The load order's content files (`content=`), as OpenMW answers: `has` and `indexOf`
@@ -714,7 +765,7 @@ packages['openmw.core'] = function(inst)
       SPELL_TYPE = { Spell = 0, Ability = 1, Blight = 2, Disease = 3, Curse = 4, Power = 5 },
       ENCHANTMENT_TYPE = { CastOnce = 0, CastOnStrike = 1, CastOnUse = 2, ConstantEffect = 3 },
       effects = { records = {} }, spells = { records = {} }, enchantments = { records = {} } },
-    stats = { Attribute = { records = {} }, Skill = { records = {} } },
+    stats = STATS,
     dialogue = { journal = { records = {} }, topic = { records = {} } },
     factions = { records = {} }, regions = { records = {} },
   }
@@ -732,13 +783,41 @@ packages['openmw.async'] = function(inst)
     callback = function(_, fn) return fn end,
   }
 end
-packages['openmw.storage'] = function()
+packages['openmw.storage'] = function(inst)
+  -- As OpenMW gives it: the player's sections to player and menu scripts only, every
+  -- player's to global ones. OpenMW's settings scripts store a group's defaults in
+  -- `storage.playerSection or storage.globalSection`: a global group's defaults went to the
+  -- player's sections, and the global and actor scripts reading them found nothing.
+  local ctx = inst and inst.ctx
+  local player = ctx == 'player' or ctx == 'menu'
   return {
     globalSection = function(n) return section('g:' .. n) end,
-    playerSection = function(n) return section('p:' .. n) end,
-    allPlayers = function() return {} end,
+    playerSection = player and function(n) return section('p:' .. n) end or nil,
+    allPlayers = ctx == 'global' and function() return {} end or nil,
     LIFE_TIME = { Persistent = 0, GameSession = 1, Temporary = 2 },
   }
+end
+local function vfsFile(text)
+  local pos, f = 1, {}
+  local function line(keep) if pos > #text then return nil end
+    local e = string.find(text, '\n', pos, true) or (#text + 1)
+    local l = string.sub(text, pos, keep and e or e - 1) pos = e + 1
+    if not keep then l = string.gsub(l, '\r$', '') end return l end
+  local function one(fmt)
+    if fmt == nil or fmt == '*l' or fmt == 'l' then return line(false) end
+    if fmt == '*L' or fmt == 'L' then return line(true) end
+    if fmt == '*a' or fmt == 'a' then local r = string.sub(text, pos) pos = #text + 1 return r end
+    if fmt == '*n' or fmt == 'n' then local a, b = string.find(text, '^%s*[-+]?%d*%.?%d+[eE]?[-+]?%d*', pos) if not a then return nil end pos = b + 1 return tonumber(string.sub(text, a, b)) end
+    if type(fmt) == 'number' then if pos > #text then return nil end local r = string.sub(text, pos, pos + fmt - 1) pos = pos + fmt return r end
+    error('bad format ' .. tostring(fmt), 3)
+  end
+  function f:read(...) local n = select('#', ...) if n == 0 then return one() end local r = {} for i = 1, n do r[i] = one((select(i, ...))) end return unpack(r, 1, n) end
+  function f:lines(fmt) return function() return one(fmt) end end
+  function f:seek(whence, off) whence = whence or 'cur' off = off or 0
+    if whence == 'set' then pos = off + 1 elseif whence == 'end' then pos = #text + off + 1 else pos = pos + off end return pos - 1 end
+  function f:close() return true end
+  f.fileName = ''
+  return f
 end
 packages['openmw.vfs'] = function()
   return {
@@ -754,8 +833,15 @@ packages['openmw.vfs'] = function()
       end
     end,
     fileExists = function(path) local p = string.lower(path) for _, f in ipairs(S.files) do if string.lower(f) == p then return true end end return sources[p] ~= nil end,
-    open = function() return nil, 'files are not read in the preview' end,
-    lines = function() return function() return nil end end,
+    -- The texts the runner was given (scripts and what they require, OpenMW's own): a file
+    -- handle as OpenMW's (read '*a' / '*l' / '*n' / a count, lines, seek, close). MSS reads
+    -- OpenMW's music script this way. Any other file: nil and why, as OpenMW for a missing one.
+    open = function(path) local t = sources[string.lower(string.gsub(tostring(path), '\\', '/'))]
+      if not t then return nil, 'files other than scripts are not read in the preview: ' .. tostring(path) end
+      return vfsFile(t) end,
+    lines = function(path) local t = sources[string.lower(string.gsub(tostring(path), '\\', '/'))]
+      if not t then error('Can not open file ' .. tostring(path), 2) end
+      return vfsFile(t):lines() end,
   }
 end
 packages['openmw.debug'] = function() return { isAIEnabled = function() return true end, isCollisionEnabled = function() return true end, isGodMode = function() return false end, toggleAI = function() end, RENDER_MODE = {} } end
@@ -996,7 +1082,7 @@ packages['openmw.animation'] = function(inst)
   }, { __index = function(_, n) once('anim:' .. tostring(n), 'skip', 'animation.' .. tostring(n) .. ' is not run in the preview') return function() end end })
 end
 packages['openmw.ambient'] = function(inst)
-  if inst.ctx ~= 'player' then error('openmw.ambient is only for player scripts', 3) end
+  if inst.ctx ~= 'player' and inst.ctx ~= 'menu' then error('openmw.ambient is only for player and menu scripts', 3) end
   return {
     playSound = function(id, opt) emit({ k = 'sound', id = id, vol = opt and opt.volume }) end,
     playSoundFile = function(f) emit({ k = 'say', file = f, key = 'player' }) end,
@@ -1112,6 +1198,18 @@ function __wg_ui_event(id, path, event, x, y, text)
   call(el and el.__inst or { path = 'ui' }, fn, arg, node)
 end
 
+-- OpenMW's layers (files/data/mygui/openmw_layers.xml), each the screen's size: `ui.layers[1].size`,
+-- `ui.layers.indexOf('Modal')` (BetterBars, HUDweaponCharge).
+local LAYERS = { 'Scene', 'HUD', 'Windows', 'Debug', 'Notification', 'Popup', 'DragAndDrop', 'MessageBox', 'Modal', 'Tooltip', 'Console', 'LoadingScreen', 'Pointer', 'Video', 'Settings' }
+local function uiLayers()
+  local size = v2(S.screen and S.screen[1] or 1920, S.screen and S.screen[2] or 1080)
+  local l = {}
+  for i, n in ipairs(LAYERS) do l[i] = { name = n, size = size } end
+  l.indexOf = function(name) for i, n in ipairs(LAYERS) do if n == name then return i end end return nil end
+  l.insertAfter = function(after, name) if not l.indexOf(name) then table.insert(LAYERS, (l.indexOf(after) or #LAYERS) + 1, name) end end
+  l.insertBefore = function(before, name) if not l.indexOf(name) then table.insert(LAYERS, l.indexOf(before) or 1, name) end end
+  return l
+end
 packages['openmw.ui'] = function(inst)
   if inst.ctx ~= 'player' and inst.ctx ~= 'menu' then error('openmw.ui is only for player scripts', 3) end
   local any = setmetatable({}, { __index = function(_, k) return k end })
@@ -1135,7 +1233,7 @@ packages['openmw.ui'] = function(inst)
     ALIGNMENT = { Start = 'Start', Center = 'Center', End = 'End' },
     CONSOLE_COLOR = any, WINDOW = any, MODE = any,
     texture = function(t) return { path = t.path, offset = t.offset, size = t.size, __texture = true } end,
-    layers = setmetatable({ indexOf = function() return 1 end, insertAfter = function() end, insertBefore = function() end }, { __index = function() return nil end }),
+    layers = uiLayers(),
     screenSize = function() return v2(S.screen and S.screen[1] or 1920, S.screen and S.screen[2] or 1080) end,
     _getMenuTransparency = function() return 1 end,
     _getDefaultFontSize = function() return 16 end,
@@ -1181,6 +1279,7 @@ for i = 1, 9 do KEYS['_' .. i] = 29 + i end
 KEYS._0 = 39
 for i = 1, 12 do KEYS['F' .. i] = 57 + i end
 for i = 0, 9 do KEYS['NP_' .. i] = i == 0 and 98 or 88 + i end
+local acts, trigs = {}, {}
 packages['openmw.input'] = function()
   local any = setmetatable({}, { __index = function(_, k) return k end })
   local down = function(c) return S.keysDown[c] == true end
@@ -1189,7 +1288,11 @@ packages['openmw.input'] = function()
     isAltPressed = function() return down(226) or down(230) end, isSuperPressed = function() return false end,
     getKeyName = function(c) for n, v in pairs(KEYS) do if v == c then return (n:gsub('^_', '')) end end return '' end,
     getRangeActionValue = function() return 0 end, KEY = setmetatable(KEYS, { __index = function(_, k) return k end }), ACTION = any, CONTROLLER_BUTTON = any, CONTROLLER_AXIS = any,
-    registerAction = function() end, registerActionHandler = function() end, registerTrigger = function() end, registerTriggerHandler = function() end,
+    -- What was registered, kept as OpenMW keeps it (`input.triggers[key]`, `input.actions[key]`:
+    -- the settings renderers test for their own before registering).
+    actions = acts, triggers = trigs,
+    registerAction = function(o) if type(o) == 'table' and o.key then acts[o.key] = o end end, registerActionHandler = function() end,
+    registerTrigger = function(o) if type(o) == 'table' and o.key then trigs[o.key] = o end end, registerTriggerHandler = function() end,
     getMouseMoveX = function() return 0 end, getMouseMoveY = function() return 0 end, isIdle = function() return true end,
     isMouseButtonPressed = function() return false end, isControllerButtonPressed = function() return false end, getAxisValue = function() return 0 end,
     getNumberActionValue = function() return 0 end, bindAction = function() end, activateTrigger = function() end,
@@ -1202,7 +1305,10 @@ end
 -- The built-in interfaces whose scripts the preview does not run (they need the game's camera,
 -- input and HUD): answered by a stand-in whose every function does nothing, so a mod that
 -- calls `I.Controls.overrideMovementControls(true)` goes on.
-local STAND_IN = { Controls = true, Camera = true, GamepadControls = true, Projectiles = true }
+-- Each only in the scripts OpenMW gives it to (builtin.omwscripts): the player's controls and
+-- camera to the player, Projectiles to global scripts. Answering everywhere misled mods that
+-- test for one to learn where they run (TakeCover's `if I.Controls or I.AI` in a global script).
+local STAND_IN = { Controls = 'player', Camera = 'player', GamepadControls = 'player', Projectiles = 'global' }
 local function standIn(name) return setmetatable({ version = 0 }, { __index = function(_, k) once('iface:' .. name .. '.' .. tostring(k), 'skip', 'I.' .. name .. '.' .. tostring(k) .. ' is not run in the preview') return function() end end }) end
 -- The menu's Settings interface, for the mods' MENU scripts (run once at the start, `__wg_start`):
 -- `registerGroup` stores each setting's default where OpenMW's does (`settings/common.lua`:
@@ -1229,7 +1335,12 @@ packages['openmw.interfaces'] = function(inst)
     local v
     if inst.ctx == 'global' then v = ifaceGlobal[name]
     else local l = ifaceLocal[inst.key] v = l and l[name] or nil end
-    if v == nil and STAND_IN[name] then v = standIn(name) end
+    if v == nil and STAND_IN[name] == inst.ctx then
+      v = standIn(name)
+      -- Its table of projectile types, as `mechanics/projectiles.lua` has it (OpenMW's
+      -- spellcasting script reads `I.Projectiles.TYPES.Magic`).
+      if name == 'Projectiles' then rawset(v, 'TYPES', { Magic = 'Magic', Weapon = 'Weapon' }) end
+    end
     return v
   end })
 end
@@ -1252,6 +1363,12 @@ local function sandbox(inst)
   local env = {}
   for _, n in ipairs(BASE) do env[n] = G[n] end
   env.unpack = unpack
+  -- Lua 5.2's table.unpack and table.pack, as OpenMW's LuaJIT has them (fresh-loot calls
+  -- table.unpack): the scripts' own table, so one script's change stays its own.
+  local tbl = {} for k, v in pairs(table) do tbl[k] = v end
+  tbl.unpack = tbl.unpack or unpack
+  tbl.pack = tbl.pack or function(...) return { n = select('#', ...), ... } end
+  env.table = tbl
   env.print = function(...) local t = {} for i = 1, select('#', ...) do t[i] = tostring((select(i, ...))) end log('print', inst.path, table.concat(t, ' ')) end
   env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
   env._G = env
@@ -1369,6 +1486,7 @@ function __wg_start(arg)
   end
   S.apiRevision = a.apiRevision
   S.gmst = a.gmst or {}
+  S.gmstText = a.gmstText or {}
   if a.state then __wg_merge(a.state) end
   -- The mods' MENU scripts first, as OpenMW runs them before a game: once, for the settings
   -- groups they register (their defaults are what the player and global scripts then read),

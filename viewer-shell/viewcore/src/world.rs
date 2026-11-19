@@ -34,6 +34,8 @@ pub struct World {
     pub record_where: HashMap<String, Vec<(usize, Tag)>>,
     /// Numeric game settings, by lowercased name (the last plugin's).
     pub gmst: HashMap<String, f32>,
+    /// The text game settings (STRV), lower-case names: `core.getGMST('sFatigue')`.
+    pub gmst_text: HashMap<String, String>,
     /// Each NPC's and creature's AI Hello, by lowercased id.
     pub hello: HashMap<String, u8>,
     /// Wraithguard: an NPC's or creature's AI ratings from its AIDT, `[hello, fight, flee,
@@ -121,6 +123,9 @@ impl World {
             self.npc.merge(e.npc);
             for (k, v) in e.gmst {
                 self.gmst.insert(k, v);
+            }
+            for (k, v) in e.gmst_text {
+                self.gmst_text.insert(k, v);
             }
             for (k, v) in e.hello {
                 self.hello.insert(k, v);
@@ -228,6 +233,7 @@ struct Extras {
     ids: Vec<ordercore::records::Entry>,
     npc: crate::npc::NpcRaw,
     gmst: Vec<(String, f32)>,
+    gmst_text: Vec<(String, String)>,
     hello: Vec<(String, u8)>,
     ai_rates: Vec<(String, [u8; 4])>,
     ai_packages: Vec<(String, Vec<(String, String)>)>,
@@ -282,6 +288,9 @@ fn extras_of(buf: &[u8]) -> Extras {
                 }
             }
             b"GMST" => {
+                if let Some(g) = gmst_text(rec.body) {
+                    e.gmst_text.push(g);
+                }
                 if let Some(g) = gmst_number(rec.body) {
                     e.gmst.push(g);
                 }
@@ -727,6 +736,20 @@ fn ai_packages(body: &[u8]) -> Option<(String, Vec<(String, String)>)> {
     if id.is_empty() { None } else { Some((id.to_ascii_lowercase(), out)) }
 }
 
+/// A GMST's text: its STRV (`None` for a number setting). An empty STRV is "" (OpenMW's too).
+fn gmst_text(body: &[u8]) -> Option<(String, String)> {
+    let mut name = String::new();
+    let mut val = None;
+    for s in Subs::new(body) {
+        match &s.tag {
+            b"NAME" => name = cstring(s.data),
+            b"STRV" => val = Some(cstring(s.data)),
+            _ => {}
+        }
+    }
+    if name.is_empty() { None } else { val.map(|v| (name.to_ascii_lowercase(), v)) }
+}
+
 /// A GMST's number: its INTV or FLTV (`None` for a string setting).
 fn gmst_number(body: &[u8]) -> Option<(String, f32)> {
     let mut name = String::new();
@@ -871,6 +894,19 @@ mod wraithguard_world_tests {
         }
         let wolf = [sub(b"NAME", b"wolf\0"), sub(b"NPDT", &cdt)].concat();
         assert_eq!(super::actor_stats(*b"CREA", &wolf), Some(("wolf".into(), Some([30, 0, 0, 3, 40, 55, 45, 9, 70, -1]))));
+    }
+
+    /// A text GMST (STRV) is read as text, a number one is not (`core.getGMST('sFatigue')`, NCG).
+    #[test]
+    fn a_text_game_setting_is_read() {
+        let sub = |t: &[u8; 4], d: &[u8]| { let mut v = t.to_vec(); v.extend((d.len() as u32).to_le_bytes()); v.extend(d); v };
+        let mut g = sub(b"NAME", b"sFatigue\0");
+        g.extend(sub(b"STRV", b"Fatigue"));
+        assert_eq!(super::gmst_text(&g), Some(("sfatigue".to_string(), "Fatigue".to_string())));
+        assert_eq!(super::gmst_number(&g), None);
+        let mut n = sub(b"NAME", b"iLevelUp01Mult\0");
+        n.extend(sub(b"INTV", &2i32.to_le_bytes()));
+        assert_eq!(super::gmst_text(&n), None);
     }
 
     /// The record's own AI packages, in order, as MWScript's Ai* functions take them.

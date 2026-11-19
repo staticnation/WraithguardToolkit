@@ -35,7 +35,7 @@ pub const PRELUDE: &str = include_str!("luarun.lua");
 /// one `combat/interface.lua`; from it `interface_local.lua` and `interface_global.lua`, which
 /// is where `I.Combat` comes from (Static's 0.52: ten mods and OpenMW's own music and combat
 /// scripts stopped at a nil `Combat`). The spellcasting interfaces likewise (`I.SpellCasting`).
-pub const BUILTINS: [&str; 27] = [
+pub const BUILTINS: [&str; 28] = [
     "scripts/omw/mwui/init.lua",
     "scripts/omw/settings/global.lua",
     "scripts/omw/settings/player.lua",
@@ -56,6 +56,8 @@ pub const BUILTINS: [&str; 27] = [
     "scripts/omw/spellcasting/interface_global.lua",
     "scripts/omw/spellcasting/local.lua",
     "scripts/omw/spellcasting/global.lua",
+    // `I.Projectiles` (its TYPES), which OpenMW's spellcasting script reads.
+    "scripts/omw/mechanics/projectiles.lua",
     "scripts/omw/combat/local.lua",
     "scripts/omw/combat/global.lua",
     "scripts/omw/ui.lua",
@@ -631,8 +633,10 @@ pub fn is_off(off: &[String], path: &str) -> bool {
 /// (`core.contentFiles`). `off`: the scripts the person turned off in the Scripts panel
 /// (Static: "selective running"), which are not started; their text is still read, so a
 /// script that `require`s one as a module still finds it.
-/// `gmst`: the load order's numeric game settings (lower-case names), for `core.getGMST`.
-pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String], off: &[String], gmst: &[(String, f32)]) -> String {
+/// `gmst`: the load order's numeric game settings (lower-case names), for `core.getGMST`;
+/// `gmst_text` its text ones (`sFatigue`).
+#[allow(clippy::too_many_arguments)]
+pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String], off: &[String], gmst: &[(String, f32)], gmst_text: &[(String, String)]) -> String {
     let mut scripts: Vec<(String, Vec<String>)> = Vec::new();
     let builtins_off = off.iter().any(|o| o == OFF_BUILTINS);
     if let Some(r) = resources.filter(|_| !builtins_off) {
@@ -720,6 +724,21 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
                 escape_into(k, &mut g);
                 g.push_str("\":");
                 g.push_str(&format!("{v}"));
+            }
+            g.push('}');
+            g
+        })
+        .raw("gmstText", &{
+            let mut g = String::from("{");
+            for (i, (k, v)) in gmst_text.iter().enumerate() {
+                if i > 0 {
+                    g.push(',');
+                }
+                g.push('"');
+                escape_into(k, &mut g);
+                g.push_str("\":\"");
+                escape_into(v, &mut g);
+                g.push('"');
             }
             g.push('}');
             g
@@ -816,7 +835,7 @@ mod tests {
             I.AI.startPackage({ type = 'Travel', destPosition = util.vector3(600, 0, 0) }) print('package', I.AI.getActivePackage().type)\n\
             print('interfaces', I.Combat ~= nil, I.AnimationController ~= nil) end } }";
         let vfs = Vfs::with_roots(&[]);
-        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[], &[], &[]);
+        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[], &[], &[], &[]);
         // The mod's script, as the load order would register it.
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         start = start.replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/ai.lua\",\"flags\":[\"NPC\"]},", 1)
@@ -985,10 +1004,59 @@ mod tests {
         assert!(a.contains(r#""k":"ai""#) && a.contains(r#""kind":"wander""#) && a.contains(r#""idle":[60,0,20,0,0,0,0,0]"#), "{a}");
     }
 
+    /// The second 2026-11-19 log's failures, each as the mod did it: a global group's settings
+    /// read from an actor (FollowerDetectionUtil, Sneak), `table.unpack` (fresh-loot), the
+    /// player's interfaces absent from a global script (TakeCover), `I.Projectiles.TYPES`,
+    /// skills and attributes by id (skill-evolution, MRF), GMSTs in any case and text ones
+    /// (InventoryExtender, NCG), records by id and `record(nil)` (FriendlierFire, ngarde),
+    /// reading a script through `vfs.open` (MSS), and a menu script's ambient, triggers and
+    /// layers (Sneak's renderers, BetterBars).
+    #[test]
+    fn the_second_log_s_mods_go_on() {
+        let global = "local s = require('openmw.storage') local I = require('openmw.interfaces') local core = require('openmw.core')\n\
+            s.globalSection('SettingsX'):set('every', 0.2)\n\
+            print('g', s.playerSection == nil, I.Controls == nil, I.Projectiles.TYPES.Magic, table.unpack({ 7, 8 }), table.pack(1, 2).n,\n\
+              core.stats.Skill.records.unarmored.attribute, core.stats.Attribute.records.personality.name, #core.stats.Skill.records,\n\
+              core.getGMST('fontcolor_color_normal'), core.getGMST('sFatigue'), core.getGMST('SFATIGUE'))\n\
+            return {}";
+        let npc = "local s = require('openmw.storage') local types = require('openmw.types') local self = require('openmw.self') local vfs = require('openmw.vfs')\n\
+            local n = 0\n\
+            return { engineHandlers = { onUpdate = function() n = n + 1 if n > 1 then return end\n\
+              local f = vfs.open('scripts/t/g.lua')\n\
+              print('a', s.globalSection('SettingsX'):get('every'), s.playerSection == nil, types.NPC.records[self.recordId] ~= nil,\n\
+                types.NPC.records[3] == nil, types.Weapon.record(nil) == nil, f:read('*l'), select(2, vfs.open('x.txt')) ~= nil)\n\
+            end } }";
+        let menu = "local ambient = require('openmw.ambient') local input = require('openmw.input') local ui = require('openmw.ui')\n\
+            if not input.triggers['MenuMouseWheelUp'] then input.registerTrigger({ key = 'MenuMouseWheelUp', l10n = 'none', name = 'x', description = '' }) end\n\
+            print('m', ambient ~= nil, input.triggers['MenuMouseWheelUp'] ~= nil, ui.layers.indexOf('Modal') ~= nil, ui.layers[1].size.x)\n\
+            return {}";
+        let src = |t: &str| {
+            let mut e = String::from("\"");
+            crate::json::escape_into(t, &mut e);
+            e.push('"');
+            e
+        };
+        let start = format!(
+            r#"{{"scripts":[{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}},{{"path":"scripts/t/n.lua","flags":["NPC"]}},{{"path":"scripts/t/m.lua","flags":["MENU"]}}],"sources":{{"scripts/t/g.lua":{},"scripts/t/n.lua":{},"scripts/t/m.lua":{}}},"files":[],"weathers":["Clear"],"gmst":{{}},"gmstText":{{"sfatigue":"Fatigue"}}}}"#,
+            src(global),
+            src(npc),
+            src(menu)
+        );
+        let mut r = Runner::new(None, true).unwrap();
+        let a = r.call("__wg_start", &start).unwrap();
+        let step = r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}},"actors":{"n1":{"hp":50}}}"#;
+        let b = r.call("__wg_step", step).unwrap();
+        let all = format!("{a}{b}");
+        assert!(all.contains(r#""text":"g true true Magic 7 2 speed Personality 27 202,165,96 Fatigue Fatigue""#), "{all}");
+        assert!(all.contains(r#""text":"a 0.2 true true true true local s = require('openmw.storage') local I = require('openmw.interfaces') local core = require('openmw.core') true""#), "{all}");
+        assert!(all.contains(r#""text":"m true true true 1920""#), "{all}");
+        assert!(!all.contains("error"), "{all}");
+    }
+
     /// What Static's load order called that the preview did not answer (2026-11-19's log): each
     /// answered, so the mods go on - skills and attributes, the AI ratings, races, the older
     /// field names, colours with methods, every font colour and the load order's GMSTs, the
-    /// async ray, the input switches, and a stand-in for the interfaces the preview does not run.
+    /// async ray, the input switches; the player's `I.Controls` is not an NPC's (OpenMW's either).
     #[test]
     fn what_a_big_load_order_calls_is_answered() {
         let script = "local types = require('openmw.types') local self = require('openmw.self') local core = require('openmw.core')\n\
@@ -997,12 +1065,11 @@ mod tests {
             return { engineHandlers = { onUpdate = function() n = n + 1 if n > 1 then return end\n\
               local got\n\
               nearby.asyncCastRenderingRay(function(r) got = r end, util.vector3(0, 0, 0), util.vector3(0, 0, 10))\n\
-              I.Controls.overrideMovementControls(true)\n\
               print('ok', types.NPC.stats.skills.marksman(self).base, types.Actor.stats.attributes.speed(self).modified,\n\
                 types.Actor.stats.ai.flee(self).base, types.NPC.races.records['dark elf'].id, util.color.rgb(1, 0, 0):asHex(),\n\
                 core.getGMST('FontColor_color_count'), core.getGMST('FontColor_color_anything'), core.getGMST('fCombatDistance'),\n\
                 got ~= nil, input.CONTROL_SWITCH.Controls, types.Actor.stance(self), types.NPC.isSwimming(self), types.Actor.getWalkSpeed(self),\n\
-                next(types.Player.spells(self)) == nil, types.Player.activeSpells ~= nil, self.owner.recordId == nil, types.NPC.record(self).model)\n\
+                next(types.Player.spells(self)) == nil, types.Player.activeSpells ~= nil, self.owner.recordId == nil, types.NPC.record(self).model, I.Controls == nil)\n\
             end } }";
         let mut esc = String::from("\"");
         crate::json::escape_into(script, &mut esc);
@@ -1012,7 +1079,7 @@ mod tests {
         r.call("__wg_start", &start).unwrap();
         let step = r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","model":"guard.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}},"actors":{"n1":{"hp":50,"rates":[30,70,40,0],"walk":170,"run":330}}}"#;
         let got = r.call("__wg_step", step).unwrap();
-        assert!(got.contains(r#""text":"ok 30 50 40 dark elf ff0000 223,201,159 202,165,96 128 true playercontrols 0 false 170 true true true guard.nif""#), "{got}");
+        assert!(got.contains(r#""text":"ok 30 50 40 dark elf ff0000 223,201,159 202,165,96 128 true playercontrols 0 false 170 true true true guard.nif true""#), "{got}");
     }
 
     /// Static's 2026-11-19 log, the rest: a mod's settings registered in its MENU script have
@@ -1176,7 +1243,7 @@ mod tests {
             ui.create({ layer = 'Windows', template = I.MWUI.templates.boxSolid, content = ui.content { { template = I.MWUI.templates.textHeader, props = { text = 'Mod window' } } } }) end } }";
         let vfs = Vfs::with_roots(&[]);
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
-        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[], &[], &[])
+        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[], &[], &[], &[])
             .replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/w.lua\",\"flags\":[\"PLAYER\"]},", 1)
             .replacen("\"sources\":{", &format!("\"sources\":{{\"scripts/t/w.lua\":{},", q(script)), 1);
         let a = r.call("__wg_start", &start).unwrap();
