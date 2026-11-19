@@ -287,6 +287,7 @@
 
 ### Fixed
 
+- Scripts: actors stand on what is under them, as the walking camera does: the higher of the land and the objects' collision surfaces under a step above their feet. They climb stairs and raised floors a step at a time, walk down off them, and have a floor indoors, where there is no land.
 - Scripts: walking actors no longer snap back ("rubberbands"). Each time the scene was drawn again it took where every actor stood when the drawing began; live actors are now put straight where the scripts have them once it lands. And it is drawn again far less: an object replaying the group it already plays (a mist's `PlayGroup idle2 1` every frame) no longer redraws the scene, only a change that lasts 300 ms does.
 - Scripts: actors collide as the walking camera does: a step into the objects' collision shapes (knee and chest rays, the same collision world, built around the camera) stops them, and after a moment a wanderer picks somewhere else and anything else plans its way again. Actors keep out of the walking player's room, and the walking body bumps into actors where they stand now.
 - Scripts: actors walked under the AI but did not move on screen ("not drawn live" in the Actors list). Turning the Scripts on asks for the scene to be drawn again with each actor in batches of its own, but whether the Scripts run was not part of the scene's cache key, so the scene already on screen was kept. It is now; the boot check fails when the AI's actor is not drawn live.

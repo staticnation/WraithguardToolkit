@@ -712,9 +712,7 @@ const WgScripts={
     const p=this.posOf(A.t), yaw=r[2];
     // Forward is +y turned by the yaw (as `stepTo` faces: atan2(dx, dy)); right is +x turned.
     p[0]+=(Math.sin(yaw)*f+Math.cos(yaw)*sd)*sp; p[1]+=(Math.cos(yaw)*f-Math.sin(yaw)*sd)*sp;
-    const R=App.R, o=(App._scene && App._scene.origin)||[0,0];
-    const gz=R && R.groundZ? R.groundZ(p[0]-o[0], p[1]-o[1]) : null;
-    if(gz!=null) p[2]=gz;
+    p[2]=this.floorAt(p, null, 0);
     if(typeof WgAI==='object' && A.key) WgAI.room(A.key, p);
     this.place(A.t, {pos:p, rot:r});
     A._moved=true; A._running=!!c.run;
@@ -811,7 +809,7 @@ const WgScripts={
     const p=this.posOf(t), dx=goal[0]-p[0], dy=goal[1]-p[1], d=Math.hypot(dx, dy);
     if(d<=near) return true;
     const s=Math.min(step, d-near*0.9);
-    const R=App.R, o=(App._scene && App._scene.origin)||[0,0];
+    const o=(App._scene && App._scene.origin)||[0,0];
     /* What the walking camera collides with stops an actor too (71_wg_walk.js `aiBlocked`:
        the objects' collision shapes, at the knee and the chest): it stands, facing the way
        it meant to go, and `go` gives the leg up after a moment. */
@@ -822,11 +820,24 @@ const WgScripts={
     p[0]+=dx/d*s; p[1]+=dy/d*s;
     // Room: out of the other actors' way, and the walking player's (77_wg_ai.js).
     if(typeof WgAI==='object' && t.key) WgAI.room(t.key, p);
-    const gz=R && R.groundZ? R.groundZ(p[0]-o[0], p[1]-o[1]) : null;
-    p[2]=gz!=null? gz : (goal[2]!=null && Math.abs(goal[2]-p[2])<400? p[2]+(goal[2]-p[2])*Math.min(1, s/d) : p[2]);
+    p[2]=this.floorAt(p, goal, s/d);
     const r=this.rotOf(t); r[2]=Math.atan2(dx, dy);
     this.place(t, {pos:p, rot:r});
     return false;
+  },
+  /** The height an actor stepping to `p` (world units, its feet's height still the old one)
+   *  stands at: on the land and on the objects' collision surfaces, a step up at most
+   *  (71_wg_walk.js `aiFloor`); with neither under it, the land, else toward the goal's
+   *  height by `frac` of the way, as before. */
+  floorAt(p, goal, frac){
+    const R=App.R, o=(App._scene && App._scene.origin)||[0,0];
+    const gz=R && R.groundZ? R.groundZ(p[0]-o[0], p[1]-o[1]) : null;
+    if(typeof WgWalk==='object' && WgWalk.aiFloor){
+      const f=WgWalk.aiFloor(p[0]-o[0], p[1]-o[1], p[2], gz);
+      if(f!=null) return f;
+    }
+    if(gz!=null) return gz;
+    return goal && goal[2]!=null && Math.abs(goal[2]-p[2])<400? p[2]+(goal[2]-p[2])*Math.min(1, frac) : p[2];
   },
   face(t, at){ const p=this.posOf(t), r=this.rotOf(t); const z=Math.atan2(at[0]-p[0], at[1]-p[1]); if(Math.abs(r[2]-z)>0.05){ r[2]=z; this.place(t, {rot:r}); } },
   /** One swing of a fight, roughly as the game weighs it: the chance to hit is the

@@ -67,10 +67,18 @@ module.exports = async (t) => {
   t.ok(x > 300 && x < 500, 'the wall stops it short of it: x ' + Math.round(x));
   t.ok(A._route === null || A._blockedT < 0.8, 'held a moment, the leg is given up rather than pushed at forever');
 
-  // No wall in the way: it walks on (the same world, going the other way).
+  // No wall in the way: it walks on (the same world, going the other way) - up onto a raised
+  // floor 20 high from x -300 to -200 (a step: climbed), and down off it again.
+  const floor = [-300, -1000, 20, -200, -1000, 20, -200, 1000, 20, -300, -1000, 20, -200, 1000, 20, -300, 1000, 20];
+  const all = new Float32Array(tris.length + floor.length); all.set(tris); all.set(floor, tris.length);
+  Wk._ai._world.tris = all;
+  for (let gx = -2; gx <= -1; gx++) for (let gy = -4; gy <= 4; gy++) grid.set(gx + ',' + gy, [2, 3]);
   S.ai(walker, 'travel', ['-600', '0', '0'], { self: walker }, true);
-  for (let i = 0; i < 200; i++) { now += 50; S.frame(0.05); }
+  const heights = [];
+  for (let i = 0; i < 200; i++) { now += 50; S.frame(0.05); const q = S.posOf(walker); heights.push([Math.round(q[0]), Math.round(q[2])]); }
   t.ok(S.posOf(walker)[0] < -500, 'away from the wall it walks freely: x ' + Math.round(S.posOf(walker)[0]));
+  t.ok(heights.some(([x, z]) => x < -200 && x > -300 && z === 20), 'up onto the raised floor: ' + JSON.stringify(heights.filter(([x]) => x < -150 && x > -350)));
+  t.ok(heights.every(([x, z]) => (x < -300 || x > -200) ? z === 0 : true), 'and down off it, on the land again');
 
   // The walking player: an actor stepping where the player stands is kept out of its room.
   ctx.App.R.walk = true;

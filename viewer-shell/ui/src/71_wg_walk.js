@@ -227,6 +227,24 @@ const WgWalk={
     }
     return false;
   },
+  /** Where an actor standing at (x, y) with its feet at `feet` (renderer units) stands: as
+   *  the walking camera finds its floor (06_gl.js `_floorAt`), the higher of the land and
+   *  the first collision surface under a step above its feet - so it climbs stairs and
+   *  raised floors up to a step high, walks down off them, and has a floor indoors, where
+   *  there is no land. `gz` is the land's height there (null for none). Null for nothing
+   *  found (the world not built yet, Collision shapes off, nothing under it). */
+  aiFloor(x, y, feet, gz){
+    const top=feet+WALK.step;
+    let best=null;
+    if(gz!=null && isFinite(gz) && gz<=top+0.5) best=gz;
+    if(this.st.collide){
+      const R=App.R, c=R && R.cam;
+      if(c) this.watch([c.tx, c.ty], this._ai);
+      const W=this._ai._world;
+      if(W){ const h=this.rayIn(W, [x, y, top], [0, 0, -1], 4096); if(h && isFinite(h.t)){ const z=top-h.t; if(best==null || z>best) best=z; } }
+    }
+    return best;
+  },
   async build(picks, at, S){
     S=S||this;
     S._building=true;
