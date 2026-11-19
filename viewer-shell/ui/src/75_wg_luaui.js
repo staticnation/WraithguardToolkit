@@ -11,7 +11,9 @@
    the node's own callback. Each layer is its own height, as OpenMW stacks them.
 
    A Container is as big as what it holds, as in OpenMW: its children share one grid cell,
-   each moved by its position. Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
+   each moved by its position. A node with a size cuts what it holds to its bounds, as
+   OpenMW's widgets do. An element inside another's content is drawn as part of that window
+   (the engine sends the window whenever either is updated). Copyright (c) 2026 StaticNation, GPL-2.0 as part of this page.
    ===================================================================================== */
 const WgLuaUI={
   els:new Map(),          // element id -> its top div
@@ -74,8 +76,15 @@ const WgLuaUI={
     }else s.position='relative';
     // Its size: given (parts of the parent and pixels), else as big as what it holds.
     const rs=p.relativeSize||{}, sz=p.size||{};
-    if(this.px(rs.x) || this.px(sz.x)) s.width=this.len(rs.x, sz.x);
-    if(this.px(rs.y) || this.px(sz.y)) s.height=this.len(rs.y, sz.y);
+    const sizedX=!!(this.px(rs.x) || this.px(sz.x)), sizedY=!!(this.px(rs.y) || this.px(sz.y));
+    if(sizedX) s.width=this.len(rs.x, sz.x);
+    if(sizedY) s.height=this.len(rs.y, sz.y);
+    /* What it holds is cut to its bounds, as OpenMW's widgets (MyGUI) cut theirs: Horizontal
+       Compass shows its letter strip, three 2048-wide copies side by side, through a 420-wide
+       widget and slides the strip behind it - uncut, the whole strip was drawn across the top
+       of the screen. Only a node with a size of its own: one without is as big as what it
+       holds here. */
+    if(sizedX && sizedY && t!=='Text' && t!=='TextEdit') s.overflow='hidden';
     if(p.anchor && (this.px(p.anchor.x) || this.px(p.anchor.y))) s.transform='translate('+(-this.px(p.anchor.x)*100)+'%,'+(-this.px(p.anchor.y)*100)+'%)';
     if(p.visible===false) s.display='none';
     if(p.alpha!=null) s.opacity=String(p.alpha);

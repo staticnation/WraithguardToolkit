@@ -129,7 +129,12 @@ local S = {
 }
 local OUT, LOG = {}, {}
 local current          -- the script running now
-local function emit(e) OUT[#OUT + 1] = e end
+-- A window drawn again (`k = 'ui'`) replaces the one already waiting for the same element, so
+-- a script that updates its parts many times a frame sends the window once.
+local function emit(e)
+  if e.k == 'ui' then for i = #OUT, 1, -1 do local o = OUT[i] if o.k == 'ui' and o.id == e.id then OUT[i] = e return end end end
+  OUT[#OUT + 1] = e
+end
 local said = {}
 local function log(kind, path, text) LOG[#LOG + 1] = { kind = kind, path = path or (current and current.path) or '', text = tostring(text) } end
 local function once(key, kind, text) if not said[key] then said[key] = true log(kind, nil, text) end end
@@ -1125,10 +1130,11 @@ end
 -- A node as drawn: its template under it (template props first, the node's own over them;
 -- the node's content into the template's `external.slot`).
 local resolve
+local resolving   -- the window being sent: an element inside it is drawn as part of it
 resolve = function(node, nodes, path, depth)
   if depth > 40 then return nil end
   if isElement(node) then
-    node.__parents = node.__parents or {}
+    if resolving and node ~= resolving then rawset(node, '__inside', resolving) end
     return resolve(node.layout or {}, nodes, path, depth + 1)
   end
   if type(node) ~= 'table' then return nil end
@@ -1172,15 +1178,46 @@ resolve = function(node, nodes, path, depth)
   out.content = kids
   return out
 end
+-- The windows to draw at the end of this call, as OpenMW renders a created or updated element
+-- at the end of the frame: what a script adds to one's content after `ui.create` (the
+-- compass's parts) is drawn with it.
+local uiPending, uiOrder = {}, {}
+local uiSendNow, uiFlush
 local function uiSend(el)
+  if not uiPending[el] then uiPending[el] = true uiOrder[#uiOrder + 1] = el end
+end
+uiFlush = function()
+  local list = uiOrder
+  uiPending, uiOrder = {}, {}
+  for _, el in ipairs(list) do if not el.__gone then uiSendNow(el) end end
+end
+uiSendNow = function(el)
   local nodes = {}
+  resolving = el
   local tree = resolve(el.layout or {}, nodes, 'r', 0)
+  resolving = nil
   uiNodes[el.__id] = nodes
   emit({ k = 'ui', id = el.__id, layer = (el.layout and el.layout.layer) or 'Windows', tree = tree })
 end
 local Element = {}
 Element.__index = Element
-function Element:update() if not self.__gone then uiSend(self) end end
+-- An element is drawn as OpenMW draws it: one with a layer is a window of its own; one put in
+-- another's content is part of that window, so updating it draws that window again (with it
+-- where its parent puts it). Sent alone it was laid out against the whole screen: BetterBars'
+-- health bar, `relativeSize = v2(0, 1)`, ran down the screen's left side; the compass's strip
+-- and cell name were drawn apart from it. One in no window and with no layer is not drawn.
+function Element:update()
+  if self.__gone then return end
+  local top = self
+  for _ = 1, 40 do
+    if top.layout and top.layout.layer then break end
+    local up = rawget(top, '__inside')
+    if not up then break end
+    top = up
+  end
+  if top.__gone or not (top.layout and top.layout.layer) then return end
+  uiSend(top)
+end
 function Element:destroy() if not self.__gone then self.__gone = true uiElements[self.__id] = nil uiNodes[self.__id] = nil emit({ k = 'uiDestroy', id = self.__id }) end end
 
 -- A click or typed text from the page: the node's own callback, as OpenMW calls it.
@@ -1465,6 +1502,7 @@ local function status()
   return { global = g, player = p, ['local'] = l, failing = bad, timers = #timers }
 end
 local function answer()
+  uiFlush()
   local out = { effects = json.array(OUT), log = json.array(LOG), status = status() }
   OUT, LOG = {}, {}
   return json.encode(out)

@@ -38,6 +38,17 @@ module.exports = async (t) => {
   const row = [...box.querySelectorAll('div')].find(x => x.style.display === 'flex');
   t.ok(row && row.style.flexDirection === 'row' && row.children.length === 2 && row.children[0].style.position === 'relative', 'a Flex row of two');
 
+  // A sized widget cuts what it holds to its bounds, as OpenMW's do (Horizontal Compass's
+  // 420-wide window on its 6144-wide letter strip); one with no size of its own does not.
+  t.ok(box.style.overflow === 'hidden', 'the sized box cuts what it holds: ' + box.style.overflow);
+  const slot = [...box.children].find(x => x.querySelector && [...x.querySelectorAll('div')].some(y => y.textContent === 'Hello'));
+  t.ok(slot && slot.style.overflow !== 'hidden', 'the unsized slot does not: ' + (slot && slot.style.overflow));
+  U.draw('e9', 'HUD', { type: 'Widget', path: 'r', events: [], props: { size: { x: 420, y: 28 } }, content: [
+    { type: 'Widget', path: 'r.c1', events: [], props: { size: { x: 6144, y: 28 }, position: { x: -2048, y: 0 } }, content: [] }] });
+  const win = d.querySelector('[data-lua-el="e9"]');
+  t.ok(win.style.overflow === 'hidden' && win.style.width === '420px' && win.firstChild.style.left === '-2048px', 'the compass window, its strip slid behind it');
+  U.remove('e9');
+
   // A click on OK goes back for the next frame; a click on Cancel (no event) does not.
   const ok = row.children[0], no = row.children[1];
   t.ok(ok.style.pointerEvents === 'auto' && no.style.pointerEvents !== 'auto', 'only what answers clicks takes them');

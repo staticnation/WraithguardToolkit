@@ -1004,6 +1004,43 @@ mod tests {
         assert!(a.contains(r#""k":"ai""#) && a.contains(r#""kind":"wander""#) && a.contains(r#""idle":[60,0,20,0,0,0,0,0]"#), "{a}");
     }
 
+    /// A window made as Horizontal Compass and BetterBars make theirs: a root on the HUD, its
+    /// parts `ui.create`d with no layer and added to its content after it was created, then each
+    /// updated on its own. Each is drawn as part of the root (the root sent, with the part in
+    /// it), never as a window of its own laid out against the screen; parts added after
+    /// `ui.create` are in the root's first drawing; and many updates in a frame send it once.
+    #[test]
+    fn a_part_updated_alone_is_drawn_in_its_window() {
+        let script = "local ui = require('openmw.ui') local util = require('openmw.util')\n\
+            local root = ui.create { layer = 'HUD', type = ui.TYPE.Widget, props = { relativeSize = util.vector2(1, 1) }, content = ui.content {} }\n\
+            local bar = ui.create { type = ui.TYPE.Image, props = { relativeSize = util.vector2(0, 1), size = util.vector2(120, -4) } }\n\
+            local strip = ui.create { type = ui.TYPE.Widget, props = { size = util.vector2(6144, 28) }, content = ui.content {} }\n\
+            root.layout.content:add(bar) root.layout.content:add(strip)\n\
+            local n = 0\n\
+            return { engineHandlers = { onFrame = function() n = n + 1\n\
+              if n == 2 then bar.layout.props.size = util.vector2(60, -4) bar:update() strip.layout.props.position = util.vector2(-30, 0) strip:update() bar:update() end\n\
+            end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/hud.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/hud.lua":{esc}}},"files":[],"weathers":["Clear"],"gmst":{{}}}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        let a = r.call("__wg_start", &start).unwrap();
+        let step = r#"{"dt":0.05,"objects":{},"actors":{}}"#;
+        let b = r.call("__wg_step", step).unwrap();
+        let c = r.call("__wg_step", step).unwrap();
+        for (when, out) in [("start", &a), ("first frame", &b), ("second frame", &c)] {
+            // Every window sent is the HUD root: never a part alone (which would have no layer: `Windows`).
+            assert!(!out.contains(r#""layer":"Windows""#), "{when}: a part was drawn as a window: {out}");
+        }
+        // The first drawing holds both parts, added after the root was created.
+        let first = format!("{a}{b}");
+        assert!(first.contains(r#""layer":"HUD""#) && first.contains(r#""x":120"#) && first.contains(r#""x":6144"#), "{first}");
+        // The second frame's three updates: the root, once, with both changes.
+        assert_eq!(c.matches(r#""k":"ui""#).count(), 1, "{c}");
+        assert!(c.contains(r#""x":60"#) && c.contains(r#""x":-30"#) && c.contains(r#""x":6144"#), "{c}");
+    }
+
     /// The second 2026-11-19 log's failures, each as the mod did it: a global group's settings
     /// read from an actor (FollowerDetectionUtil, Sneak), `table.unpack` (fresh-loot), the
     /// player's interfaces absent from a global script (TakeCover), `I.Projectiles.TYPES`,
