@@ -806,6 +806,10 @@ async function _rebuildCellPreview(){
     App.mode==='cell'? '' : (App.patchSig||''),
     // Wraithguard: the editor's pending reference changes, drawn in place.
     typeof WgEditor==='object'? WgEditor.liveSig : '',
+    /* Wraithguard: whether the Scripts run - while they do, each actor is drawn in batches
+       of its own so it can move (`live`, below). Left out of the key, turning them on found
+       the same scene and kept it: no actor was live, and none moved on screen. */
+    typeof WgScripts==='object' && !!WgScripts.on,
   ]);
   /* Two conditions, not one. The key says the scene *would* be the same; the second
      asks whether it is still on the renderer at all. They can disagree — anything that
@@ -828,6 +832,7 @@ async function _rebuildCellPreview(){
     App.avoidStatics, App.avoidPad, App.avoidMinSize, (App.avoidExclude||[]).join('|'),
     GameData.sig||'', App.mode==='cell'? '' : (App.patchSig||''),
     typeof WgEditor==='object'? WgEditor.liveSig : '',
+    typeof WgScripts==='object' && !!WgScripts.on,
   ]);
 
   /* Round 15 item 7: rings of neighbours - 1 is the eight around it, 2 is 25 cells, 3

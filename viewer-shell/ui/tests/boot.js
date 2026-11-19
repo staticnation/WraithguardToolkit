@@ -1261,6 +1261,10 @@ setTimeout(async ()=>{
             from:(r.pos||[]).map(Math.round), now:S.posOf(A.t).map(Math.round), live:!!(App._liveRefs&&App._liveRefs.has(A.key)), anim:S.animSlots(A.key)}); }
         return {on:S.on, paused:S.paused, actors:out, live:App._liveRefs? App._liveRefs.size : -1, log:S.log.slice(-6).map(l=>l.script+': '+l.text)}; })())`));
       console.log('ai:', JSON.stringify(r));
+      // Turning the Scripts on draws the scene again with each actor in batches of its own:
+      // one not live is moved by the AI and never seen moving.
+      const notLive=(r.actors||[]).filter(a=>!a.live).map(a=>a.id);
+      if(notLive.length) errors.push('ai check: not drawn live, so not seen moving: '+notLive.join(', '));
     }catch(e){ errors.push('ai check: '+short(e)); }
   }
   if(process.env.WG_TAINT){ console.log('unescaped:', tainted.size); [...tainted].forEach(t=>console.log(' -',t)); }
