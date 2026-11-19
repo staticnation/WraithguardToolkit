@@ -296,6 +296,21 @@
     stays at the top while its body scrolls, and the browser no longer nudges the view as the
     live lists above are redrawn (`viewer_only.html`).
   - Test: `scripts_panel.test.js`.
+- **Mods' settings have their defaults, and OpenMW's enums their values** (`viewcore::luarun`,
+  luarun.lua).
+  - **Menu scripts run once, for their settings groups.** OpenMW runs a mod's MENU scripts first,
+    and their `I.Settings.registerGroup` writes each setting's default into storage. The preview
+    left MENU scripts out, so a player or global script reading its own settings got nil:
+    FollowerDetectionUtil's `checkFollowersEvery`, ImpactEffects' `combatDistance`, and a
+    timer's period in signpost-fast-travel, wcmle and very likely go-home (`openmw_aux/time.lua`'s
+    `period <= 0`). Now each MENU script runs once at the start, with a menu `I.Settings` that
+    stores the defaults where OpenMW's does (player and global storage alike) and does nothing
+    for pages and renderers. It does not run again.
+  - **Enums carry OpenMW's own values** (from `resources/lua_api`): `types.Actor.EQUIPMENT_SLOT`,
+    the Armor, Weapon, Clothing, Creature and Apparatus `TYPE`s, and `core.magic`'s
+    `EFFECT_TYPE`, `RANGE`, `SPELL_TYPE` and `ENCHANTMENT_TYPE`. An empty one gave nil to a mod
+    keying a table by slot or effect: "table index is nil" at load.
+  - Test: `luarun::tests::a_mod_s_menu_settings_and_enums_are_there`.
 - **OpenMW 0.52's Lua: what a big load order calls is answered** (`viewcore::luarun`, luarun.lua;
   Static's log of 2026-11-19).
   - **The combat and spellcasting interfaces are run.** 0.52 split `combat/interface.lua` into

@@ -359,6 +359,9 @@ function Obj:removeScript(path) needGlobal('removeScript') removeScript(path, ra
 function Obj:setSaveState() end
 function Obj:getBoundingBox() local p = props.position(data(self) or {}) return { center = p, halfSize = v3(64, 64, 64), vertices = {} } end
 
+-- core.magic.EFFECT_TYPE: OpenMW's magic effect ids (resources/lua_api/openmw/core.lua).
+local MAGIC_EFFECTS = { WaterBreathing = 'waterbreathing', SwiftSwim = 'swiftswim', WaterWalking = 'waterwalking', Shield = 'shield', FireShield = 'fireshield', LightningShield = 'lightningshield', FrostShield = 'frostshield', Burden = 'burden', Feather = 'feather', Jump = 'jump', Levitate = 'levitate', SlowFall = 'slowfall', Lock = 'lock', Open = 'open', FireDamage = 'firedamage', ShockDamage = 'shockdamage', FrostDamage = 'frostdamage', DrainAttribute = 'drainattribute', DrainHealth = 'drainhealth', DrainMagicka = 'drainmagicka', DrainFatigue = 'drainfatigue', DrainSkill = 'drainskill', DamageAttribute = 'damageattribute', DamageHealth = 'damagehealth', DamageMagicka = 'damagemagicka', DamageFatigue = 'damagefatigue', DamageSkill = 'damageskill', Poison = 'poison', WeaknessToFire = 'weaknesstofire', WeaknessToFrost = 'weaknesstofrost', WeaknessToShock = 'weaknesstoshock', WeaknessToMagicka = 'weaknesstomagicka', WeaknessToCommonDisease = 'weaknesstocommondisease', WeaknessToBlightDisease = 'weaknesstoblightdisease', WeaknessToCorprusDisease = 'weaknesstocorprusdisease', WeaknessToPoison = 'weaknesstopoison', WeaknessToNormalWeapons = 'weaknesstonormalweapons', DisintegrateWeapon = 'disintegrateweapon', DisintegrateArmor = 'disintegratearmor', Invisibility = 'invisibility', Chameleon = 'chameleon', Light = 'light', Sanctuary = 'sanctuary', NightEye = 'nighteye', Charm = 'charm', Paralyze = 'paralyze', Silence = 'silence', Blind = 'blind', Sound = 'sound', CalmHumanoid = 'calmhumanoid', CalmCreature = 'calmcreature', FrenzyHumanoid = 'frenzyhumanoid', FrenzyCreature = 'frenzycreature', DemoralizeHumanoid = 'demoralizehumanoid', DemoralizeCreature = 'demoralizecreature', RallyHumanoid = 'rallyhumanoid', RallyCreature = 'rallycreature', Dispel = 'dispel', Soultrap = 'soultrap', Telekinesis = 'telekinesis', Mark = 'mark', Recall = 'recall', DivineIntervention = 'divineintervention', AlmsiviIntervention = 'almsiviintervention', DetectAnimal = 'detectanimal', DetectEnchantment = 'detectenchantment', DetectKey = 'detectkey', SpellAbsorption = 'spellabsorption', Reflect = 'reflect', CureCommonDisease = 'curecommondisease', CureBlightDisease = 'cureblightdisease', CureCorprusDisease = 'curecorprusdisease', CurePoison = 'curepoison', CureParalyzation = 'cureparalyzation', RestoreAttribute = 'restoreattribute', RestoreHealth = 'restorehealth', RestoreMagicka = 'restoremagicka', RestoreFatigue = 'restorefatigue', RestoreSkill = 'restoreskill', FortifyAttribute = 'fortifyattribute', FortifyHealth = 'fortifyhealth', FortifyMagicka = 'fortifymagicka', FortifyFatigue = 'fortifyfatigue', FortifySkill = 'fortifyskill', FortifyMaximumMagicka = 'fortifymaximummagicka', AbsorbAttribute = 'absorbattribute', AbsorbHealth = 'absorbhealth', AbsorbMagicka = 'absorbmagicka', AbsorbFatigue = 'absorbfatigue', AbsorbSkill = 'absorbskill', ResistFire = 'resistfire', ResistFrost = 'resistfrost', ResistShock = 'resistshock', ResistMagicka = 'resistmagicka', ResistCommonDisease = 'resistcommondisease', ResistBlightDisease = 'resistblightdisease', ResistCorprusDisease = 'resistcorprusdisease', ResistPoison = 'resistpoison', ResistNormalWeapons = 'resistnormalweapons', ResistParalysis = 'resistparalysis', RemoveCurse = 'removecurse', TurnUndead = 'turnundead', SummonScamp = 'summonscamp', SummonClannfear = 'summonclannfear', SummonDaedroth = 'summondaedroth', SummonDremora = 'summondremora', SummonAncestralGhost = 'summonancestralghost', SummonSkeletalMinion = 'summonskeletalminion', SummonBonewalker = 'summonbonewalker', SummonGreaterBonewalker = 'summongreaterbonewalker', SummonBonelord = 'summonbonelord', SummonWingedTwilight = 'summonwingedtwilight', SummonHunger = 'summonhunger', SummonGoldenSaint = 'summongoldensaint', SummonFlameAtronach = 'summonflameatronach', SummonFrostAtronach = 'summonfrostatronach', SummonStormAtronach = 'summonstormatronach', FortifyAttack = 'fortifyattack', CommandCreature = 'commandcreature', CommandHumanoid = 'commandhumanoid', BoundDagger = 'bounddagger', BoundLongsword = 'boundlongsword', BoundMace = 'boundmace', BoundBattleAxe = 'boundbattleaxe', BoundSpear = 'boundspear', BoundLongbow = 'boundlongbow', ExtraSpell = 'extraspell', BoundCuirass = 'boundcuirass', BoundHelm = 'boundhelm', BoundBoots = 'boundboots', BoundShield = 'boundshield', BoundGloves = 'boundgloves', Corprus = 'corprus', Vampirism = 'vampirism', SummonCenturionSphere = 'summoncenturionsphere', SunDamage = 'sundamage' }
+
 ----------------------------------------------------------------------------- types
 local function typeOf(name, tags)
   local t = { name = name }
@@ -496,7 +499,14 @@ types.Actor.activeEffects = function() return list({ getEffect = function() retu
 types.Actor.activeSpells = function() return list({ isSpellActive = function() return false end, add = function() end, remove = function() end, canUsePower = function() return true end }) end
 types.Actor.spells = function() return list({ add = function() end, remove = function() end, clear = function() end, canUsePower = function() return true end }) end
 types.Actor.getEquipment = function() return {} end
-types.Actor.EQUIPMENT_SLOT = {}
+-- OpenMW's own values (resources/lua_api): an enum is a table key in many mods, so a nil there
+-- is "table index is nil" (equipment and loot mods index by slot).
+types.Actor.EQUIPMENT_SLOT = { Helmet = 0, Cuirass = 1, Greaves = 2, LeftPauldron = 3, RightPauldron = 4, LeftGauntlet = 5, RightGauntlet = 6, Boots = 7, Shirt = 8, Pants = 9, Skirt = 10, Robe = 11, LeftRing = 12, RightRing = 13, Amulet = 14, Belt = 15, CarriedRight = 16, CarriedLeft = 17, Ammunition = 18 }
+types.Armor.TYPE = { Helmet = 0, Cuirass = 1, LPauldron = 2, RPauldron = 3, Greaves = 4, Boots = 5, LGauntlet = 6, RGauntlet = 7, Shield = 8, LBracer = 9, RBracer = 10 }
+types.Weapon.TYPE = { ShortBladeOneHand = 0, LongBladeOneHand = 1, LongBladeTwoHand = 2, BluntOneHand = 3, BluntTwoClose = 4, BluntTwoWide = 5, SpearTwoWide = 6, AxeOneHand = 7, AxeTwoHand = 8, MarksmanBow = 9, MarksmanCrossbow = 10, MarksmanThrown = 11, Arrow = 12, Bolt = 13 }
+types.Clothing.TYPE = { Pants = 0, Shoes = 1, Shirt = 2, Belt = 3, Robe = 4, RGlove = 5, LGlove = 6, Skirt = 7, Ring = 8, Amulet = 9 }
+types.Creature.TYPE = { Creatures = 0, Daedra = 1, Undead = 2, Humanoid = 3 }
+types.Apparatus.TYPE = { MortarPestle = 0, Alembic = 1, Calcinator = 2, Retort = 3 }
 --[[ What OpenMW 0.52's API has that the preview answered nothing for (Static's load order,
    2026-11-19: a hundred mods stopping at a nil field). Answered as a standing actor in the
    preview would be: not swimming, on the ground, nothing equipped or selected, middling stats.
@@ -698,7 +708,11 @@ packages['openmw.core'] = function(inst)
       end,
       records = {},
     },
-    magic = { EFFECT_TYPE = {}, RANGE = {}, effects = { records = {} }, spells = { records = {} } },
+    -- core.magic's enums as OpenMW gives them (resources/lua_api/openmw/core.lua).
+    magic = { EFFECT_TYPE = MAGIC_EFFECTS, RANGE = { Self = 0, Touch = 1, Target = 2 },
+      SPELL_TYPE = { Spell = 0, Ability = 1, Blight = 2, Disease = 3, Curse = 4, Power = 5 },
+      ENCHANTMENT_TYPE = { CastOnce = 0, CastOnStrike = 1, CastOnUse = 2, ConstantEffect = 3 },
+      effects = { records = {} }, spells = { records = {} }, enchantments = { records = {} } },
     stats = { Attribute = { records = {} }, Skill = { records = {} } },
     dialogue = { journal = { records = {} }, topic = { records = {} } },
     factions = { records = {} }, regions = { records = {} },
@@ -1090,7 +1104,7 @@ function __wg_ui_event(id, path, event, x, y, text)
 end
 
 packages['openmw.ui'] = function(inst)
-  if inst.ctx ~= 'player' then error('openmw.ui is only for player scripts', 3) end
+  if inst.ctx ~= 'player' and inst.ctx ~= 'menu' then error('openmw.ui is only for player scripts', 3) end
   local any = setmetatable({}, { __index = function(_, k) return k end })
   return {
     showMessage = function(t) emit({ k = 'msg', text = tostring(t) }) end,
@@ -1181,8 +1195,28 @@ end
 -- calls `I.Controls.overrideMovementControls(true)` goes on.
 local STAND_IN = { Controls = true, Camera = true, GamepadControls = true, Projectiles = true }
 local function standIn(name) return setmetatable({ version = 0 }, { __index = function(_, k) once('iface:' .. name .. '.' .. tostring(k), 'skip', 'I.' .. name .. '.' .. tostring(k) .. ' is not run in the preview') return function() end end }) end
+-- The menu's Settings interface, for the mods' MENU scripts (run once at the start, `__wg_start`):
+-- `registerGroup` stores each setting's default where OpenMW's does (`settings/common.lua`:
+-- the group's section, when it holds no value yet) - in the player's storage and, so a global
+-- script that reads its own group finds it too, the global one. Pages and renderers draw the
+-- game's settings menu, which the preview has not got.
+local function menuSettings()
+  return {
+    version = 1,
+    registerPage = function() end, registerRenderer = function() end, updateRendererArgument = function() end,
+    registerGroup = function(o)
+      if type(o) ~= 'table' or type(o.key) ~= 'string' then return end
+      for _, sec in ipairs({ section('p:' .. o.key), section('g:' .. o.key) }) do
+        for _, st in ipairs(o.settings or {}) do
+          if type(st) == 'table' and st.key ~= nil and st.default ~= nil and sec:get(st.key) == nil then sec:set(st.key, st.default) end
+        end
+      end
+    end,
+  }
+end
 packages['openmw.interfaces'] = function(inst)
   return setmetatable({}, { __index = function(_, name)
+    if inst.ctx == 'menu' and name == 'Settings' then return menuSettings() end
     local v
     if inst.ctx == 'global' then v = ifaceGlobal[name]
     else local l = ifaceLocal[inst.key] v = l and l[name] or nil end
@@ -1327,6 +1361,15 @@ function __wg_start(arg)
   S.apiRevision = a.apiRevision
   S.gmst = a.gmst or {}
   if a.state then __wg_merge(a.state) end
+  -- The mods' MENU scripts first, as OpenMW runs them before a game: once, for the settings
+  -- groups they register (their defaults are what the player and global scripts then read),
+  -- and not again - the preview has no menu for them to draw.
+  for _, r in ipairs(registered) do
+    if has(r.flags, 'MENU') then
+      local i = instantiate(r.path, 'menu', 'menu')
+      if i then i.dead = true end
+    end
+  end
   for _, r in ipairs(registered) do
     if has(r.flags, 'GLOBAL') then instantiate(r.path, nil, 'global') end
   end

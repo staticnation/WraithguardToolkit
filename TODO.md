@@ -187,12 +187,10 @@ tes3 and merge_to_master come from `staticnation/tes3` and `staticnation/merge_t
 
 ## Scripts in the scene (`73_wg_scripts.js`)
 
-- OpenMW Lua, still failing in Static's load order (2026-11-19's log): settings a mod registers
-  from a MENU script have no defaults in storage, since MENU scripts are not run
-  (FollowerDetectionUtil's `checkFollowersEvery`, ImpactEffects' `combatDistance`); several
-  "table index is nil" at load (fresh-loot, MRF, PerfectPlacement, steelfist, SBMR,
-  BetterArmorTraining, UIToolkit tooltips), likely an enum or record the preview answers nil
-  for - read one of those lines to find which; go-home's nil compares.
+- OpenMW Lua, Static's 2026-11-19 log: the settings defaults and the enums are answered now.
+  Not confirmed against the mods themselves (their folder was not readable from here): run the
+  Scripts again and see which of fresh-loot, MRF, PerfectPlacement, steelfist, SBMR,
+  BetterArmorTraining, UIToolkit tooltips and go-home still fail, and at which line.
 - OpenMW Lua (`viewcore::luarun`, `74_wg_lua.js`): the camera, input bindings, console and
   HUD built-ins are left out (they need the game); `ui.create`'s keys go to a node once it is
   clicked. `openmw.animation` does not crossfade (a group snaps in from the pose before; a

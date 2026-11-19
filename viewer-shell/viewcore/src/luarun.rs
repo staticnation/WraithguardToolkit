@@ -647,9 +647,10 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
             }
         }
     }
-    // The menu's and the loader's scripts have no scene to run in.
+    /* The loader's scripts have no scene to run in. The menu's are kept (run once at the start,
+       for the settings groups they register: their defaults are what the other scripts read). */
     for (p, f) in registered {
-        let f: Vec<String> = f.iter().filter(|x| *x != "MENU" && *x != "LOAD").cloned().collect();
+        let f: Vec<String> = f.iter().filter(|x| *x != "LOAD").cloned().collect();
         if !f.is_empty() && !is_off(off, p) {
             scripts.push((p.clone(), f));
         }
@@ -1012,6 +1013,40 @@ mod tests {
         let step = r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","model":"guard.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}},"actors":{"n1":{"hp":50,"rates":[30,70,40,0],"walk":170,"run":330}}}"#;
         let got = r.call("__wg_step", step).unwrap();
         assert!(got.contains(r#""text":"ok 30 50 40 dark elf ff0000 223,201,159 202,165,96 128 true playercontrols 0 false 170 true true true guard.nif""#), "{got}");
+    }
+
+    /// Static's 2026-11-19 log, the rest: a mod's settings registered in its MENU script have
+    /// their defaults for its player and global scripts (FollowerDetectionUtil, ImpactEffects;
+    /// a timer's period from a setting, signpost-fast-travel's nil compare); and tables keyed by
+    /// OpenMW's enums ("table index is nil" in the equipment and loot mods).
+    #[test]
+    fn a_mod_s_menu_settings_and_enums_are_there() {
+        let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
+        let menu = "local I = require('openmw.interfaces')\n\
+            I.Settings.registerPage { key = 'Fdu', l10n = 'Fdu', name = 'Fdu' }\n\
+            I.Settings.registerGroup { key = 'SettingsFdu', page = 'Fdu', l10n = 'Fdu', name = 'n', permanentStorage = true,\n\
+              settings = { { key = 'checkFollowersEvery', renderer = 'number', name = 'n', default = 2 }, { key = 'enabled', renderer = 'checkbox', name = 'n', default = true } } }";
+        let player = "local storage = require('openmw.storage') local types = require('openmw.types') local core = require('openmw.core')\n\
+            local s = storage.playerSection('SettingsFdu')\n\
+            local bySlot = { [types.Actor.EQUIPMENT_SLOT.CarriedRight] = 'right', [types.Weapon.TYPE.MarksmanBow] = 'bow' }\n\
+            local byEffect = { [core.magic.EFFECT_TYPE.FireDamage] = 'fire', [core.magic.RANGE.Target] = 'far' }\n\
+            print('player', s:get('checkFollowersEvery') * 2, s:get('enabled'), bySlot[16], bySlot[9], byEffect.firedamage, byEffect[2], core.magic.SPELL_TYPE.Power)\n\
+            return {}";
+        let global = "local storage = require('openmw.storage') local time = require('openmw_aux.time')\n\
+            local every = storage.globalSection('SettingsFdu'):get('checkFollowersEvery')\n\
+            time.runRepeatedly(function() end, every * time.second)\n\
+            print('global', every)\n\
+            return {}";
+        // OpenMW's openmw_aux/time.lua's check, as it stands at line 90 (the period compared with 0).
+        let aux_time = "local time = { second = 1 } function time.runRepeatedly(fn, period) if period <= 0 then error('Period must be positive') end end return time";
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/fdu/settings.lua","flags":["MENU"]}},{{"path":"scripts/fdu/player.lua","flags":["PLAYER"]}},{{"path":"scripts/fdu/global.lua","flags":["GLOBAL"]}}],
+            "sources":{{"scripts/fdu/settings.lua":{},"scripts/fdu/player.lua":{},"scripts/fdu/global.lua":{},"openmw_aux/time.lua":{}}},"files":[],"weathers":["Clear"]}}"#,
+            q(menu), q(player), q(global), q(aux_time));
+        let mut r = Runner::new(None, true).unwrap();
+        let a = r.call("__wg_start", &start).unwrap();
+        assert!(a.contains(r#""text":"player 4 true right bow fire far 5""#), "{a}");
+        assert!(a.contains(r#""text":"global 2""#), "{a}");
+        assert!(!a.contains("error"), "nothing failed: {a}");
     }
 
     #[test]
