@@ -405,6 +405,19 @@ pub(super) fn tools_tes3cmd_undo(run: String, file: usize, rows: Vec<usize>) -> 
     Ok(tauri::ipc::Response::new(tb.done()))
 }
 
+/// A merged plugin's file name as the person gave it: a bare name (no folder in it) ending
+/// .esp, .esm or .omwaddon, any case.
+fn merge_file_name(n: &str) -> Result<String, String> {
+    if n.contains(['/', '\\', ':']) || n == "." || n == ".." {
+        return Err(format!("{n}: a file name, without a folder (choose the folder in Write into)"));
+    }
+    let low = n.to_ascii_lowercase();
+    if ![".esp", ".esm", ".omwaddon"].iter().any(|e| low.ends_with(e) && low.len() > e.len()) {
+        return Err(format!("{n}: a plugin's name ends .esp, .esm or .omwaddon"));
+    }
+    Ok(n.to_string())
+}
+
 /// Wraithguard: Merged Objects (`editcore::mergeobjects`, a port of NullCascade's TES3Merge,
 /// Static 2026-11-18): the setup's load order merged record by record into `Merged Objects.esp`
 /// (`lists_only`: only the leveled lists, as TES3Merge's `multipatch`, into `multipatch.esp`),
@@ -412,6 +425,8 @@ pub(super) fn tools_tes3cmd_undo(run: String, file: usize, rows: Vec<usize>) -> 
 /// picks) unless `dry_run`. `types` the record tags merged (empty: TES3Merge's default list),
 /// `patches` any of `fogbug`, `summons`, `cellnames`, `ignore` plugins left out by name, `filters`
 /// lines of `regex = true|false` over ids in lower case (TES3Merge.ini's `[ObjectFilters]`).
+/// `name`: the plugin's file name (Static, 2026-11-19: "let me select where to save these
+/// files"), a bare name ending .esp, .esm or .omwaddon; empty, the tool's own.
 ///
 /// Answers bytes (WGTB, as `tools_tes3cmd`): `head` `ssu` (the status, the file written, how
 /// many records), `lines` `s` (the log) and `types` `su` (records merged per type). Read by
@@ -428,6 +443,7 @@ pub(super) fn tools_merge_objects(
     filters: String,
     lists_only: bool,
     dry_run: bool,
+    name: Option<String>,
 ) -> Result<tauri::ipc::Response, String> {
     use editcore::mergeobjects::{lists_only as lists, run, Options, DEFAULT_TYPES};
     let mut opts = Options::default();
@@ -436,6 +452,9 @@ pub(super) fn tools_merge_objects(
     }
     if lists_only {
         opts = lists(opts);
+    }
+    if let Some(n) = name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        opts.file_name = merge_file_name(n)?;
     }
     opts.inclusive = inclusive;
     let has = |p: &str| patches.iter().any(|x| x.eq_ignore_ascii_case(p) || x.eq_ignore_ascii_case("all"));
@@ -457,4 +476,17 @@ pub(super) fn tools_merge_objects(
         tb.s(t).u(*n as u64);
     }
     Ok(tauri::ipc::Response::new(tb.done()))
+}
+
+#[cfg(test)]
+mod merge_name_tests {
+    #[test]
+    fn a_merged_plugin_s_name_is_a_bare_plugin_name() {
+        assert_eq!(super::merge_file_name("My Merge.omwaddon"), Ok("My Merge.omwaddon".into()));
+        assert_eq!(super::merge_file_name("multipatch.ESP"), Ok("multipatch.ESP".into()));
+        assert!(super::merge_file_name("C:\\x\\a.esp").is_err());
+        assert!(super::merge_file_name("a/b.esp").is_err());
+        assert!(super::merge_file_name("merged.txt").is_err());
+        assert!(super::merge_file_name(".esp").is_err());
+    }
 }

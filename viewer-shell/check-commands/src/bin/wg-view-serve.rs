@@ -342,7 +342,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "tools_tes3cmd_find" => Reply::Text(t::tools_tes3cmd_find(s(a, "cfg"), s(a, "explicit"))),
         "tools_locate" => Reply::Json(t::tools_locate(s(a, "cfg"), strs(a, "names"))?),
         "tools_tes3cmd" => Reply::Bytes(t::tools_tes3cmd(s(a, "cfg"), s(a, "exe"), s(a, "cmd"), strs(a, "extra"), strs(a, "files"), Some(b(a, "external")))?.0),
-        "tools_merge_objects" => Reply::Bytes(t::tools_merge_objects(s(a, "cfg"), s(a, "folder"), strs(a, "types"), b(a, "inclusive"), strs(a, "patches"), strs(a, "ignore"), s(a, "filters"), b(a, "listsOnly"), b(a, "dryRun"))?.0),
+        "tools_merge_objects" => Reply::Bytes(t::tools_merge_objects(s(a, "cfg"), s(a, "folder"), strs(a, "types"), b(a, "inclusive"), strs(a, "patches"), strs(a, "ignore"), s(a, "filters"), b(a, "listsOnly"), b(a, "dryRun"), Some(s(a, "name")).filter(|x| !x.is_empty()))?.0),
         "tools_tes3cmd_undo" => Reply::Bytes(t::tools_tes3cmd_undo(s(a, "run"), u(a, "file"), nums(a, "rows"))?.0),
         "read_asset" => Reply::Bytes(t::read_asset(s(a, "path"), st())?.0),
         "mesh_data" => Reply::Bytes(t::mesh_data(s(a, "path"), a.get("still").and_then(|v| v.as_bool()), st())?.0),

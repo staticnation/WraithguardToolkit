@@ -5,6 +5,17 @@
 
 ### Changed
 
+- **Merge objects: choose where the plugin is saved, and its name** (`61_wg_tools.js`; `tools_merge_objects`'
+  `name`). The pane only had a folder box, and left empty it wrote into the data folder holding
+  most of the load order, which can be a mod's own folder, without saying which. Now:
+  - The box shows that default folder by name.
+  - A **File name** box and **Save as...** (the system's save dialog) set the folder and the name
+    together. Any plugin name ending .esp, .esm or .omwaddon; .esp is added when none is given.
+  - The confirm before writing names the whole path. The button says the file it builds.
+  - The output's own name, whatever it is, is still left out of the merge's inputs. The folder
+    and the name are kept between sessions.
+  - Tests: `tools_panes.test.js` (the default shown, Save as, the name and folder sent, a bad
+    name refused) and `merge_name_tests`.
 - **The Mesh optimizer and Check meshes read the load order's archives** (`nif_batch::collect_all`,
   `Candidate::read`). They read loose meshes only; now a mesh in a BSA the load order names is
   read too when no loose file overrides it, a later archive over an earlier one, as OpenMW and the

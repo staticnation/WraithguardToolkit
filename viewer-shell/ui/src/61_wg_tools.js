@@ -220,7 +220,8 @@ const WgToolsPage={
     <span title="Which ids are merged, as TES3Merge.ini's [ObjectFilters]: a regular expression over the id in lower case, then = true or = false; the last line that matches decides">Id filters</span>
     <textarea id="tlObFilters" spellcheck="false" rows="2" placeholder="^ttm_ = false" style="flex:1;min-width:200px;font-family:var(--mono)"></textarea></div>
   <div class="acts" style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap">
-    <span>Write into</span><input type="text" id="tlObFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px"><button class="btn dim" id="tlObBrowse">Browse...</button></div>
+    <span>Write into</span><input type="text" id="tlObFolder" placeholder="the data folder holding most of the load order" style="flex:1;min-width:240px" title="The folder the plugin is written into. Empty: the data folder holding most of the load order (shown here once it is known)"><button class="btn dim" id="tlObBrowse" title="Choose the folder">Browse...</button>
+    <span>File name</span><input type="text" id="tlObName" placeholder="Merged Objects.esp" style="width:220px" title="The plugin's file name: .esp, .esm or .omwaddon. Empty: Merged Objects.esp (multipatch.esp for leveled lists only)"><button class="btn dim" id="tlObSaveAs" title="Choose the folder and the file name together">Save as...</button></div>
   <div class="scroll"><div id="tlObIntro" class="empty">When two mods change the same record (an NPC, a potion, a leveled list), the game uses only the last one's version, so the other's changes are lost. This merges them record by record into a new plugin, Merged Objects.esp, loaded last: each mod's changes kept where they do not overlap, the later mod's where they do, and leveled lists combined. A port of NullCascade's TES3Merge, for OpenMW, Mod Organizer 2 and the game's own install alike. Your mods are never changed; delete the plugin to undo it. Run it again after changing the load order.</div>
   <pre id="tlObOut" style="white-space:pre-wrap;font-family:var(--mono);margin:0;padding:6px 8px"></pre></div></div>
 <div class="col pane" id="tlM2m" hidden><h3>Merge to master <span class="sp"></span>
@@ -435,7 +436,7 @@ const WgToolsPage={
   /** TES3Merge's record types (`DEFAULT_TYPES`; FACT off by default, as TES3Merge has it). */
   OB_TYPES:['ACTI','ALCH','APPA','ARMO','BODY','BOOK','BSGN','CELL','CLAS','CLOT','CONT','CREA','DOOR','ENCH','FACT','GMST','INGR','LEVC','LEVI',
     'LIGH','LOCK','MGEF','MISC','NPC_','PROB','RACE','REPA','SKIL','SNDG','SOUN','SPEL','STAT','WEAP'],
-  OB_KEEP:['tlObLists','tlObDry','tlObSummons','tlObFog','tlObNames','tlObIncl','tlObIgnore','tlObFilters','tlObFolder'],
+  OB_KEEP:['tlObLists','tlObDry','tlObSummons','tlObFog','tlObNames','tlObIncl','tlObIgnore','tlObFilters','tlObFolder','tlObName'],
   obInit(){
     if(this.ob) return;
     this.ob={};
@@ -447,15 +448,40 @@ const WgToolsPage={
       for(const id of this.OB_KEEP){ const el=$('#'+id); k[id]=el.type==='checkbox'? el.checked : el.value; }
       try{ localStorage.setItem('wgTools.mergeObjects', JSON.stringify(k)); }catch(_){} };
     for(const el of document.querySelectorAll('#tlObj input, #tlObj textarea')) el.addEventListener('change', save);
-    $('#tlObBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true}); if(p){ $('#tlObFolder').value=String(p); save(); } };
+    $('#tlObBrowse').onclick=async()=>{ const p=await Engine.pick('open',{directory:true, defaultPath:this.obFolder()||undefined}); if(p){ $('#tlObFolder').value=String(p); save(); } };
+    // Save as: the folder and the file name at once, from the system's own dialog.
+    $('#tlObSaveAs').onclick=async()=>{
+      const dir=this.obFolder(), name=this.obName();
+      const p=await Engine.pick('save',{defaultPath: dir? dir.replace(/[\\/]+$/,'')+(dir.includes('\\')?'\\':'/')+name : name,
+        filters:[{name:'Morrowind plugin', extensions:['esp']},{name:'OpenMW addon', extensions:['omwaddon']},{name:'Master', extensions:['esm']}]});
+      if(!p) return;
+      const at=Math.max(String(p).lastIndexOf('\\'), String(p).lastIndexOf('/'));
+      $('#tlObFolder').value=at>=0? String(p).slice(0, at) : $('#tlObFolder').value;
+      let n=at>=0? String(p).slice(at+1) : String(p);
+      if(!/\.(esp|esm|omwaddon)$/i.test(n)) n+='.esp';
+      $('#tlObName').value=n; this.obLabel(); save();
+    };
+    $('#tlObName').addEventListener('input', ()=>this.obLabel());
     $('#tlObRun').onclick=()=>this.obRun();
-    $('#tlObLists').onchange=()=>{ $('#tlObRun').textContent=$('#tlObLists').checked? 'Build multipatch.esp' : 'Build Merged Objects.esp'; save(); };
+    $('#tlObLists').onchange=()=>{ this.obLabel(); save(); };
     $('#tlObLists').onchange();
+    // Where it goes when Write into is left empty, said in the box rather than described.
+    Engine.call('land_merge_home',{cfg:this.cfg()}).then(h=>{ if(h && h.home){ this.ob.home=h.home; $('#tlObFolder').placeholder='default: '+h.home; } }).catch(()=>{});
+  },
+  /** The folder the plugin goes into: the one chosen, else the load order's home folder. */
+  obFolder(){ return $('#tlObFolder').value.trim() || (this.ob && this.ob.home) || ''; },
+  /** The plugin's file name: the one given, else the tool's own. */
+  obName(){ return $('#tlObName').value.trim() || ($('#tlObLists').checked? 'multipatch.esp' : 'Merged Objects.esp'); },
+  obLabel(){
+    $('#tlObName').placeholder=$('#tlObLists').checked? 'multipatch.esp' : 'Merged Objects.esp';
+    $('#tlObRun').textContent='Build '+this.obName();
   },
   async obRun(){
     const lists=$('#tlObLists').checked, dry=$('#tlObDry').checked;
-    const name=lists? 'multipatch.esp' : 'Merged Objects.esp';
-    if(!dry && !await wgConfirm(`Merge the load order's records into ${name}? A ${name} already there is replaced.`)) return;
+    const name=this.obName(), dir=this.obFolder();
+    if(!/\.(esp|esm|omwaddon)$/i.test(name) || /[\\/:]/.test(name)) return toast('The file name is a plugin\'s name: ending .esp, .esm or .omwaddon, without a folder','warn',5000);
+    const target=dir? dir.replace(/[\\/]+$/,'')+(dir.includes('\\')?'\\':'/')+name : name+' (in the data folder holding most of the load order)';
+    if(!dry && !await wgConfirm(`Merge the load order's records into:\n${target}\n\nA ${name} already there is replaced. Add it to the load order, last.`)) return;
     const btn=$('#tlObRun'); btn.disabled=true;
     $('#tlObIntro').hidden=true; $('#tlObOut').textContent='Reading the load order...';
     try{
@@ -463,7 +489,8 @@ const WgToolsPage={
       const types=[...document.querySelectorAll('#tlObTypes [data-obt]')].filter(b=>b.checked).map(b=>b.dataset.obt);
       if(!lists && !types.length) throw new Error('Tick at least one record type.');
       const r=unpackTables(await Engine.bytes('tools_merge_objects',{cfg:this.cfg(), folder:$('#tlObFolder').value.trim(), types, inclusive:$('#tlObIncl').checked,
-        patches, ignore:$('#tlObIgnore').value.split(',').map(s=>s.trim()).filter(Boolean), filters:$('#tlObFilters').value, listsOnly:lists, dryRun:dry}));
+        patches, ignore:$('#tlObIgnore').value.split(',').map(s=>s.trim()).filter(Boolean), filters:$('#tlObFilters').value, listsOnly:lists, dryRun:dry,
+        name:$('#tlObName').value.trim()||null}));
       const head=(r.head||[])[0]||[], status=head[0]||'';
       const kinds=(r.types||[]).map(x=>x[1]+' '+x[0]).join(', ');
       $('#tlObOut').textContent=status+(kinds? '\n'+kinds : '')+'\n\n'+(r.lines||[]).map(x=>x[0]).join('\n');
