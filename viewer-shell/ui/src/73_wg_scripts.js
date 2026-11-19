@@ -1102,6 +1102,9 @@ const WgScripts={
   /* ---- the run ----------------------------------------------------------------------------- */
 
   say(script, kind, text){
+    // The same line again straight after (a script doing one thing every frame): counted, not repeated.
+    const last=this.log[this.log.length-1];
+    if(last && last.script===(script||'') && last.kind===kind && last.text===text){ last.n=(last.n||1)+1; last.t=Date.now(); this.drawLog(); return; }
     this.log.push({t:Date.now(), script:script||'', kind, text});
     if(this.log.length>400) this.log.splice(0, this.log.length-400);
     this.drawLog();
@@ -1356,7 +1359,27 @@ const WgScripts={
     box.querySelector('#wgWhichAll').onclick=()=>all(true);
     box.querySelector('#wgWhichNone').onclick=()=>all(false);
   },
+  /** The game state drawn again - gathered up, at most every 400 ms, and held while the
+   *  pointer is over it (Static, 2026-11-19: "part above journal below globals wont scroll"):
+   *  a script that does something every frame redrew it every frame, and a list rebuilt under
+   *  the wheel never scrolls. Drawn once the pointer leaves. */
   drawState(){
+    if(typeof setTimeout!=='function'){ this.drawStateNow(); return; }   // no clock to wait on
+    this._stateDue=true;
+    if(this._stateT) return;
+    const go=()=>{
+      this._stateT=0;
+      if(!this._stateDue) return;
+      const box=this._el && this._el.querySelector('#wgScrState');
+      if(box && box.matches && box.matches(':hover')){ this._stateT=setTimeout(go, 400); return; }
+      this._stateDue=false;
+      this.drawStateNow();
+    };
+    const since=performance.now()-(this._stateAt||0);
+    if(since>=400){ this._stateAt=performance.now(); go(); }
+    else this._stateT=setTimeout(()=>{ this._stateAt=performance.now(); go(); }, 400-since);
+  },
+  drawStateNow(){
     const box=this._el && this._el.querySelector('#wgScrState'); if(!box) return;
     if(box.contains(document.activeElement)) return;   // not under the person typing
     /* Drawn again as the scripts change things: the globals list keeps where it was
@@ -1386,7 +1409,7 @@ const WgScripts={
     box.querySelector('#wgScrGF').oninput=drawG;
     box.querySelector('#wgScrJSet').onclick=()=>{
       const id=(box.querySelector('#wgScrJId').value||'').trim().toLowerCase(); if(!id) return;
-      S.journal.set(id, Math.trunc(+box.querySelector('#wgScrJIx').value||0)); this.drawState();
+      S.journal.set(id, Math.trunc(+box.querySelector('#wgScrJIx').value||0)); this.drawStateNow();
     };
     drawG();
     box.querySelector('#wgScrGlobals').scrollTop=keepTop;
@@ -1455,9 +1478,25 @@ const WgScripts={
     m.run._button=i; this.msg=null; this.drawMsg();
     this.say(m.run.script, 'do', 'chose '+m.buttons[i]);
   },
+  /** The log drawn again as `drawState` is: gathered up, held while the pointer is over it. */
   drawLog(){
+    if(typeof setTimeout!=='function'){ this.drawLogNow(); return; }
+    this._logDue=true;
+    if(this._logT) return;
+    const go=()=>{
+      this._logT=0;
+      if(!this._logDue) return;
+      const box=this._el && this._el.querySelector('#wgScrLog');
+      if(box && box.matches && box.matches(':hover')){ this._logT=setTimeout(go, 400); return; }
+      this._logDue=false; this._logAt=performance.now();
+      this.drawLogNow();
+    };
+    const since=performance.now()-(this._logAt||0);
+    if(since>=400) go(); else this._logT=setTimeout(go, 400-since);
+  },
+  drawLogNow(){
     const box=this._el && this._el.querySelector('#wgScrLog'); if(!box) return;
     const col={do:'', warn:'color:var(--warn)', error:'color:var(--bad,#e66)', skip:'opacity:0.6'};
-    box.innerHTML=this.log.slice(-200).reverse().map(l=>'<div style="'+(col[l.kind]||'')+'">'+escHtml(l.script)+': '+escHtml(l.text)+'</div>').join('');
+    box.innerHTML=this.log.slice(-200).reverse().map(l=>'<div style="'+(col[l.kind]||'')+'">'+escHtml(l.script)+': '+escHtml(l.text)+(l.n>1? ' <span class="hint">×'+l.n+'</span>' : '')+'</div>').join('');
   },
 };

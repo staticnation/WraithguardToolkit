@@ -30,7 +30,12 @@ pub const PRELUDE: &str = include_str!("luarun.lua");
 /// interfaces mods lean on (`I.Combat`, `I.UI`, `I.SkillProgression`,
 /// `I.AnimationController`, `I.Settings`), and the UI templates mods draw their windows
 /// with (`I.MWUI`). The camera, input, console and HUD ones need the game itself.
-pub const BUILTINS: [&str; 21] = [
+///
+/// OpenMW's own scripts the preview runs. Both spellings of the combat interface: before 0.52
+/// one `combat/interface.lua`; from it `interface_local.lua` and `interface_global.lua`, which
+/// is where `I.Combat` comes from (Static's 0.52: ten mods and OpenMW's own music and combat
+/// scripts stopped at a nil `Combat`). The spellcasting interfaces likewise (`I.SpellCasting`).
+pub const BUILTINS: [&str; 27] = [
     "scripts/omw/mwui/init.lua",
     "scripts/omw/settings/global.lua",
     "scripts/omw/settings/player.lua",
@@ -45,6 +50,12 @@ pub const BUILTINS: [&str; 21] = [
     "scripts/omw/skillhandlers.lua",
     "scripts/omw/playerskillhandlers.lua",
     "scripts/omw/combat/interface.lua",
+    "scripts/omw/combat/interface_local.lua",
+    "scripts/omw/combat/interface_global.lua",
+    "scripts/omw/spellcasting/interface_local.lua",
+    "scripts/omw/spellcasting/interface_global.lua",
+    "scripts/omw/spellcasting/local.lua",
+    "scripts/omw/spellcasting/global.lua",
     "scripts/omw/combat/local.lua",
     "scripts/omw/combat/global.lua",
     "scripts/omw/ui.lua",
@@ -620,7 +631,8 @@ pub fn is_off(off: &[String], path: &str) -> bool {
 /// (`core.contentFiles`). `off`: the scripts the person turned off in the Scripts panel
 /// (Static: "selective running"), which are not started; their text is still read, so a
 /// script that `require`s one as a module still finds it.
-pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String], off: &[String]) -> String {
+/// `gmst`: the load order's numeric game settings (lower-case names), for `core.getGMST`.
+pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Vec<String>)], weathers: &[String], content: &[String], off: &[String], gmst: &[(String, f32)]) -> String {
     let mut scripts: Vec<(String, Vec<String>)> = Vec::new();
     let builtins_off = off.iter().any(|o| o == OFF_BUILTINS);
     if let Some(r) = resources.filter(|_| !builtins_off) {
@@ -697,6 +709,20 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
         .raw("weathers", &string_array(weathers))
         .raw("content", &string_array(content))
         .int("apiRevision", api_revision(resources).max(0) as u64)
+        .raw("gmst", &{
+            let mut g = String::from("{");
+            for (i, (k, v)) in gmst.iter().filter(|(_, v)| v.is_finite()).enumerate() {
+                if i > 0 {
+                    g.push(',');
+                }
+                g.push('"');
+                escape_into(k, &mut g);
+                g.push_str("\":");
+                g.push_str(&format!("{v}"));
+            }
+            g.push('}');
+            g
+        })
         .done()
 }
 
@@ -789,7 +815,7 @@ mod tests {
             I.AI.startPackage({ type = 'Travel', destPosition = util.vector3(600, 0, 0) }) print('package', I.AI.getActivePackage().type)\n\
             print('interfaces', I.Combat ~= nil, I.AnimationController ~= nil) end } }";
         let vfs = Vfs::with_roots(&[]);
-        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[], &[]);
+        let mut start = start_json(&vfs, Some(&res), &[], &["Clear".into(), "Rain".into()], &[], &[], &[]);
         // The mod's script, as the load order would register it.
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         start = start.replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/ai.lua\",\"flags\":[\"NPC\"]},", 1)
@@ -958,6 +984,36 @@ mod tests {
         assert!(a.contains(r#""k":"ai""#) && a.contains(r#""kind":"wander""#) && a.contains(r#""idle":[60,0,20,0,0,0,0,0]"#), "{a}");
     }
 
+    /// What Static's load order called that the preview did not answer (2026-11-19's log): each
+    /// answered, so the mods go on - skills and attributes, the AI ratings, races, the older
+    /// field names, colours with methods, every font colour and the load order's GMSTs, the
+    /// async ray, the input switches, and a stand-in for the interfaces the preview does not run.
+    #[test]
+    fn what_a_big_load_order_calls_is_answered() {
+        let script = "local types = require('openmw.types') local self = require('openmw.self') local core = require('openmw.core')\n\
+            local util = require('openmw.util') local nearby = require('openmw.nearby') local input = require('openmw.input') local I = require('openmw.interfaces')\n\
+            local n = 0\n\
+            return { engineHandlers = { onUpdate = function() n = n + 1 if n > 1 then return end\n\
+              local got\n\
+              nearby.asyncCastRenderingRay(function(r) got = r end, util.vector3(0, 0, 0), util.vector3(0, 0, 10))\n\
+              I.Controls.overrideMovementControls(true)\n\
+              print('ok', types.NPC.stats.skills.marksman(self).base, types.Actor.stats.attributes.speed(self).modified,\n\
+                types.Actor.stats.ai.flee(self).base, types.NPC.races.records['dark elf'].id, util.color.rgb(1, 0, 0):asHex(),\n\
+                core.getGMST('FontColor_color_count'), core.getGMST('FontColor_color_anything'), core.getGMST('fCombatDistance'),\n\
+                got ~= nil, input.CONTROL_SWITCH.Controls, types.Actor.stance(self), types.NPC.isSwimming(self), types.Actor.getWalkSpeed(self),\n\
+                next(types.Player.spells(self)) == nil, types.Player.activeSpells ~= nil, self.owner.recordId == nil, types.NPC.record(self).model)\n\
+            end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/c.lua","flags":["NPC"]}}],"sources":{{"scripts/t/c.lua":{esc}}},"files":[],"weathers":["Clear"],"gmst":{{"fcombatdistance":128}}}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_start", &start).unwrap();
+        let step = r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","model":"guard.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}},"actors":{"n1":{"hp":50,"rates":[30,70,40,0],"walk":170,"run":330}}}"#;
+        let got = r.call("__wg_step", step).unwrap();
+        assert!(got.contains(r#""text":"ok 30 50 40 dark elf ff0000 223,201,159 202,165,96 128 true playercontrols 0 false 170 true true true guard.nif""#), "{got}");
+    }
+
     #[test]
     fn scripts_turned_off_are_named_by_path_in_any_case() {
         let off = vec!["scripts/mod/a.lua".to_string(), OFF_BUILTINS.to_string()];
@@ -1061,7 +1117,7 @@ mod tests {
             ui.create({ layer = 'Windows', template = I.MWUI.templates.boxSolid, content = ui.content { { template = I.MWUI.templates.textHeader, props = { text = 'Mod window' } } } }) end } }";
         let vfs = Vfs::with_roots(&[]);
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
-        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[], &[])
+        let start = start_json(&vfs, Some(&res), &[], &["Clear".into()], &[], &[], &[])
             .replacen("\"scripts\":[", "\"scripts\":[{\"path\":\"scripts/t/w.lua\",\"flags\":[\"PLAYER\"]},", 1)
             .replacen("\"sources\":{", &format!("\"sources\":{{\"scripts/t/w.lua\":{},", q(script)), 1);
         let a = r.call("__wg_start", &start).unwrap();

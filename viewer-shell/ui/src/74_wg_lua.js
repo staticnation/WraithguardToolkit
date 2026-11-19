@@ -197,7 +197,9 @@ const WgLua={
     for(const [k, A] of S.actors){
       const a={hp:A.hp, mp:A.mp, fp:A.fp, max:A.max, dead:A.dead, items:Object.fromEntries(A.items),
         ai:A.ai? {kind:A.ai.kind, done:!!A.ai.done, target:A.ai.who && (A.ai.who.player? 'player' : A.ai.who.key) || null, dest:A.ai.goal||null} : null,
-        combat:A.combat? (A.combat.player? 'player' : A.combat.key) : null};
+        combat:A.combat? (A.combat.player? 'player' : A.combat.key) : null,
+        // Its AI ratings and pace, for types.Actor.stats.ai and getWalkSpeed / getRunSpeed.
+        rates:A.rates||null, ...(typeof WgAI==='object' && A.move? (()=>{ const p=WgAI.speeds(A); return {walk:Math.round(p.walk), run:Math.round(p.run)}; })() : {})};
       const sig=JSON.stringify(a); if(this._sentA.get(k)!==sig){ this._sentA.set(k, sig); actors[k]=a; }
     }
     if(Object.keys(actors).length) out.actors=actors;

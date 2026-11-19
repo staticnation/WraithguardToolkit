@@ -3623,7 +3623,9 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;
     let content = viewcore::luascan::content(order.as_deref());
-    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content, &off.unwrap_or_default());
+    // The load order's numeric game settings, for `core.getGMST`.
+    let gmst: Vec<(String, f32)> = state.app().world.as_ref().map(|w| w.gmst.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();
+    let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content, &off.unwrap_or_default(), &gmst);
     let answer = run.call("__wg_start", &start)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);

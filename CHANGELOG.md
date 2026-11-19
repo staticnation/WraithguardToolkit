@@ -287,6 +287,41 @@
 
 ### Fixed
 
+- **The Scripts panel's globals list scrolls** (`73_wg_scripts.js` `drawState`, `drawLog`).
+  - **Redraws are coalesced.** A script that does something every frame rebuilt the game state
+    every frame, and a list rebuilt under the wheel never moves. The state and the log are now
+    drawn at most every 400 ms, held while the pointer is over them, and drawn once it leaves.
+  - **Repeats are counted.** A log line repeated back to back is one line with a count (×20).
+  - **Title bar pinned.** A floating or docked panel's title bar (Pause, Step, Reset, close)
+    stays at the top while its body scrolls, and the browser no longer nudges the view as the
+    live lists above are redrawn (`viewer_only.html`).
+  - Test: `scripts_panel.test.js`.
+- **OpenMW 0.52's Lua: what a big load order calls is answered** (`viewcore::luarun`, luarun.lua;
+  Static's log of 2026-11-19).
+  - **The combat and spellcasting interfaces are run.** 0.52 split `combat/interface.lua` into
+    `interface_local.lua` and `interface_global.lua`, so `I.Combat` was never there, and ten mods
+    and OpenMW's own music and combat scripts stopped at it. The spellcasting interfaces and
+    scripts run too.
+  - **The rest of 0.52's types API is answered.**
+    - The skills and attributes, and `stats.ai` with the record's ratings.
+    - `isSwimming`, `isOnGround`, `getWalkSpeed` and `getRunSpeed` (the actor's own pace),
+      equipment and selected spells, encumbrance, barter gold, knock-down and hit recovery.
+    - `NPC.races` and `classes`, dispositions, factions.
+    - `Item.itemData` and `isCarriable`.
+  - **The older names mods still call**: `stance`, `equipment`, and Player's `activeSpells`
+    (NPC, Creature and Player now share the Actor's functions).
+  - **Lists can be looped over.** An actor's spells, active spells and effects keep their
+    methods on the metatable, so a loop over one finds its entries, not `add` and `remove`.
+  - **Colours have their methods** (`asHex`, `asRgb`, `asRgba`).
+  - **Game settings.** `core.getGMST` answers every Morrowind font colour (an unlisted one, the
+    normal colour) and the load order's own numeric GMSTs.
+  - **Rays, input and the cursor.** `nearby.asyncCastRenderingRay` (answered at once) and the
+    navigation calls; `input.CONTROL_SWITCH`, mouse and controller buttons, axes and action
+    types; `ui.getCursorPosition`.
+  - **Records and objects.** A record carries its model; an object has an `owner`.
+  - **Interfaces the preview does not run** (`I.Controls`, `I.Camera`, `I.GamepadControls`,
+    `I.Projectiles`) answer with a stand-in that does nothing, named once in the log.
+  - Test: `luarun::tests::what_a_big_load_order_calls_is_answered`.
 - **Meshes with UV sets and their `Has UV` word 0 did not read** (`gardenfell-nif`
   `NiGeometryData`, Wraithguard patch 0024). The reader skipped the UV sets, took the texture
   coordinates as the triangle count, and the mesh failed. The viewer showed nothing, and the

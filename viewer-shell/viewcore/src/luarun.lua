@@ -124,6 +124,7 @@ local S = {
   hour = 12, day = 16, month = 7, year = 427, weather = 0, weathers = {}, content = {}, contentIndex = {}, globals = {}, actors = {},
   sounds = {}, musicPlaying = false, mwlocals = {}, files = {}, sim = 0, real = 0, dt = 0, journal = {}, keysDown = {}, exteriorsSeen = {},
   anims = {},
+  gmst = {},
 }
 local OUT, LOG = {}, {}
 local current          -- the script running now
@@ -181,13 +182,23 @@ util.clamp = function(v, lo, hi) return v < lo and lo or (v > hi and hi or v) en
 util.round = function(v) return v >= 0 and floor(v + 0.5) or -floor(-v + 0.5) end
 util.remap = function(v, a, b, c, d) return c + (v - a) * (d - c) / (b - a) end
 util.normalizeAngle = function(a) local f = a / (2 * math.pi) + 0.5 return (f - floor(f) - 0.5) * 2 * math.pi end
+-- Colors, with OpenMW's methods (asHex, asRgb, asRgba).
+local Color = {}
+Color.__index = Color
+local function color(r, g, b, a) return setmetatable({ r = r, g = g, b = b, a = a or 1 }, Color) end
+local function byte(x) return math.max(0, math.min(255, floor((x or 0) * 255 + 0.5))) end
+function Color:asHex() return string.format('%02x%02x%02x', byte(self.r), byte(self.g), byte(self.b)) end
+function Color:asRgb() return v3(self.r, self.g, self.b) end
+function Color:asRgba() return { self.r, self.g, self.b, self.a } end
+Color.__tostring = function(c) return string.format('(%g, %g, %g, %g)', c.r, c.g, c.b, c.a) end
+Color.__eq = function(a, b) return a.r == b.r and a.g == b.g and a.b == b.b and a.a == b.a end
 util.color = {
-  rgb = function(r, g, b) return { r = r, g = g, b = b, a = 1 } end,
-  rgba = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end,
-  hex = function(h) local n = tonumber(h, 16) or 0 return { r = floor(n / 65536) % 256 / 255, g = floor(n / 256) % 256 / 255, b = n % 256 / 255, a = 1 } end,
+  rgb = function(r, g, b) return color(r, g, b, 1) end,
+  rgba = function(r, g, b, a) return color(r, g, b, a) end,
+  hex = function(h) local n = tonumber(h, 16) or 0 return color(floor(n / 65536) % 256 / 255, floor(n / 256) % 256 / 255, n % 256 / 255, 1) end,
   commaString = function(s)
     local r, g, b = tostring(s or ''):match('(%d+)%s*,%s*(%d+)%s*,%s*(%d+)')
-    return { r = (tonumber(r) or 255) / 255, g = (tonumber(g) or 255) / 255, b = (tonumber(b) or 255) / 255, a = 1 }
+    return color((tonumber(r) or 255) / 255, (tonumber(g) or 255) / 255, (tonumber(b) or 255) / 255, 1)
   end,
 }
 -- Transforms: 3x3 rows and a move. rotateZ(a) turns +y toward +x, as Morrowind's yaw.
@@ -275,6 +286,8 @@ local props = {
   startingPosition = function(d) local p = d.start or d.pos or { 0, 0, 0 } return v3(p[1], p[2], p[3]) end,
   globalVariable = function() return nil end,
   ownerFactionId = function() return nil end,
+  -- Who owns it (OpenMW 0.49's `owner`): no one, in the preview.
+  owner = function() return { recordId = nil, factionId = nil, factionRank = nil } end,
 }
 Obj.__index = function(o, name)
   local k = rawget(o, '__key')
@@ -355,7 +368,13 @@ local function typeOf(name, tags)
     for _, x in ipairs(tags) do if x == tg then return true end end
     return false
   end
-  t.record = function(o) local id = type(o) == 'string' and o or o.recordId return id and { id = id, name = id } or nil end
+  -- A record: its id, and the model it is drawn with when the scene has one of it.
+  t.record = function(o)
+    local id = type(o) == 'string' and o or o.recordId
+    if not id then return nil end
+    local d = type(o) == 'table' and obj_of(keyOf(o)) or nil
+    return { id = id, name = id, model = d and d.model or '', icon = '', mwscript = nil }
+  end
   t.records = {}
   -- An enum the preview does not list (`Armor.TYPE`, `Actor.EQUIPMENT_SLOT`): each value is its name.
   return setmetatable(t, { __index = function(tt, k)
@@ -470,11 +489,81 @@ types.Actor.isInActorsProcessingRange = function() return true end
 types.Actor.canMove = function(o) return not actor(o).dead end
 types.Actor.STANCE = { Nothing = 0, Weapon = 1, Spell = 2 }
 types.Actor.getStance = function(o) return actor(o).combat and 1 or 0 end
-types.Actor.activeEffects = function() return { getEffect = function() return { magnitude = 0 } end, remove = function() end, modify = function() end } end
-types.Actor.activeSpells = function() return { isSpellActive = function() return false end, add = function() end, remove = function() end } end
-types.Actor.spells = function() return { add = function() end, remove = function() end } end
+-- Lists with methods: the methods are the list's metatable's, so `pairs` over one gives its
+-- entries (none in the preview), not its functions - mods loop over an actor's spells.
+local function list(methods) return setmetatable({}, { __index = methods, __len = function() return 0 end }) end
+types.Actor.activeEffects = function() return list({ getEffect = function() return { magnitude = 0, magnitudeBase = 0, magnitudeModifier = 0 } end, remove = function() end, modify = function() end, set = function() end }) end
+types.Actor.activeSpells = function() return list({ isSpellActive = function() return false end, add = function() end, remove = function() end, canUsePower = function() return true end }) end
+types.Actor.spells = function() return list({ add = function() end, remove = function() end, clear = function() end, canUsePower = function() return true end }) end
 types.Actor.getEquipment = function() return {} end
 types.Actor.EQUIPMENT_SLOT = {}
+--[[ What OpenMW 0.52's API has that the preview answered nothing for (Static's load order,
+   2026-11-19: a hundred mods stopping at a nil field). Answered as a standing actor in the
+   preview would be: not swimming, on the ground, nothing equipped or selected, middling stats.
+   And the names older mods still call (`stance`, `equipment`, `activeSpells` as a field). ]]
+local function stat(base) return function() return { base = base, modified = base, modifier = 0, damage = 0, progress = 0 } end end
+local SKILLS = { 'acrobatics', 'alchemy', 'alteration', 'armorer', 'athletics', 'axe', 'block', 'bluntweapon', 'conjuration', 'destruction',
+  'enchant', 'handtohand', 'heavyarmor', 'illusion', 'lightarmor', 'longblade', 'marksman', 'mediumarmor', 'mercantile', 'mysticism',
+  'restoration', 'security', 'shortblade', 'sneak', 'spear', 'speechcraft', 'unarmored' }
+for _, n in ipairs(SKILLS) do types.Actor.stats.skills[n] = stat(30) end
+for _, n in ipairs({ 'strength', 'intelligence', 'willpower', 'agility', 'speed', 'endurance', 'personality', 'luck' }) do types.Actor.stats.attributes[n] = stat(50) end
+-- AI ratings: the record's, as the page sends them (`rates`: hello, fight, flee, alarm).
+local function rate(i) return function(o) local r = (actor(o).rates or {})[i] or 0 return { base = r, modified = r, modifier = 0 } end end
+types.Actor.stats.ai = { hello = rate(1), fight = rate(2), flee = rate(3), alarm = rate(4) }
+types.Actor.stance = types.Actor.getStance
+types.Actor.setStance = function() end
+types.Actor.equipment = types.Actor.getEquipment
+types.Actor.setEquipment = function() end
+types.Actor.hasEquipped = function() return false end
+types.Actor.isSwimming = function() return false end
+types.Actor.isOnGround = function() return true end
+types.Actor.getWalkSpeed = function(o) return (actor(o).walk or 150) end
+types.Actor.getRunSpeed = function(o) return (actor(o).run or 300) end
+types.Actor.getCurrentSpeed = function() return 0 end
+types.Actor.getEncumbrance = function() return 0 end
+types.Actor.getCapacity = function() return 250 end
+types.Actor.getSelectedSpell = function() return nil end
+types.Actor.setSelectedSpell = function() end
+types.Actor.getSelectedEnchantedItem = function() return nil end
+types.Actor.setSelectedEnchantedItem = function() end
+types.Actor.clearSelectedCastable = function() end
+types.Actor.getBarterGold = function() return 0 end
+types.Actor.setBarterGold = function() end
+types.Actor.getHitRecovery = function() return false end
+types.Actor.setHitRecovery = function() end
+types.Actor.getKnockedDown = function() return false end
+types.Actor.setKnockedDown = function() end
+types.Actor.getPathfindingAgentBounds = function() return { shapeType = 0, halfExtents = v3(29.27, 28.48, 66.5) } end
+-- The type tables share the Actor's functions (NPC, Creature, Player), as OpenMW's inherit them.
+for _, t in ipairs({ types.NPC, types.Creature, types.Player }) do
+  for k, v in pairs(types.Actor) do if rawget(t, k) == nil and k ~= 'name' and k ~= 'objectIsInstance' and k ~= 'record' and k ~= 'records' then rawset(t, k, v) end end
+end
+-- Records looked up by id answer something with the id (the preview reads no race or class).
+local function anyRecords() return setmetatable({}, { __index = function(_, id) if type(id) == 'string' then return { id = id, name = id, isPlayable = true, isBeast = false, skills = {}, spells = {}, attributes = {} } end end }) end
+types.NPC.races = { records = anyRecords(), record = function(id) return anyRecords()[id] end }
+types.NPC.classes = { records = anyRecords(), record = function(id) return anyRecords()[id] end }
+types.NPC.getDisposition = function() return 50 end
+types.NPC.getBaseDisposition = function() return 50 end
+types.NPC.setBaseDisposition = function() end
+types.NPC.modifyBaseDisposition = function() end
+types.NPC.getFactions = function() return {} end
+types.NPC.getFactionRank = function() return 0 end
+types.NPC.setFactionRank = function() end
+types.NPC.modifyFactionRank = function() end
+types.NPC.getFactionReputation = function() return 0 end
+types.NPC.setFactionReputation = function() end
+types.NPC.modifyFactionReputation = function() end
+types.NPC.joinFaction = function() end
+types.NPC.leaveFaction = function() end
+types.NPC.expel = function() end
+types.NPC.clearExpelled = function() end
+types.NPC.isExpelled = function() return false end
+types.NPC.setWerewolf = function() end
+types.Item.isCarriable = function() return true end
+types.Item.isRestocking = function() return false end
+types.Item.itemData = function() return { condition = 1, enchantmentCharge = nil, soul = nil } end
+types.Item.getEnchantmentCharge = function() return nil end
+types.Item.setEnchantmentCharge = function() end
 
 -------------------------------------------------------------------------- scripts
 local scripts = {}       -- the running instances, in start order
@@ -557,8 +646,24 @@ packages['openmw.core'] = function(inst)
     -- The game settings the built-ins read (the UI's colors), as Morrowind ships them.
     getGMST = function(k)
       local t = { FontColor_color_header = '223,201,159', FontColor_color_normal = '202,165,96', FontColor_color_normal_over = '223,201,159',
-        FontColor_color_active = '96,112,202', FontColor_color_disabled = '179,168,135', FontColor_color_link = '112,126,207' }
-      return t[k]
+        FontColor_color_normal_pressed = '243,237,221', FontColor_color_active = '96,112,202', FontColor_color_active_over = '223,201,159',
+        FontColor_color_active_pressed = '243,237,221', FontColor_color_disabled = '179,168,135', FontColor_color_disabled_over = '223,201,159',
+        FontColor_color_disabled_pressed = '243,237,221', FontColor_color_link = '112,126,207', FontColor_color_link_over = '143,155,218',
+        FontColor_color_link_pressed = '175,184,228', FontColor_color_journal_link = '37,49,112', FontColor_color_journal_link_over = '58,77,175',
+        FontColor_color_journal_link_pressed = '112,126,207', FontColor_color_journal_topic = '0,0,0', FontColor_color_journal_topic_over = '58,77,175',
+        FontColor_color_journal_topic_pressed = '112,126,207', FontColor_color_answer = '150,50,30', FontColor_color_answer_over = '223,201,159',
+        FontColor_color_answer_pressed = '243,237,221', FontColor_color_notify = '223,201,159', FontColor_color_big_normal = '202,165,96',
+        FontColor_color_big_header = '223,201,159', FontColor_color_count = '223,201,159', FontColor_color_positive = '223,201,159',
+        FontColor_color_negative = '200,60,30', FontColor_color_health = '200,60,30', FontColor_color_magic = '53,69,159',
+        FontColor_color_fatigue = '0,150,60', FontColor_color_misc = '0,205,205', FontColor_color_weapon_fill = '200,60,30',
+        FontColor_color_magic_fill = '200,60,30', FontColor_color_background = '0,0,0', FontColor_color_focus = '80,80,80' }
+      if t[k] then return t[k] end
+      -- A font colour not listed: the normal one, rather than nil.
+      if type(k) == 'string' and k:match('^FontColor_') then return '202,165,96' end
+      -- The load order's own numbers (the GMSTs it sets), by name in any case.
+      local n = type(k) == 'string' and S.gmst[string.lower(k)]
+      if n ~= nil then return n end
+      return nil
     end,
     -- The load order's content files (`content=`), as OpenMW answers: `has` and `indexOf`
     -- ignore case, `indexOf` is 1-based and nil for one not loaded.
@@ -782,6 +887,11 @@ packages['openmw.nearby'] = function(inst)
   return setmetatable({
     castRay = function(from, to, opt) return castRay(from, to, opt) end,
     castRenderingRay = function(from, to, opt) return castRay(from, to, opt) end,
+    -- The async one answers at once: the preview's ray is the same cast.
+    asyncCastRenderingRay = function(cb, from, to, opt) local r = castRay(from, to, opt) if type(cb) == 'function' then cb(r) elseif type(cb) == 'table' and cb.fn then cb.fn(r) end end,
+    castNavigationRay = function(from, to) return to end,
+    findNearestNavMeshPosition = function(p) return p end,
+    findRandomPointAroundCircle = function(p, r) local a, d = math.random() * 2 * math.pi, math.random() * (r or 0) return v3(p.x + d * math.cos(a), p.y + d * math.sin(a), p.z) end,
     players = { handle('player') },
     COLLISION_TYPE = { World = 1, Door = 2, Actor = 4, HeightMap = 8, Projectile = 16, Water = 32, Default = 15, AnyPhysical = 63, Camera = 64, VisualOnly = 128 },
     findPath = function() return 1, {} end,
@@ -984,6 +1094,7 @@ packages['openmw.ui'] = function(inst)
   local any = setmetatable({}, { __index = function(_, k) return k end })
   return {
     showMessage = function(t) emit({ k = 'msg', text = tostring(t) }) end,
+    getCursorPosition = function() return util.vector2(0, 0) end, setCursorPosition = function() end, setCursorVisible = function() end,
     printToConsole = function(t) log('do', inst.path, tostring(t)) end,
     setConsoleMode = function() end, setConsoleSelectedObject = function() end,
     create = function(layout)
@@ -1056,13 +1167,27 @@ packages['openmw.input'] = function()
     getKeyName = function(c) for n, v in pairs(KEYS) do if v == c then return (n:gsub('^_', '')) end end return '' end,
     getRangeActionValue = function() return 0 end, KEY = setmetatable(KEYS, { __index = function(_, k) return k end }), ACTION = any, CONTROLLER_BUTTON = any, CONTROLLER_AXIS = any,
     registerAction = function() end, registerActionHandler = function() end, registerTrigger = function() end, registerTriggerHandler = function() end,
-    getMouseMoveX = function() return 0 end, getMouseMoveY = function() return 0 end, isIdle = function() return true end }
+    getMouseMoveX = function() return 0 end, getMouseMoveY = function() return 0 end, isIdle = function() return true end,
+    isMouseButtonPressed = function() return false end, isControllerButtonPressed = function() return false end, getAxisValue = function() return 0 end,
+    getNumberActionValue = function() return 0 end, bindAction = function() end, activateTrigger = function() end,
+    ACTION_TYPE = { Boolean = 0, Number = 1, Range = 2 },
+    CONTROL_SWITCH = { Controls = 'playercontrols', Fighting = 'playerfighting', Jumping = 'playerjumping', Looking = 'playerlooking',
+      Magic = 'playermagic', ViewMode = 'playerviewswitch', VanityMode = 'vanitymode' },
+    getControlSwitch = function(k) return types.Player.getControlSwitch(nil, k) end,
+    setControlSwitch = function(k, v) types.Player.setControlSwitch(nil, k, v) end }
 end
+-- The built-in interfaces whose scripts the preview does not run (they need the game's camera,
+-- input and HUD): answered by a stand-in whose every function does nothing, so a mod that
+-- calls `I.Controls.overrideMovementControls(true)` goes on.
+local STAND_IN = { Controls = true, Camera = true, GamepadControls = true, Projectiles = true }
+local function standIn(name) return setmetatable({ version = 0 }, { __index = function(_, k) once('iface:' .. name .. '.' .. tostring(k), 'skip', 'I.' .. name .. '.' .. tostring(k) .. ' is not run in the preview') return function() end end }) end
 packages['openmw.interfaces'] = function(inst)
   return setmetatable({}, { __index = function(_, name)
-    if inst.ctx == 'global' then return ifaceGlobal[name] end
-    local l = ifaceLocal[inst.key]
-    return l and l[name] or nil
+    local v
+    if inst.ctx == 'global' then v = ifaceGlobal[name]
+    else local l = ifaceLocal[inst.key] v = l and l[name] or nil end
+    if v == nil and STAND_IN[name] then v = standIn(name) end
+    return v
   end })
 end
 local function knownPackage(name) return packages[name] ~= nil end
@@ -1200,6 +1325,7 @@ function __wg_start(arg)
     if S.contentIndex[k] == nil then S.contentIndex[k] = i end
   end
   S.apiRevision = a.apiRevision
+  S.gmst = a.gmst or {}
   if a.state then __wg_merge(a.state) end
   for _, r in ipairs(registered) do
     if has(r.flags, 'GLOBAL') then instantiate(r.path, nil, 'global') end

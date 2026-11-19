@@ -40,7 +40,13 @@
   border-radius:var(--r-box,6px);box-shadow:0 8px 28px rgba(0,0,0,.5);z-index:30;font-size:12px;
   backdrop-filter:blur(6px)}
 .ori .orihead{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);
-  border-left:3px solid var(--ac)}
+  border-left:3px solid var(--ac);
+  /* Wraithguard: kept at the top while the body scrolls under it (Static, 2026-11-19: "cant get
+     the part above"), so a long panel's title, buttons and close are always in reach. */
+  position:sticky;top:0;z-index:3;background:var(--bg2)}
+/* And the view not nudged by the browser when a live list above it is drawn again (the Scripts
+   panel's lists are, twice a second): scrolling up stays where it is taken. */
+.ori,#edRail{overflow-anchor:none}
 .ori .oribody{padding:6px 10px 10px}
 .ori .orirow{display:flex;gap:8px;padding:3px 0}
 .ori .orirow .k{flex:0 0 96px;color:var(--tx3)}
