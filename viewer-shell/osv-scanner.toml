@@ -27,3 +27,41 @@ reason = "proc-macro-error 1.0.4 is the fork: same API re-exported from the main
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
 reason = "chrono is unmaintained (an informational notice, 2026-09-14: no flaw reported, no fixed version). Nothing here builds it: the command line moved to `time`, and Tauri's serde_with leaves its chrono feature off. It stays in Cargo.lock because Cargo locks every optional dependency of a crate whatever its features, and serde_with has chrono as one. Drop this when serde_with drops it or Tauri drops serde_with."
+
+# heapless 0.8.0's 2026 advisories (2026-11-19): none in what reaches it here; see each reason.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0574"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in sorted_linked_list::FindMutView::pop. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0575"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in spsc::Spsc::peek. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0576"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in index_map::IndexMap::truncate. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0577"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in Deque, HistoryBuf and IndexMap clear/retain. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0578"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in SortedLinkedList::zeroize. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0579"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in Deque::try_from (0.9.2-0.9.3 only). Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0580"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in arc_pool, object_pool, box_pool. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0581"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in Deque::make_contiguous. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0582"
+reason = "heapless 0.8.0 comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier, physcore) requires through its always-on `alloc` feature; rstar uses heapless's binary_heap::BinaryHeap and nothing else (nearest_neighbor.rs), and this advisory is in IndexMap::insert. Drop when parry3d moves to rstar 0.14 (heapless 0.9)."

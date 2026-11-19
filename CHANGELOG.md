@@ -287,6 +287,7 @@
 
 ### Fixed
 
+- OSV-Scanner: heapless 0.8.0's nine 2026 advisories (RUSTSEC-2026-0574 to 0582, all "unsound") are ignored with reasons in `osv-scanner.toml` and `deny.toml`. heapless comes only through rstar 0.13.1, which parry3d 0.31.1 (Rapier's latest) still requires; rstar uses only heapless's `BinaryHeap`, which none of them cover. Drop the entries when parry3d moves to rstar 0.14.
 - **The AI checked against OpenMW's source** (`openmw-master/apps/openmw/mwmechanics`: aiwander.cpp,
   actors.cpp; Static, 2026-11-19: "NPCs still dont wander ... what are we doing wrong").
   - **A wanderer could wait for ever.** Its wait lasted until the idle it played ended, and an

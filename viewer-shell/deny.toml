@@ -12,7 +12,19 @@ version = 2
 # Unmaintained crates are told by `audit.yml` as warnings; here they would fail the run for
 # crates only Tauri can replace (gtk-rs 0.18's family). Vulnerabilities and unsound crates fail.
 unmaintained = "none"
-ignore = []
+# heapless 0.8.0's 2026 advisories (2026-11-19): unsound, and none in what reaches it here
+# (osv-scanner.toml has the same list, each with its reason).
+ignore = [
+    { id = "RUSTSEC-2026-0574", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in sorted_linked_list::FindMutView::pop. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0575", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in spsc::Spsc::peek. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0576", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in index_map::IndexMap::truncate. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0577", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in Deque, HistoryBuf and IndexMap clear/retain. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0578", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in SortedLinkedList::zeroize. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0579", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in Deque::try_from (0.9.2-0.9.3 only). Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0580", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in arc_pool, object_pool, box_pool. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0581", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in Deque::make_contiguous. Drop when parry3d moves to rstar 0.14." },
+    { id = "RUSTSEC-2026-0582", reason = "heapless 0.8.0 via rstar 0.13.1 (parry3d 0.31.1, Rapier): rstar uses only binary_heap::BinaryHeap; this one is in IndexMap::insert. Drop when parry3d moves to rstar 0.14." },
+]
 
 [licenses]
 version = 2
