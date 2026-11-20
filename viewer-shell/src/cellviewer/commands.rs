@@ -3527,7 +3527,8 @@ fn script_texts(names: Vec<String>, state: State) -> Result<tauri::ipc::Response
 
 /// Wraithguard: the animation groups each model's `.kf` marks (`viewcore::anim::groups`),
 /// for the scripts' PlayGroup, LoopGroup and `openmw.animation`: `{model: [[group, start,
-/// stop], ...]}`, the window in seconds. An NPC (`__npc/<id>`) answers the shared
+/// stop, velocity], ...]}`, the window in seconds and how fast the group carries the actor
+/// across the ground (`viewcore::anim::velocity`, units a second; 0 for one that does not). An NPC (`__npc/<id>`) answers the shared
 /// skeleton's, `xbase_anim`; a model with no `.kf` answers an empty list.
 #[tauri::command(async)]
 fn anim_groups(models: Vec<String>, state: State) -> Result<String, String> {
@@ -3536,7 +3537,9 @@ fn anim_groups(models: Vec<String>, state: State) -> Result<String, String> {
     for m in models {
         let file = if viewcore::npc::npc_id_of(&m).is_some() { "xbase_anim.nif".to_string() } else { viewcore::anim::model_of(&m).to_string() };
         let list: Vec<serde_json::Value> = kf_beside(&v, &file)
-            .map(|k| viewcore::anim::groups(&k).into_iter().map(|(g, a, b)| serde_json::json!([g, a, b])).collect())
+            // Each group's window and, fourth, how fast it carries the actor across the ground
+            // (units a second: the walk is played at the actor's pace against it).
+            .map(|k| viewcore::anim::groups(&k).into_iter().map(|(g, a, b)| { let v = viewcore::anim::velocity(&k, a, b); serde_json::json!([g, a, b, (v * 100.0).round() / 100.0]) }).collect())
             .unwrap_or_default();
         out.insert(m, serde_json::Value::Array(list));
     }

@@ -272,6 +272,12 @@ module.exports = async (t) => {
   t.ok(sc.includes(other) && !beforeSwap.some(b => sc.includes(b)) && L.batches.every(b => sc.includes(b)), 'the scene\'s list: the old batches out, the new in, the rest kept ' + sc.length);
   delete ctx.WgDistantObjects;
 
+  // The walk's rate: the actor's pace against how fast the walk carries the body (anim_groups'
+  // fourth number), as OpenMW plays it - two decimals, within 0.25-4; 1 with none known.
+  (S._groupsDone || (S._groupsDone = new Map())).set('__npc/walker', [['WalkForward', 0, 1, 120], ['Idle', 2, 4, 0]]);
+  t.ok(W.playRate('__npc/walker?flags', 'walkforward', 150) === 1.25 && W.playRate('__npc/walker', 'WalkForward', 1000) === 4 && W.playRate('__npc/walker', 'Idle', 150) === 1 && W.playRate('__npc/nobody', 'WalkForward', 150) === 1,
+    'the walk played at the actor\'s pace against its velocity: ' + [W.playRate('__npc/walker', 'walkforward', 150), W.playRate('__npc/walker', 'WalkForward', 1000)]);
+
   // A play once whose length never comes does not hold a wanderer for ever.
   S.anims.delete('n1');
   const stuck = S.playAnim('n1', 'Idle9', 0, 1, 'AI', { quiet: true });

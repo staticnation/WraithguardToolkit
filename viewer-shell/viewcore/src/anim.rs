@@ -151,8 +151,40 @@ pub fn bands(windows: &[Option<(f32, f32)>; 4], slots: &[Slot; 4]) -> [Option<Ba
     out
 }
 
+/// The node an actor's movement is accumulated on: the parent of `Bip01 NonAccum`, `Bip01`
+/// in Morrowind's skeletons (OpenMW's `mAccumRoot`).
+pub const ACCUM_ROOT: &str = "Bip01";
+
+/// The root motion of a group taken off, as OpenMW takes it (Animation's accumulation,
+/// `(1, 1, 0)` for actors): `Bip01`'s translation keys keep their height but stand where the
+/// group starts across the ground - the actor itself is what moves. Played with it, a walk
+/// carried the body ahead of the actor through each cycle and back at its loop (Static: "still
+/// rubberbanding"). `start` is the group's first instant, in the file's own times.
+fn strip_root_motion(d: &mut KfData, start: f32) {
+    let Some(at) = d.trans.iter().find(|(t, _)| *t >= start - 1e-4).or(d.trans.first()).map(|(_, v)| *v) else { return };
+    for (_, v) in d.trans.iter_mut() {
+        v[0] = at[0];
+        v[1] = at[1];
+    }
+}
+
+/// How fast a group carries `Bip01` across the ground, units a second, over its window
+/// (OpenMW's `calcAnimVelocity`): what the walk or run is played against, so its feet keep
+/// the ground at the actor's pace. 0 for a group that does not travel.
+pub fn velocity(kf: &KfSequence, a: f32, b: f32) -> f32 {
+    let Some(t) = kf.tracks.iter().find(|t| t.node.eq_ignore_ascii_case(ACCUM_ROOT)) else { return 0.0 };
+    let keys: Vec<&(f32, [f32; 3])> = t.data.trans.iter().filter(|(k, _)| *k >= a - 1e-4 && *k <= b + 1e-4).collect();
+    let (Some(f), Some(l)) = (keys.first(), keys.last()) else { return 0.0 };
+    let dt = l.0 - f.0;
+    if dt <= 1e-4 {
+        return 0.0;
+    }
+    ((l.1[0] - f.1[0]).powi(2) + (l.1[1] - f.1[1]).powi(2)).sqrt() / dt
+}
+
 /// The `.kf` laid out for `windows` (see [`windows`]): each track's window of keys moved
-/// into its bone group's band. `None` when no slot plays anything.
+/// into its bone group's band, the accumulation root's travel across the ground taken off
+/// ([`strip_root_motion`]). `None` when no slot plays anything.
 pub fn layout(kf: &KfSequence, windows: &[Option<(f32, f32)>; 4]) -> Option<KfSequence> {
     if windows.iter().all(|w| w.is_none()) {
         return None;
@@ -161,7 +193,11 @@ pub fn layout(kf: &KfSequence, windows: &[Option<(f32, f32)>; 4]) -> Option<KfSe
     for t in &kf.tracks {
         let k = bone_group(&t.node);
         let Some((a, b)) = windows[k] else { continue };
-        tracks.push(KfTrack { node: t.node.clone(), ctrl: t.ctrl.clone(), data: shifted(&t.data.window(a, b), band_start(k) - a) });
+        let mut d = t.data.window(a, b);
+        if t.node.eq_ignore_ascii_case(ACCUM_ROOT) {
+            strip_root_motion(&mut d, a);
+        }
+        tracks.push(KfTrack { node: t.node.clone(), ctrl: t.ctrl.clone(), data: shifted(&d, band_start(k) - a) });
     }
     let text_keys = vec![(0.0, "Idle: Start".to_string()), (band_start(4), "Idle: Stop".to_string())];
     Some(KfSequence { text_keys, tracks })
@@ -285,6 +321,31 @@ mod tests {
             ],
             tracks: vec![track("Bip01 Pelvis", &times), track("Bip01 Spine1", &times), track("Bip01 L Forearm", &times), track("Bip01 R Hand", &times)],
         }
+    }
+
+    /// A walk whose `Bip01` travels 0 -> 200 across the ground in 2 s (and bobs 0 -> 5 -> 0):
+    /// laid out, it stays where the walk starts across the ground and keeps its bob; its
+    /// velocity is 100 units a second; a group with no travel is 0.
+    #[test]
+    fn a_walk_s_root_motion_is_taken_off_and_its_velocity_measured() {
+        let mut root = track("Bip01", &[]);
+        root.data.trans = vec![(10.0, [0.0, 0.0, 0.0]), (11.0, [0.0, 100.0, 5.0]), (12.0, [0.0, 200.0, 0.0])];
+        let mut k = kf();
+        k.text_keys.push((10.0, "WalkForward: Start".into()));
+        k.text_keys.push((12.0, "WalkForward: Stop".into()));
+        k.tracks.push(root);
+        assert!((velocity(&k, 10.0, 12.0) - 100.0).abs() < 1e-3);
+        assert_eq!(velocity(&k, 0.0, 2.0), 0.0);
+        let slots = parse_spec("WalkForward@0").unwrap();
+        let (laid, _) = layered(&k, &slots).unwrap();
+        let t = laid.tracks.iter().find(|t| t.node == "Bip01").unwrap();
+        assert!(t.data.trans.iter().all(|(_, v)| v[0] == 0.0 && v[1] == 0.0), "{:?}", t.data.trans);
+        assert!(t.data.trans.iter().any(|(_, v)| v[2] == 5.0), "the bob kept: {:?}", t.data.trans);
+        // Any other node keeps its translation.
+        let mut k2 = k.clone();
+        k2.tracks.last_mut().unwrap().node = "Bip01 Pelvis".into();
+        let (laid2, _) = layered(&k2, &slots).unwrap();
+        assert!(laid2.tracks.iter().any(|t| t.data.trans.iter().any(|(_, v)| v[1] == 200.0)));
     }
 
     #[test]

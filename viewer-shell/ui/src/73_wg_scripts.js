@@ -698,7 +698,7 @@ const WgScripts={
       }
       // The walk while it moves; its idle once it stops (a script's own group wins, `WgAI.loop`).
       // Only near the camera: farther off a walk is not seen, and each change is a new mesh.
-      if(W && A.key && W.near(A)){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward'); else W.still(A.key); }
+      if(W && A.key && W.near(A)){ if(A._moved && !A.dead) W.loop(A.key, A._running? 'RunForward' : 'WalkForward', A._running? pace.run : pace.walk); else W.still(A.key); }
     }
   },
   /** An actor moved by its Lua script's controls, as OpenMW's character controller takes them:
@@ -909,9 +909,16 @@ const WgScripts={
     const k=String(model||'').replace(/^(__npc\/[^?]*)\?.*$/, '$1');
     if(!k) return [];
     if(!this._groups.has(k)){
-      this._groups.set(k, (async()=>{ try{ const r=await Engine.call('anim_groups',{models:[k]}); const o=typeof r==='string'? JSON.parse(r) : r; return (o && o[k])||[]; }catch(_){ return []; } })());
+      this._groups.set(k, (async()=>{ try{ const r=await Engine.call('anim_groups',{models:[k]}); const o=typeof r==='string'? JSON.parse(r) : r; const l=(o && o[k])||[]; (this._groupsDone||(this._groupsDone=new Map())).set(k, l); return l; }catch(_){ return []; } })());
     }
     return this._groups.get(k);
+  },
+  /** The groups of a model once they are known, at once (null until then; asked for then). */
+  groupsKnown(model){
+    const k=String(model||'').replace(/^(__npc\/[^?]*)\?.*$/, '$1');
+    const l=this._groupsDone && this._groupsDone.get(k);
+    if(!l && k) this.groupsOf(k);
+    return l||null;
   },
   /** The model an object is drawn with (the renderer's pickable), without a group a
    *  script is playing on it. */
@@ -1323,7 +1330,15 @@ const WgScripts={
     // Not drawn live yet (the AI takes them up before the scene is drawn with them live):
     // kept until it is (`keepLive`).
     if(!(App._liveRefs && App._liveRefs.has(key))){ (this._warmWant=this._warmWant||new Set()).add(key); return; }
-    this._warmQ=(this._warmQ||Promise.resolve()).then(()=>this.on? previewWarmActor(key, 'WalkForward@0') : false).catch(()=>false);
+    this._warmQ=(this._warmQ||Promise.resolve()).then(async()=>{
+      if(!this.on) return false;
+      // The very mesh its walk will be: at its pace against the walk's velocity (77_wg_ai.js `playRate`).
+      const A=this.actors.get(key), model=this.modelOfKey(key);
+      await this.groupsOf(model);
+      const pace=(A && typeof WgAI==='object')? WgAI.speeds(A).walk : 0;
+      const rate=typeof WgAI==='object'? WgAI.playRate(model, 'WalkForward', pace) : 1;
+      return previewWarmActor(key, 'WalkForward@0'+(rate!==1? '*'+rate : ''));
+    }).catch(()=>false);
   },
   /** The current scene's references to what is known of them: an instance for each scripted
    *  one, and each actor's own AI packages started. Run after each gathering, whichever scene

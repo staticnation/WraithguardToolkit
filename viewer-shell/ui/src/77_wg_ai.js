@@ -387,7 +387,7 @@ const WgAI={
   },
   /** `group` looped on the actor by the AI (the walk, the run), or nothing when a script is
    *  playing something or its model lacks the group. */
-  loop(key, group){
+  loop(key, group, pace){
     const S=WgScripts;
     if(this.scripted(key)) return;
     const cur=this.own(key);
@@ -395,7 +395,19 @@ const WgAI={
     const model=S.modelOfKey(key);
     if(this.lacks.has(model+'|'+group.toLowerCase())) return;
     if(cur) S.stopAnim(key, cur.group);
-    S.playAnim(key, group, Infinity, 1, 'AI', {quiet:true, at:0, onLack:()=>this.lacks.add(model+'|'+group.toLowerCase())});
+    S.playAnim(key, group, Infinity, this.playRate(model, group, pace), 'AI', {quiet:true, at:0, onLack:()=>this.lacks.add(model+'|'+group.toLowerCase())});
+  },
+  /** How fast a walk or run is played for an actor moving at `pace` (units a second): its
+   *  pace over how fast the group carries the body across the ground (`anim_groups`' fourth
+   *  number), as OpenMW's character controller sets it - the feet keep the ground. 1 until
+   *  the groups are known, or for a group that does not travel. Two decimals, so an actor's
+   *  walk is one mesh whenever it starts. */
+  playRate(model, group, pace){
+    const list=WgScripts.groupsKnown && WgScripts.groupsKnown(model);
+    const g=list && list.find(x=>String(x[0]).toLowerCase()===String(group).toLowerCase());
+    const vel=g && +g[3];
+    if(!(vel>1) || !(pace>0)) return 1;
+    return Math.round(Math.min(4, Math.max(0.25, pace/vel))*100)/100;
   },
   /** The AI's looping walk off the actor (back to its idle); an idle it chose is left to end. */
   still(key){
