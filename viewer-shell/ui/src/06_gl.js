@@ -4348,13 +4348,29 @@ class Renderer{
    *  groups again: live batches are never in them, so the old ones are taken out of the
    *  statics and the list drawn one by one, freed, and the new ones put in their place. */
   swapLive(old, add){
-    const gone=new Set(old||[]);
-    const keep=b=>!gone.has(b);
-    this.statics=this.statics.filter(keep).concat(add||[]);
-    if(this._legacyStatics) this._legacyStatics=this._legacyStatics.filter(keep).concat(add||[]);
+    /* Static 2026-11-23 ("the animation/fps is still very low and everything is choppy"): in
+       place, not filtered into new lists. A new `statics` array, and the caster revision
+       bumped with it, threw away the sun's shadow cache of the whole scene - every cascade
+       drawn again - and walked every static twice, each time any actor started or stopped
+       walking: several times a second in a town. The new batches take the old ones' places;
+       the shadow's movers are listed again (a live actor's batches are movers: drawn every
+       frame, never in the still cache), and the still cache is kept. */
+    const gone=new Set(old||[]); add=add||[];
+    const swapIn=list=>{
+      if(!list) return;
+      let j=0;
+      for(let i=0;i<list.length;i++){
+        if(!gone.has(list[i])) continue;
+        if(j<add.length) list[i]=add[j++];
+        else{ list.splice(i,1); i--; }
+      }
+      for(;j<add.length;j++) list.push(add[j]);
+    };
+    swapIn(this.statics);
+    if(this._legacyStatics && this._legacyStatics!==this.statics) swapIn(this._legacyStatics);
     for(const b of gone) this._dropVao(b);
-    this._anyUvAnim=this._anyUvAnim || (add||[]).some(x=>x&&(x.uvAnim||x.uvAnim2||x.anim||x.skin));
-    this._casterRev=(this._casterRev|0)+1;   // the shadow casters changed
+    this._anyUvAnim=this._anyUvAnim || add.some(x=>x&&(x.uvAnim||x.uvAnim2||x.anim||x.skin));
+    this._shMov=null;   // the shadow's movers, listed again from the same statics
     this.dirty=true;
   }
   moveInstance(b, k, m){
@@ -5319,15 +5335,27 @@ class Renderer{
   /** Wraithguard: the instant a skinned batch is posed at, stepped by how far it is from
    *  the eye. Skinning is CPU work per vertex, and a town's NPCs are each a mesh of their
    *  own: posed every frame, fifty cells of them took most of the frame. Near the camera
-   *  30 times a second, then 10, then 2; past 12,000 units they hold one pose. The steps
+   *  every frame (Wraithguard, 2026-11-23: within 3,000 units), then 30 times a second, then
+   *  10, then 2; past 12,000 units they hold one pose. The steps
    *  are on the clock, so `_skinUpdate`'s once-per-instant check does the skipping. */
   _skinClock(b){
     const secs=this._uvSecs||0, eye=this._eyeNow;
-    const g=b.groups && b.groups[0] && b.groups[0].b;
-    if(!eye || !g) return secs;
-    const dx=0.5*(g[0]+g[3])-eye[0], dy=0.5*(g[1]+g[4])-eye[1], dz=0.5*(g[2]+g[5])-eye[2];
+    if(!eye) return secs;
+    /* Wraithguard: a live actor (one instance, moved every frame) from where it stands now: its
+       run's box only grows as it walks, so its middle drifted off and a walker near the camera
+       was posed as one far away - at 2 a second, or not at all. */
+    let cx, cy, cz;
+    if(b.live && b.mats && b.mats.length>=12){ cx=b.mats[3]; cy=b.mats[7]; cz=b.mats[11]+64; }
+    else{
+      const g=b.groups && b.groups[0] && b.groups[0].b;
+      if(!g) return secs;
+      cx=0.5*(g[0]+g[3]); cy=0.5*(g[1]+g[4]); cz=0.5*(g[2]+g[5]);
+    }
+    const dx=cx-eye[0], dy=cy-eye[1], dz=cz-eye[2];
     const d2=dx*dx+dy*dy+dz*dz;
-    const iv = d2<2000*2000? 1/30 : d2<5000*5000? 0.1 : d2<12000*12000? 0.5 : 0;
+    // Every frame near the camera (Static 2026-11-23: the actors' animation was choppy), then 30, 10 and 2 a second.
+    if(d2<3000*3000) return secs;
+    const iv = d2<6000*6000? 1/30 : d2<9000*9000? 0.1 : d2<12000*12000? 0.5 : 0;
     return iv? Math.floor(secs/iv)*iv : 0;
   }
   _skinUpdate(part, secs){

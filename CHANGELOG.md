@@ -137,6 +137,15 @@
 
 ### Fixed
 
+- **Walking actors no longer redraw the whole scene's shadows and are posed every frame near the
+  camera** (`06_gl.js`). Each time an actor started or stopped walking its batches were filtered into a
+  new statics list. The material groups draw only when built from the renderer's current list, so
+  after the first actor changed animation the whole scene (all 25 cells) fell off the grouped path for
+  the rest of the session and was drawn object by object; and the shadow casters' revision was bumped,
+  so the sun's cached shadow of the whole scene was drawn again, several times a second in a town.
+  They now swap in place: the groups stay in use and only the moving casters are listed again. A live actor's pose rate was taken from the middle of its run's box, which
+  grows as it walks, so one near the camera was posed as if far off (10 or 2 a second, or held); it is
+  now taken from where the actor stands, every frame within 3,000 units.
 - **NPCs no longer vanish for a moment when they set off or stop** (`78_wg_animblend.js`, `10_preview.js`
   `sameChain`, `boneFullTS`). The animation blend started each bone of the new animation from the old
   one's pose node by node, and checked only that the two chains were as long. An animation's chain holds
