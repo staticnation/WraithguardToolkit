@@ -29,7 +29,10 @@ or because it waits on something outside the code:
   as escaped or the page's own text, not proven so. A UI test that loads records named with markup is not
   written.
 - **The Lua worker** has a time limit, not a memory one: a script's allocations in C are bounded by the
-  prelude's memory check between instructions and by the machine.
+  prelude's memory check between instructions and by the machine. With LuaJIT's compiler on (2026-11-23),
+  a compiled loop is past the hook's time and memory checks: it runs until the worker's 15 s deadline,
+  allocating as it likes meanwhile. A memory cap on the worker process itself (a Job object on Windows,
+  `setrlimit` elsewhere) would close that.
 - **MWSE in the Preview** runs main.lua's events, timers, config and the core tes3 calls; the rest of MWSE
   (tes3ui menus, mobile actors' stats, the MCM, files, `mge`) answers "not run in the preview". Events
   the Preview does not make (`keyDown`, `damage`, `menuEnter`...) are never fired.

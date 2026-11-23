@@ -116,15 +116,39 @@ pub struct Collider {
     /// The water's height where there is water: the sea outside (0); an interior's own,
     /// when it has water.
     pub water: Option<f64>,
+    /// The land's heights by grid when there is no `world` (the Lua worker: the program sends
+    /// it the squares around the player, `apply`).
+    pub lands: std::collections::HashMap<(i32, i32), Vec<f32>>,
+    /// Each model's collision triangles in its own units, as sent (`apply`), placed per object.
+    pub models: std::collections::HashMap<String, std::sync::Arc<Vec<[f32; 3]>>>,
 }
 
 /// The scene's collision (one Lua at a time, as the runner).
 pub static COLLIDER: std::sync::Mutex<Option<Collider>> = std::sync::Mutex::new(None);
 
-/// Where `ray` asks instead of `COLLIDER`, when set: the Lua worker's line back to the
-/// program that holds the scene (`luaproc::serve`).
-pub type RayVia = Box<dyn Fn([f64; 3], [f64; 3], Option<&str>, u32) -> Option<Hit> + Send + Sync>;
-pub static RAY_VIA: std::sync::OnceLock<RayVia> = std::sync::OnceLock::new();
+
+/// f32s as base64 (little-endian), the collision's numbers on the Lua worker's line.
+pub fn f32s_b64(v: &[f32]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+fn b64_f32s(s: &str) -> Option<Vec<f32>> {
+    let b = crate::json::base64_decode(s)?;
+    Some(b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
+}
 
 impl Shape {
     /// `tris` in the mesh's own units (three vertices a triangle), placed by `m` (3x4, rows,
@@ -159,6 +183,61 @@ impl Shape {
 pub type Hit = ([f64; 3], [f64; 3], Option<String>);
 
 impl Collider {
+    /// What changed, as the program sends it to the Lua worker (`luaproc`, `{"t":"col"}`), so the
+    /// worker casts its rays itself (Static 2026-11-23: one round trip a ray was the cost):
+    /// `exterior`, `water` (null: none), `models: {model: base64 f32 triangles}`, `objects: {key:
+    /// false | {enabled} | {model, m: [12], origin: [x, y], enabled, kind}}`, `lands: [[gx, gy,
+    /// base64 65x65 heights]]`.
+    pub fn apply(&mut self, v: &serde_json::Value) {
+        if let Some(e) = v.get("exterior").and_then(|x| x.as_bool()) {
+            self.exterior = e;
+        }
+        if let Some(w) = v.get("water") {
+            self.water = w.as_f64();
+        }
+        for (m, t) in v.get("models").and_then(|x| x.as_object()).into_iter().flatten() {
+            if let Some(f) = t.as_str().and_then(b64_f32s) {
+                self.models.insert(m.clone(), std::sync::Arc::new(f.as_chunks::<3>().0.to_vec()));
+            }
+        }
+        for (k, o) in v.get("objects").and_then(|x| x.as_object()).into_iter().flatten() {
+            if o.is_boolean() {
+                self.shapes.remove(k);
+                continue;
+            }
+            let enabled = o.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true);
+            let model = o.get("model").and_then(|x| x.as_str());
+            let m = o.get("m").and_then(|x| x.as_array());
+            match (model.and_then(|m| self.models.get(m)).cloned(), m) {
+                (Some(tris), Some(m)) => {
+                    let mut mm = [0f32; 12];
+                    for (i, x) in m.iter().take(12).enumerate() {
+                        mm[i] = x.as_f64().unwrap_or(0.0) as f32;
+                    }
+                    let og = o.get("origin").and_then(|x| x.as_array());
+                    let at = |i: usize| og.and_then(|g| g.get(i)).and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+                    let mut sh = Shape::placed(&tris, &mm, [at(0), at(1)], enabled);
+                    sh.kind = o.get("kind").and_then(|x| x.as_u64()).map_or(collision_type::WORLD, |k| k as u32);
+                    self.shapes.insert(k.clone(), sh);
+                }
+                _ if model.is_some() => {
+                    self.shapes.remove(k);
+                }
+                _ => {
+                    if let Some(sh) = self.shapes.get_mut(k) {
+                        sh.enabled = enabled;
+                    }
+                }
+            }
+        }
+        for l in v.get("lands").and_then(|x| x.as_array()).into_iter().flatten() {
+            let g = |i: usize| l.get(i).and_then(|x| x.as_i64()).unwrap_or(0) as i32;
+            if let Some(h) = l.get(2).and_then(|x| x.as_str()).and_then(b64_f32s) {
+                self.lands.insert((g(0), g(1)), h);
+            }
+        }
+    }
+
     /// What the ray meets first, of the collision types in `mask` (`collision_type`).
     pub fn cast(&self, a: [f64; 3], b: [f64; 3], ignore: Option<&str>, mask: u32) -> Option<Hit> {
         let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
@@ -202,13 +281,19 @@ impl Collider {
         const CELL: f64 = 8192.0;
         const N: usize = 65;
         let (gx, gy) = ((x / CELL).floor() as i32, (y / CELL).floor() as i32);
-        let Some(land) = self.world.as_ref().and_then(|w| w.lands.get(&(gx, gy))) else { return -2048.0 };
+        let heights: &[f32] = match self.world.as_ref().and_then(|w| w.lands.get(&(gx, gy))) {
+            Some(l) => &l.heights[..],
+            None => match self.lands.get(&(gx, gy)) {
+                Some(h) if h.len() >= N * N => h,
+                _ => return -2048.0,
+            },
+        };
         let step = CELL / (N - 1) as f64;
         let fx = ((x - gx as f64 * CELL) / step).clamp(0.0, (N - 1) as f64 - 1e-3);
         let fy = ((y - gy as f64 * CELL) / step).clamp(0.0, (N - 1) as f64 - 1e-3);
         let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
         let (tx, ty) = (fx - x0 as f64, fy - y0 as f64);
-        let h = |x: usize, y: usize| land.heights[y * N + x] as f64;
+        let h = |x: usize, y: usize| heights[y * N + x] as f64;
         if tx + ty <= 1.0 {
             h(x0, y0) * (1.0 - tx - ty) + h(x0 + 1, y0) * tx + h(x0, y0 + 1) * ty
         } else {
@@ -312,10 +397,6 @@ fn tri_hit(a: [f64; 3], d: [f64; 3], t: &[f32; 9]) -> Option<(f64, [f64; 3])> {
 /// The ray the Lua asks for (`__wg_ray`), against the scene's collision: the types in
 /// `mask` (`collision_type`).
 pub fn ray(a: [f64; 3], b: [f64; 3], ignore: Option<&str>, mask: u32) -> Option<Hit> {
-    // In the Lua worker (`luaproc`) the scene is the program's: the ray is asked of it.
-    if let Some(via) = RAY_VIA.get() {
-        return via(a, b, ignore, mask);
-    }
     let g = COLLIDER.lock().ok()?;
     g.as_ref()?.cast(a, b, ignore, mask)
 }
@@ -806,7 +887,13 @@ mod tests {
     /// well as on the built-in Lua 5.4; Lua 5.4 otherwise.
     fn runner() -> Runner {
         match std::env::var("WG_LUAJIT") {
-            Ok(p) if !p.is_empty() => Runner::new(Some(std::path::Path::new(&p)), false).unwrap(),
+            Ok(p) if !p.is_empty() => {
+                // The limits' own tests: every hook fires with the compiler off (in the program it
+                // is on, and the worker's deadline is what stops a compiled loop: luaproc's test).
+                let mut r = Runner::new(Some(std::path::Path::new(&p)), false).unwrap();
+                r.call("__wg_set_jit", "off").unwrap();
+                r
+            }
             _ => Runner::new(None, true).unwrap(),
         }
     }

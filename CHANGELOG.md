@@ -117,6 +117,17 @@
   while the AI walked); with the scene key unchanged that never built anything, it only scattered the
   grass of every loaded cell anew - on 25 cells, a stall several times a second. Nothing is asked for
   now: actors move and swap in place, and the rest is drawn when the scene is next built.
+- **LuaJIT's compiler is on again** (`luarun.lua` `__wg_set_jit`). It was turned off so the time limit's
+  hook would fire in compiled loops, which made every script on OpenMW's LuaJIT interpreted and
+  several times slower. What stops a runaway compiled loop now is the worker's deadline: the whole Lua
+  is ended after 15 s in one frame (90 s to start), and starts fresh the next time the Scripts run. The
+  hook still stops scripts within their own limit everywhere else, and on Lua 5.4 always. Tests of the
+  limits on LuaJIT turn the compiler off; `luaproc`'s test stops a compiled endless loop by the deadline.
+- **`nearby.castRay` is answered in the Lua worker** (`luaproc`, `luarun::Collider::apply`,
+  `lua_collision`). Each ray was a round trip to the program in the middle of the script's call. The
+  program now sends the worker what changed of the scene's collision ahead of each frame - each model's
+  triangles once, the objects' placings as they move, the land of the 5 x 5 squares around the player
+  once each - and the worker casts its rays itself. Test: `a_ray_in_the_worker_meets_what_the_program_sent`.
 
 ### Fixed
 

@@ -3846,6 +3846,8 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let world = { state.app().world.clone() };
     *viewcore::luarun::COLLIDER.lock().map_err(|e| e.to_string())? = Some(viewcore::luarun::Collider { world, ..Default::default() });
     *LUA_SHAPES.lock().map_err(|e| e.to_string())? = None;
+    // A new worker has none of the collision yet.
+    *LUA_SENT.lock().map_err(|e| e.to_string())? = LuaSent::default();
     let note = if resources.is_none() { "OpenMW's resources folder was not found: its built-in scripts (I.AI, activation, music, combat) are not running. Choose the OpenMW folder (the one with openmw.exe) to run them." } else { "" };
     let answer: serde_json::Value = serde_json::from_str(&answer).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"backend": backend, "resources": resources.map(|p| p.display().to_string()), "note": note, "answer": answer}).to_string())
@@ -3867,9 +3869,13 @@ fn lua_ui_font() -> Result<tauri::ipc::Response, String> {
 /// `luarun.lua`'s `__wg_step`), `{effects, log, status}` out.
 #[tauri::command(async)]
 fn lua_run_step(frame: String, state: State) -> Result<String, String> {
-    lua_collision(&frame, &state);
+    let delta = lua_collision(&frame, &state);
     let mut g = LUA_RUN.lock().map_err(|e| e.to_string())?;
     let run = g.as_mut().ok_or("OpenMW Lua is not running")?;
+    // The worker's copy of the collision, brought up to date before the frame (its rays are its own).
+    if let Some(d) = delta {
+        run.send_col(&d);
+    }
     let got = run.call("__wg_step", &frame, LUA_STEP_LIMIT);
     // A worker that was stopped is let go: the next start makes a new one.
     if !run.alive() {
@@ -3908,29 +3914,72 @@ fn collision_tris(vfs: &Vfs, model: &str) -> Option<std::sync::Arc<Vec<[f32; 3]>
 /// sent: each object with a `model` and the renderer's matrix `m` placed (plus the scene's
 /// `origin`), one sent as `false` taken out, `enabled` followed; the land counted while
 /// the player is outside.
-fn lua_collision(frame: &str, state: &State) {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(frame) else { return };
-    let Ok(mut col) = viewcore::luarun::COLLIDER.lock() else { return };
-    let Some(col) = col.as_mut() else { return };
-    if let Some(ext) = v.pointer("/player/cell/ext").and_then(serde_json::Value::as_bool) {
+/// Static 2026-11-23: also what changed, for the Lua worker's own copy (`luarun::Collider::apply`'s
+/// form): the models' triangles once each (`LUA_SENT`), the objects' placings, the land of the
+/// squares around the player. None when nothing did.
+fn lua_collision(frame: &str, state: &State) -> Option<serde_json::Value> {
+    use serde_json::{json, Map, Value};
+    let v = serde_json::from_str::<Value>(frame).ok()?;
+    let mut col = viewcore::luarun::COLLIDER.lock().ok()?;
+    let col = col.as_mut()?;
+    let mut sent = LUA_SENT.lock().ok()?;
+    let mut out = Map::new();
+    if let Some(ext) = v.pointer("/player/cell/ext").and_then(Value::as_bool) {
         col.exterior = ext;
         // The sea outside; an interior's water when the page says it has some.
-        col.water = if ext { Some(0.0) } else { v.pointer("/player/cell/water").and_then(serde_json::Value::as_f64) };
+        col.water = if ext { Some(0.0) } else { v.pointer("/player/cell/water").and_then(Value::as_f64) };
+        out.insert("exterior".into(), json!(ext));
+        out.insert("water".into(), json!(col.water));
+        // The land around the player, each square once.
+        if let (true, Some(gx), Some(gy), Some(w)) = (ext, v.pointer("/player/cell/gx").and_then(Value::as_i64), v.pointer("/player/cell/gy").and_then(Value::as_i64), col.world.clone()) {
+            let mut lands = Vec::new();
+            for dx in -2..=2 {
+                for dy in -2..=2 {
+                    let g = (gx as i32 + dx, gy as i32 + dy);
+                    if sent.lands.insert(g) {
+                        if let Some(l) = w.lands.get(&g) {
+                            lands.push(json!([g.0, g.1, viewcore::luarun::f32s_b64(&l.heights[..])]));
+                        }
+                    }
+                }
+            }
+            if !lands.is_empty() {
+                out.insert("lands".into(), Value::Array(lands));
+            }
+        }
     }
-    let Some(objs) = v.get("objects").and_then(serde_json::Value::as_object) else { return };
+    let mut models = Map::new();
+    let mut placed = Map::new();
+    let finish = |out: &mut Map<String, Value>, models: Map<String, Value>, placed: Map<String, Value>| {
+        if !models.is_empty() {
+            out.insert("models".into(), Value::Object(models));
+        }
+        if !placed.is_empty() {
+            out.insert("objects".into(), Value::Object(placed));
+        }
+    };
+    let Some(objs) = v.get("objects").and_then(Value::as_object) else {
+        finish(&mut out, models, placed);
+        return (!out.is_empty()).then_some(Value::Object(out));
+    };
     let origin = v.get("origin").and_then(serde_json::Value::as_array).map(|o| [o.first().and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32, o.get(1).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32]).unwrap_or([0.0, 0.0]);
     let vfs = state.app().vfs.clone();
-    let Some(vfs) = vfs else { return };
+    let Some(vfs) = vfs else {
+        finish(&mut out, models, placed);
+        return (!out.is_empty()).then_some(Value::Object(out));
+    };
     for (k, o) in objs {
         if o.is_boolean() {
             col.shapes.remove(k);
+            placed.insert(k.clone(), json!(false));
             continue;
         }
-        let enabled = o.get("enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
-        let (Some(model), Some(m)) = (o.get("model").and_then(serde_json::Value::as_str), o.get("m").and_then(serde_json::Value::as_array)) else {
+        let enabled = o.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        let (Some(model), Some(m)) = (o.get("model").and_then(Value::as_str), o.get("m").and_then(Value::as_array)) else {
             if let Some(sh) = col.shapes.get_mut(k) {
                 sh.enabled = enabled;
             }
+            placed.insert(k.clone(), json!({"enabled": enabled}));
             continue;
         };
         let mut mm = [0f32; 12];
@@ -3940,15 +3989,32 @@ fn lua_collision(frame: &str, state: &State) {
         match collision_tris(&vfs, model) {
             Some(t) => {
                 let mut sh = viewcore::luarun::Shape::placed(&t, &mm, origin, enabled);
-                sh.kind = viewcore::luarun::collision_type::of_tag(o.get("tag").and_then(serde_json::Value::as_str).unwrap_or(""));
+                sh.kind = viewcore::luarun::collision_type::of_tag(o.get("tag").and_then(Value::as_str).unwrap_or(""));
+                if sent.models.insert(model.to_ascii_lowercase()) {
+                    let flat: Vec<f32> = t.iter().flatten().copied().collect();
+                    models.insert(model.to_ascii_lowercase(), json!(viewcore::luarun::f32s_b64(&flat)));
+                }
+                placed.insert(k.clone(), json!({"model": model.to_ascii_lowercase(), "m": mm, "origin": origin, "enabled": enabled, "kind": sh.kind}));
                 col.shapes.insert(k.clone(), sh);
             }
             None => {
                 col.shapes.remove(k);
+                placed.insert(k.clone(), json!(false));
             }
         }
     }
+    finish(&mut out, models, placed);
+    (!out.is_empty()).then_some(Value::Object(out))
 }
+
+/// What the current Lua worker has been sent of the collision (`lua_collision`): each model's
+/// triangles and each land square once. Emptied when a worker starts.
+#[derive(Default)]
+struct LuaSent {
+    models: std::collections::HashSet<String>,
+    lands: std::collections::HashSet<(i32, i32)>,
+}
+static LUA_SENT: std::sync::LazyLock<std::sync::Mutex<LuaSent>> = std::sync::LazyLock::new(Default::default);
 
 /// Wraithguard: `phys_drop`'s request, read from bytes (`WGTB`, `WgPhysics.pack` in
 /// 76_wg_physics.js; Static 2026-11-17: JSON only where it is needed - a body's triangles and

@@ -14,13 +14,14 @@
 //! script's `print`, a test harness - is not ours and is passed over).
 //!
 //!   program -> worker   {"t":"new","jit":path|null,"force54":bool}
+//!                       {"t":"col", ...}  what changed of the scene's collision (no answer)
 //!                       {"t":"call","func":name,"arg":json}
-//!                       {"t":"ray","hit":[[x,y,z],[nx,ny,nz],key|null]|null}
 //!   worker -> program   {"t":"ok","v":text}  {"t":"err","v":text}
-//!                       {"t":"ray","a":[..],"b":[..],"ig":key|null,"mask":n}
 //!
-//! `ray` is `nearby.castRay`: the scene's collision is the program's, so the worker asks for
-//! each one and waits for the answer in the middle of its call.
+//! `nearby.castRay` is answered in the worker, against its own copy of the scene's collision
+//! (`luarun::Collider::apply`): the program sends what changed before each call - the models'
+//! triangles once each, the objects' placings as they move, the land around the player. A ray
+//! asked of the program in the middle of a call was a round trip each (Static 2026-11-23).
 
 use std::io::{BufRead, Write};
 use std::path::Path;
@@ -28,7 +29,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use crate::luarun::{self, Hit, Runner};
+use crate::luarun::{self, Runner};
 
 const TAG: &str = "WGL1 ";
 
@@ -56,24 +57,10 @@ fn read_msg(input: &mut impl BufRead) -> Option<serde_json::Value> {
     }
 }
 
-fn v3(v: Option<&serde_json::Value>) -> Option<[f64; 3]> {
-    let a = v?.as_array()?;
-    Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?, a.get(2)?.as_f64()?])
-}
-
 /// The worker: the Lua, answering the program until its input ends. Returns the exit code.
 pub fn serve() -> i32 {
-    // The scene's rays, asked of the program in the middle of a call.
-    let _ = luarun::RAY_VIA.set(Box::new(|a, b, ig, mask| {
-        let ask = serde_json::json!({"t": "ray", "a": a, "b": b, "ig": ig, "mask": mask});
-        send(&mut std::io::stdout().lock(), &ask).ok()?;
-        let got = read_msg(&mut std::io::stdin().lock())?;
-        let h = got.get("hit")?.as_array()?;
-        Some((v3(h.first())?, v3(h.get(1))?, h.get(2).and_then(|k| k.as_str()).map(str::to_string)))
-    }));
     let mut run: Option<Runner> = None;
     loop {
-        // The lock is let go before the call: a ray in it reads the same input.
         let Some(m) = read_msg(&mut std::io::stdin().lock()) else { return 0 };
         let s = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
         let answer = match s("t").as_str() {
@@ -84,6 +71,13 @@ pub fn serve() -> i32 {
                     run = Some(r);
                     b
                 })
+            }
+            // The scene's collision, for the rays: applied, and nothing answered.
+            "col" => {
+                if let Ok(mut c) = luarun::COLLIDER.lock() {
+                    c.get_or_insert_with(Default::default).apply(&m);
+                }
+                continue;
             }
             "call" => match run.as_mut() {
                 Some(r) => r.call(&s("func"), &s("arg")),
@@ -147,6 +141,21 @@ impl Proc {
         self.ask(&serde_json::json!({"t": "call", "func": func, "arg": arg}), limit)
     }
 
+    /// What changed of the scene's collision, for the worker's rays (`Collider::apply`'s form,
+    /// without `t`): sent ahead of the next call, no answer.
+    pub fn send_col(&mut self, delta: &serde_json::Value) {
+        if self.dead {
+            return;
+        }
+        let mut m = delta.clone();
+        if let Some(o) = m.as_object_mut() {
+            o.insert("t".into(), "col".into());
+        }
+        if send(&mut self.to, &m).is_err() {
+            self.end();
+        }
+    }
+
     /// Whether the worker is still there to ask.
     pub fn alive(&self) -> bool {
         !self.dead
@@ -169,17 +178,6 @@ impl Proc {
                     match m.get("t").and_then(|t| t.as_str()) {
                         Some("ok") => return Ok(v),
                         Some("err") => return Err(v),
-                        Some("ray") => {
-                            let hit: Option<Hit> = match (v3(m.get("a")), v3(m.get("b"))) {
-                                (Some(a), Some(b)) => luarun::ray(a, b, m.get("ig").and_then(|v| v.as_str()), m.get("mask").and_then(|v| v.as_u64()).unwrap_or(0) as u32),
-                                _ => None,
-                            };
-                            let hit = hit.map(|(p, n, k)| serde_json::json!([p, n, k]));
-                            if send(&mut self.to, &serde_json::json!({"t": "ray", "hit": hit})).is_err() {
-                                self.end();
-                                return Err(format!("{STOPPED} the Lua worker has gone (it may have crashed)"));
-                            }
-                        }
                         _ => {}
                     }
                 }
@@ -263,5 +261,33 @@ mod tests {
         assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
         assert!(!p.alive());
         assert!(p.call("__wg_step", "{}", Duration::from_secs(5)).unwrap_err().starts_with(STOPPED));
+    }
+
+    /// The rays are the worker's own: the scene's collision is sent to it (`send_col`) and a
+    /// script's `nearby.castRay` meets it with no round trip; the land as well.
+    #[test]
+    fn a_ray_in_the_worker_meets_what_the_program_sent() {
+        let mut p = worker(Duration::from_secs(30)).unwrap();
+        let quad: Vec<f32> = [[-500.0f32, 0.0, 0.0], [500.0, 0.0, 0.0], [500.0, 0.0, 400.0], [-500.0, 0.0, 0.0], [500.0, 0.0, 400.0], [-500.0, 0.0, 400.0]].concat();
+        let heights = vec![50.0f32; 65 * 65];
+        p.send_col(&serde_json::json!({
+            "exterior": true,
+            "models": {"meshes/wall.nif": luarun::f32s_b64(&quad)},
+            "objects": {"w1": {"model": "meshes/wall.nif", "m": [1,0,0,0, 0,1,0,500, 0,0,1,100], "origin": [0, 0], "enabled": true, "kind": 1}},
+            "lands": [[0, 0, luarun::f32s_b64(&heights)]],
+        }));
+        let script = "local nearby = require('openmw.nearby') local util = require('openmw.util') local done = false\n\
+            return { engineHandlers = { onUpdate = function() if done then return end done = true\n\
+            local a = nearby.castRay(util.vector3(0, 0, 200), util.vector3(0, 1000, 200))\n\
+            local g = nearby.castRay(util.vector3(100, 100, 300), util.vector3(100, 100, -300))\n\
+            print('hit', a.hitObject and a.hitObject.recordId, math.floor(a.hitPos.y + 0.5), g.hit, g.hitPos and math.floor(g.hitPos.z + 0.5)) end } }";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/ray.lua","flags":["NPC"]}}],"sources":{{"scripts/t/ray.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        p.call("__wg_start", &start, Duration::from_secs(30)).unwrap();
+        let got = p.call("__wg_step", r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"cell":{"name":"","ext":true,"gx":0,"gy":0}},
+            "w1":{"id":"ex_wall","tag":"STAT","pos":[0,500,100],"cell":{"name":"","ext":true,"gx":0,"gy":0}}}}"#, Duration::from_secs(30)).unwrap();
+        assert!(got.contains(r#""text":"hit ex_wall 500 true 50""#), "{got}");
     }
 }

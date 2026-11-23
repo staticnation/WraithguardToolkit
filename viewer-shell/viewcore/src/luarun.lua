@@ -12,10 +12,19 @@
 
 local G = _G
 -- LuaJIT runs a hot loop as machine code, where no debug hook fires: the time limit below
--- (a count hook) never saw `while true do end`, and the Preview hung on the engine OpenMW
--- ships (found running the tests on LuaJIT 2.1, 2026-11-23). The compiler is off for this
--- state - every script is interpreted, and every hook fires - and `jit` is no script's.
-if jit and jit.off then jit.off() jit.flush() end
+-- (a count hook) does not see `while true do end` once it is compiled (found running the
+-- tests on LuaJIT 2.1, 2026-11-23). The compiler is on all the same (Static 2026-11-23: the
+-- scripts ran several times slower interpreted): what stops such a loop is the worker's
+-- deadline (luaproc.rs), which ends the whole Lua after its time. `__wg_set_jit('off')`
+-- turns it off, for every hook to fire (the tests of the limits on LuaJIT). `jit` is no
+-- script's either way.
+local JIT = jit
+function __wg_set_jit(arg)
+  if JIT and JIT.off then
+    if arg == 'off' then JIT.off() JIT.flush() else JIT.on() end
+  end
+  return arg == 'off' and 'off' or 'on'
+end
 -- The engine's ray against the scene's collision (luarun.rs), the one call out of Lua.
 local RAY = __wg_ray
 __wg_ray = nil
