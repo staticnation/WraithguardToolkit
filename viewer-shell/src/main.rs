@@ -73,6 +73,8 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     // The Preview's Lua, in a process of its own the program can end (viewcore::luaproc).
+    // Not in check/ (`wg_check`): it compiles this file without the cell viewer's crates.
+    #[cfg(not(wg_check))]
     if args.get(1).map(String::as_str) == Some("--lua-worker") {
         std::process::exit(viewcore::luaproc::serve());
     }
