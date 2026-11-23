@@ -806,10 +806,10 @@ async function _rebuildCellPreview(){
     App.mode==='cell'? '' : (App.patchSig||''),
     // Wraithguard: the editor's pending reference changes, drawn in place.
     typeof WgEditor==='object'? WgEditor.liveSig : '',
-    /* Wraithguard: whether the Scripts run - while they do, each actor is drawn in batches
-       of its own so it can move (`live`, below). Left out of the key, turning them on found
-       the same scene and kept it: no actor was live, and none moved on screen. */
-    typeof WgScripts==='object' && !!WgScripts.on,
+    /* Wraithguard: whether the Scripts run is not part of the key (Static 2026-11-23: opening
+       the Scripts panel "takes over 2:30min to reload the whole cell ... every time its opened").
+       Every actor is drawn in batches of its own (`live`, below) whether they run or not, so
+       turning them on or off keeps the scene. */
   ]);
   /* Two conditions, not one. The key says the scene *would* be the same; the second
      asks whether it is still on the renderer at all. They can disagree — anything that
@@ -832,7 +832,6 @@ async function _rebuildCellPreview(){
     App.avoidStatics, App.avoidPad, App.avoidMinSize, (App.avoidExclude||[]).join('|'),
     GameData.sig||'', App.mode==='cell'? '' : (App.patchSig||''),
     typeof WgEditor==='object'? WgEditor.liveSig : '',
-    typeof WgScripts==='object' && !!WgScripts.on,
   ]);
 
   /* Round 15 item 7: rings of neighbours - 1 is the eight around it, 2 is 25 cells, 3
@@ -1421,9 +1420,10 @@ async function _rebuildCellPreview(){
           }
         }
         // Wraithguard: a group a script plays on it (never on a static: the game gives those no animation).
-        /* Wraithguard: an actor while the Scripts run is moved by them every frame, so its
-           batches draw on their own and it is moved in place (`previewMoveRef`). */
-        const live=!!actor && typeof WgScripts==='object' && WgScripts.on;
+        /* Wraithguard: an actor's batches draw on their own, so the Scripts can move it in place
+           every frame (`previewMoveRef`) and swap its mesh alone. Always, not only while they
+           run: a scene built the other way had to be built again whole to start them. */
+        const live=!!actor;
         const baseModel=model;   // before a script's group: what `previewSwapActor` builds from
         if(ref.anim && (actor || !ref.still)) model=animModel(model, ref.anim);
         const local=[ref.pos[0]-c.origin[0]+off[0], ref.pos[1]-c.origin[1]+off[1], ref.pos[2]];

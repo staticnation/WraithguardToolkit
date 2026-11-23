@@ -163,7 +163,8 @@ module.exports = async (t) => {
   t.ok(weather.selectedIndex === 4 && weather.changed === 1, 'ChangeWeather to rain');
   const lit = S.overlay(cell).refs.find(r => r.key === 'k5');
   t.ok(lit.pos[2] === 500 && cell.refs[4].pos[2] === 100, 'the scene shows it moved; the load order\'s reference is untouched');
-  t.ok(rebuilds > 0, 'the scene is built again');
+  // The preview is not asked again while they run: its key is the same, so that only scattered the grass anew.
+  t.ok(rebuilds === 0, 'no preview asked for while they run: ' + rebuilds);
 
   // A loop that never ends is stopped, and said.
   S.learn('forever', { id: 'forever', text: 'begin forever\nshort n\nwhile ( 1 )\nset n to n + 1\nendwhile\nend' });

@@ -106,6 +106,17 @@
   `lua_scene`'s `script_files`). Which scripts run has a **By script / By file** switch (kept): by file,
   each `.omwscripts` (or `.omwaddon`) that registers scripts is one switch for all of them, shown as
   neither when only some are on. Test: `scripts_anim.test.js`, `registered_scripts_and_their_source`.
+- **Opening and closing the Scripts panel no longer builds the scene again** (`18_cellpreview.js`,
+  `73_wg_scripts.js`). Turning the Scripts on drew every actor in batches of its own so it could move,
+  which needed the whole scene built again (2.5 minutes for 25 cells of a big load order), and turning
+  them off built it again. Actors are drawn that way always now, so the scene is kept both ways; closing
+  puts each moved actor back and on its own idle in place, and builds the scene again only when a script
+  turned an object off or placed one.
+- **The Preview no longer stalls while the actors walk** (`73_wg_scripts.js` `flushScene`). What the scripts
+  changed that is not moved in place asked for the preview again (every 350 ms at most, and every 1.5 s
+  while the AI walked); with the scene key unchanged that never built anything, it only scattered the
+  grass of every loaded cell anew - on 25 cells, a stall several times a second. Nothing is asked for
+  now: actors move and swap in place, and the rest is drawn when the scene is next built.
 
 ### Fixed
 

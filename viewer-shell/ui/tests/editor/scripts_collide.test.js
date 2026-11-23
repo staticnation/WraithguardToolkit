@@ -102,6 +102,7 @@ module.exports = async (t) => {
   for (let i = 0; i < 3; i++) { now += 200; S.frame(0.05); }
   const first = rebuilds.length;
   for (let i = 0; i < 20; i++) { S.playAnim('m1', 'idle2', 1, 1, 'script'); now += 400; S.frame(0.05); }
-  t.ok(first === 1, 'its group drawn once: ' + first);
-  t.ok(rebuilds.length === first, 'the same group again is not drawn again: ' + rebuilds.length + ' drawings');
+  // No preview asked for while they run (Static 2026-11-23: it only scattered the grass again, several times a second).
+  t.ok(first === 0 && rebuilds.length === 0, 'no preview asked for: ' + rebuilds.length);
+  t.ok(S._animSigDrawn === S.animSig(), 'what it plays is marked as seen');
 };

@@ -1093,12 +1093,19 @@ const WgScripts={
     return Object.assign({}, rec, {refs});
   },
   /** The scene drawn again, at most a few times a second, when the scripts changed it. */
+  /* What the scripts changed that is not moved in place - an object turned off or placed, an
+     animation on something not drawn live - used to ask for the preview again here, every
+     350 ms at most (and every 1.5 s while the AI walked). The scene key does not change while
+     they run, so that never built the scene again: it scattered the grass of every loaded cell
+     anew and changed nothing else - on a big load order, a stall several times a second while
+     the actors walked (Static 2026-11-23: "while moving ... performance tanks"). It asks for
+     nothing now; those changes are drawn when the scene is next built (closing the Scripts
+     builds it again when there are any, `reset`). Actors are moved and swapped in place. */
   flushScene(){
     const now=performance.now();
     if(now-this._lastRebuild<350) return;
     this._dirtyScene=false; this._dirtyAI=false; this._lastRebuild=now;
     this._animSigDrawn=this.animSig();
-    if(typeof schedulePreview==='function') schedulePreview();
   },
   fade(to, secs){
     let el=$('#wgScrFade');
@@ -1396,9 +1403,8 @@ const WgScripts={
     this.on=!!on;
     const b=$('#tbScripts'); if(b) b.classList.toggle('on', this.on);
     if(this.on){
+      // The scene is kept: its actors already draw on their own (18_cellpreview.js `live`).
       this.panel(); this._el.hidden=false; this.gather().then(()=>this.startLua()); this._last=0; this.loopRun();
-      // Drawn again so the actors draw on their own and glide (18_cellpreview.js `previewMoveRef`).
-      if(typeof schedulePreview==='function') schedulePreview();
     }
     else this.reset(true);
   },
@@ -1411,6 +1417,19 @@ const WgScripts={
   /** Back to the scene as the load order has it: every change the scripts made undone, their
    *  locals and the started scripts forgotten. */
   reset(off){
+    /* The scene is kept when only actors moved or played: each is put back where the load order
+       has it, with its own idle (18_cellpreview.js `previewMoveRef`, `previewSwapActor`). What
+       else the scripts changed - an object turned off, one placed - needs the scene built again. */
+    const rebuild=this.disabled.size>0 || this.placed.length>0;
+    if(App._liveRefs && typeof previewMoveRef==='function'){
+      for(const k of new Set([...this.moved.keys(), ...this.anims.keys()])){
+        if(!App._liveRefs.has(k)) continue;
+        const r=this.refByKey(k);
+        if(r && r.pos) previewMoveRef(k, r.pos, r.rot||[0,0,0], r.scale||1);
+        if(typeof previewSwapActor==='function') previewSwapActor(k, null).catch(()=>{});
+      }
+    }
+    if(rebuild) App._scene=null;
     this.disabled.clear(); this.moved.clear(); this.anims.clear(); this.placed=[]; this.inst.clear(); this.globalRun.clear();
     for(const k of [...this.loops.keys()]) this.loopStop(k);
     this._globalsRead=false; this._asked=null; this._packed=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
@@ -1419,7 +1438,7 @@ const WgScripts={
     if(typeof WgLua==='object') WgLua.stop();
     if(off){ cancelAnimationFrame(this._raf); this._raf=0; if(this._el) this._el.hidden=true; }
     this._sceneSeen=null;
-    if(typeof schedulePreview==='function') schedulePreview();
+    if(rebuild && typeof schedulePreview==='function') schedulePreview();
     this.drawState(); this.drawLog();
   },
 
