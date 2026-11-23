@@ -1714,6 +1714,88 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         assert!(!a.contains("not shown") && !a.contains(r#""kind":"error""#), "{a}");
     }
 
+    /// What Static's downloaded OpenMW mods stopped at (2026-11-23): a vector's element-wise
+    /// `emul`/`ediv`, magic effects by id, the dialogue's greetings, the MWScripts' records.
+    #[test]
+    fn what_static_s_openmw_mods_use_is_there() {
+        let script = "local util = require('openmw.util') local core = require('openmw.core')\n\
+            local v = util.vector2(4, 6):emul(util.vector2(2, 3)):ediv(util.vector2(4, 2))\n\
+            print(math.floor(v.x), math.floor(v.y), core.magic.effects.records.recall.id, #core.magic.effects.records > 100, type(core.dialogue.greeting.records), type(core.mwscripts.records))";
+        let (_r, a, _) = started(&[("scripts/t/g.lua", script)], 0.5, 262_144);
+        assert!(a.contains(r#""text":"2 9 recall true table table""#), "{a}");
+    }
+
+    /// Not a check of its own: an OpenMW mod's scripts, as its `.omwscripts` register them, run
+    /// on a small scene, for a survey of what breaks. `WG_OMW_MOD` is the mod's data folder.
+    #[test]
+    #[ignore]
+    fn survey_one_openmw_mod() {
+        let Ok(root) = std::env::var("WG_OMW_MOD") else { return };
+        let root = std::path::PathBuf::from(root);
+        let (mut sources, mut list) = (String::new(), Vec::new());
+        let mut stack = vec![root.clone()];
+        let push = |out: &mut String, k: &str, v: &str| {
+            if !out.is_empty() { out.push(',') }
+            out.push('"');
+            crate::json::escape_into(k, out);
+            out.push_str("\":\"");
+            crate::json::escape_into(v, out);
+            out.push('"');
+        };
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() { stack.push(p); continue }
+                let rel = p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/").to_lowercase();
+                let text = String::from_utf8_lossy(&std::fs::read(&p).unwrap()).into_owned();
+                if rel.ends_with(".lua") { push(&mut sources, &rel, &text) }
+                if rel.ends_with(".omwscripts") && !rel.contains('/') {
+                    for e in luacore::omwscripts::parse_omwscripts(&text, &rel).entries {
+                        let f: Vec<String> = e.flags.into_iter().filter(|x| x != "LOAD").collect();
+                        if !f.is_empty() { list.push(format!(r#"{{"path":"{}","flags":[{}]}}"#, e.path.replace('\\', "/").replace('"', ""), f.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(","))) }
+                    }
+                }
+            }
+        }
+        // OpenMW's own scripts first, as the preview runs them (`WG_OMW_RES`: a `resources` folder).
+        let mut builtin = Vec::new();
+        if let Ok(res) = std::env::var("WG_OMW_RES") {
+            for sub in ["vfs", "vfs-mw"] {
+                let base = std::path::Path::new(&res).join(sub);
+                let mut st = vec![base.clone()];
+                while let Some(d) = st.pop() {
+                    for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                        let p = e.path();
+                        if p.is_dir() { st.push(p); continue }
+                        let rel = p.strip_prefix(&base).unwrap().to_string_lossy().replace('\\', "/").to_lowercase();
+                        if rel.ends_with(".lua") { push(&mut sources, &rel, &String::from_utf8_lossy(&std::fs::read(&p).unwrap())) }
+                    }
+                }
+                if let Ok(t) = std::fs::read_to_string(base.join("builtin.omwscripts")) {
+                    for e in luacore::omwscripts::parse_omwscripts(&t, "builtin.omwscripts").entries {
+                        let k = e.path.replace('\\', "/").to_ascii_lowercase();
+                        if BUILTINS.contains(&k.as_str()) && !builtin.iter().any(|(q, _): &(String, String)| *q == k) {
+                            builtin.push((k.clone(), format!(r#"{{"path":"{k}","flags":[{}]}}"#, e.flags.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(","))));
+                        }
+                    }
+                }
+            }
+        }
+        list.splice(0..0, builtin.into_iter().map(|(_, j)| j));
+        let start = format!(
+            r#"{{"scripts":[{}],"sources":{{{sources}}},"files":[],"weathers":["Clear","Cloudy"],"state":{}}}"#,
+            list.join(","),
+            r#"{"player":{"pos":[100,200,0],"cell":{"name":"Balmora","ext":false}},"objects":{"k1":{"id":"wg_box","tag":"CONT","pos":[0,0,0]},"k2":{"id":"fargoth","tag":"NPC_","pos":[300,0,0]},"k3":{"id":"mudcrab","tag":"CREA","pos":[600,0,0]},"k4":{"id":"wg_door","tag":"DOOR","pos":[900,0,0]}}}"#
+        );
+        let mut r = runner();
+        r.call("__wg_set_limits", "5,262144").unwrap();
+        let mut out = vec![r.call("__wg_start", &start).unwrap_or_else(|e| format!("\"START {}\"", e.to_string().replace('"', "'")))];
+        for step in [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#, r#"{"dt":1.0}"#, r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#] {
+            out.push(r.call("__wg_step", step).unwrap_or_else(|e| format!("\"STEP {}\"", e.to_string().replace('"', "'"))));
+        }
+        println!("WGDUMP [{}]", out.join(","));
+    }
+
     /// Not a check of its own: real MWSE mods run on a small scene, for a survey of what breaks.
     /// `WG_MWSE_MOD` is a mod's `MWSE` folder (from the Nexus dump,
     /// github.com/MWSE/morrowind-nexus-lua-dump); prints one `WGDUMP {json}` line.

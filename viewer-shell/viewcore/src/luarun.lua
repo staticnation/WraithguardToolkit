@@ -574,6 +574,9 @@ function V2:length() return math.sqrt(self.x * self.x + self.y * self.y) end
 function V2:length2() return self.x * self.x + self.y * self.y end
 function V2:normalize() local l = self:length() if l == 0 then return v2(0, 0), 0 end return self / l, l end
 function V2:dot(b) return self.x * b.x + self.y * b.y end
+-- Element by element (Static's mods, 2026-11-23: HUD Markers' `ediv`, Rituals' `emul`).
+function V2:emul(b) return v2(self.x * b.x, self.y * b.y) end
+function V2:ediv(b) return v2(self.x / b.x, self.y / b.y) end
 function V2:rotate(a) local c, s = math.cos(a), math.sin(a) return v2(self.x * c - self.y * s, self.x * s + self.y * c) end
 util.vector3, util.vector2 = v3, v2
 util.vector4 = function(x, y, z, w) return { x = x, y = y, z = z, w = w } end
@@ -774,6 +777,25 @@ function Obj:getBoundingBox() local p = props.position(data(self) or {}) return 
 
 -- core.magic.EFFECT_TYPE: OpenMW's magic effect ids (resources/lua_api/openmw/core.lua).
 local MAGIC_EFFECTS = { WaterBreathing = 'waterbreathing', SwiftSwim = 'swiftswim', WaterWalking = 'waterwalking', Shield = 'shield', FireShield = 'fireshield', LightningShield = 'lightningshield', FrostShield = 'frostshield', Burden = 'burden', Feather = 'feather', Jump = 'jump', Levitate = 'levitate', SlowFall = 'slowfall', Lock = 'lock', Open = 'open', FireDamage = 'firedamage', ShockDamage = 'shockdamage', FrostDamage = 'frostdamage', DrainAttribute = 'drainattribute', DrainHealth = 'drainhealth', DrainMagicka = 'drainmagicka', DrainFatigue = 'drainfatigue', DrainSkill = 'drainskill', DamageAttribute = 'damageattribute', DamageHealth = 'damagehealth', DamageMagicka = 'damagemagicka', DamageFatigue = 'damagefatigue', DamageSkill = 'damageskill', Poison = 'poison', WeaknessToFire = 'weaknesstofire', WeaknessToFrost = 'weaknesstofrost', WeaknessToShock = 'weaknesstoshock', WeaknessToMagicka = 'weaknesstomagicka', WeaknessToCommonDisease = 'weaknesstocommondisease', WeaknessToBlightDisease = 'weaknesstoblightdisease', WeaknessToCorprusDisease = 'weaknesstocorprusdisease', WeaknessToPoison = 'weaknesstopoison', WeaknessToNormalWeapons = 'weaknesstonormalweapons', DisintegrateWeapon = 'disintegrateweapon', DisintegrateArmor = 'disintegratearmor', Invisibility = 'invisibility', Chameleon = 'chameleon', Light = 'light', Sanctuary = 'sanctuary', NightEye = 'nighteye', Charm = 'charm', Paralyze = 'paralyze', Silence = 'silence', Blind = 'blind', Sound = 'sound', CalmHumanoid = 'calmhumanoid', CalmCreature = 'calmcreature', FrenzyHumanoid = 'frenzyhumanoid', FrenzyCreature = 'frenzycreature', DemoralizeHumanoid = 'demoralizehumanoid', DemoralizeCreature = 'demoralizecreature', RallyHumanoid = 'rallyhumanoid', RallyCreature = 'rallycreature', Dispel = 'dispel', Soultrap = 'soultrap', Telekinesis = 'telekinesis', Mark = 'mark', Recall = 'recall', DivineIntervention = 'divineintervention', AlmsiviIntervention = 'almsiviintervention', DetectAnimal = 'detectanimal', DetectEnchantment = 'detectenchantment', DetectKey = 'detectkey', SpellAbsorption = 'spellabsorption', Reflect = 'reflect', CureCommonDisease = 'curecommondisease', CureBlightDisease = 'cureblightdisease', CureCorprusDisease = 'curecorprusdisease', CurePoison = 'curepoison', CureParalyzation = 'cureparalyzation', RestoreAttribute = 'restoreattribute', RestoreHealth = 'restorehealth', RestoreMagicka = 'restoremagicka', RestoreFatigue = 'restorefatigue', RestoreSkill = 'restoreskill', FortifyAttribute = 'fortifyattribute', FortifyHealth = 'fortifyhealth', FortifyMagicka = 'fortifymagicka', FortifyFatigue = 'fortifyfatigue', FortifySkill = 'fortifyskill', FortifyMaximumMagicka = 'fortifymaximummagicka', AbsorbAttribute = 'absorbattribute', AbsorbHealth = 'absorbhealth', AbsorbMagicka = 'absorbmagicka', AbsorbFatigue = 'absorbfatigue', AbsorbSkill = 'absorbskill', ResistFire = 'resistfire', ResistFrost = 'resistfrost', ResistShock = 'resistshock', ResistMagicka = 'resistmagicka', ResistCommonDisease = 'resistcommondisease', ResistBlightDisease = 'resistblightdisease', ResistCorprusDisease = 'resistcorprusdisease', ResistPoison = 'resistpoison', ResistNormalWeapons = 'resistnormalweapons', ResistParalysis = 'resistparalysis', RemoveCurse = 'removecurse', TurnUndead = 'turnundead', SummonScamp = 'summonscamp', SummonClannfear = 'summonclannfear', SummonDaedroth = 'summondaedroth', SummonDremora = 'summondremora', SummonAncestralGhost = 'summonancestralghost', SummonSkeletalMinion = 'summonskeletalminion', SummonBonewalker = 'summonbonewalker', SummonGreaterBonewalker = 'summongreaterbonewalker', SummonBonelord = 'summonbonelord', SummonWingedTwilight = 'summonwingedtwilight', SummonHunger = 'summonhunger', SummonGoldenSaint = 'summongoldensaint', SummonFlameAtronach = 'summonflameatronach', SummonFrostAtronach = 'summonfrostatronach', SummonStormAtronach = 'summonstormatronach', FortifyAttack = 'fortifyattack', CommandCreature = 'commandcreature', CommandHumanoid = 'commandhumanoid', BoundDagger = 'bounddagger', BoundLongsword = 'boundlongsword', BoundMace = 'boundmace', BoundBattleAxe = 'boundbattleaxe', BoundSpear = 'boundspear', BoundLongbow = 'boundlongbow', ExtraSpell = 'extraspell', BoundCuirass = 'boundcuirass', BoundHelm = 'boundhelm', BoundBoots = 'boundboots', BoundShield = 'boundshield', BoundGloves = 'boundgloves', Corprus = 'corprus', Vampirism = 'vampirism', SummonCenturionSphere = 'summoncenturionsphere', SunDamage = 'sundamage' }
+
+-- `core.magic.effects.records`: one for each of the game's effects, by its id (`records.recall`)
+-- and in a list; what the preview does not read from the game files is the type's empty value.
+local function effectRecords()
+  local list, names = {}, {}
+  for name in pairs(MAGIC_EFFECTS) do names[#names + 1] = name end
+  table.sort(names)
+  for i, name in ipairs(names) do
+    local id = MAGIC_EFFECTS[name]
+    local r = { id = id, name = (name:gsub('(%l)(%u)', '%1 %2')), school = '', icon = '', particle = '', description = '',
+      castSound = '', boltSound = '', hitSound = '', areaSound = '', castStatic = '', bolt = '', hitStatic = '', areaStatic = '',
+      baseCost = 0, speed = 1, harmful = false, hasDuration = true, hasMagnitude = true, isAppliedOnce = false,
+      hasAttribute = id:find('attribute') ~= nil, hasSkill = id:find('skill') ~= nil,
+      onSelf = true, onTouch = true, onTarget = true, allowsSpellmaking = true, allowsEnchanting = true }
+    list[i] = r
+    list[id] = r
+  end
+  return list
+end
 
 ----------------------------------------------------------------------------- types
 local function typeOf(name, tags)
@@ -1299,9 +1321,10 @@ packages['openmw.core'] = function(inst)
     magic = { EFFECT_TYPE = MAGIC_EFFECTS, RANGE = { Self = 0, Touch = 1, Target = 2 },
       SPELL_TYPE = { Spell = 0, Ability = 1, Blight = 2, Disease = 3, Curse = 4, Power = 5 },
       ENCHANTMENT_TYPE = { CastOnce = 0, CastOnStrike = 1, CastOnUse = 2, ConstantEffect = 3 },
-      effects = { records = {} }, spells = { records = {} }, enchantments = { records = {} } },
+      effects = { records = effectRecords() }, spells = { records = {} }, enchantments = { records = {} } },
     stats = STATS,
-    dialogue = { journal = { records = {} }, topic = { records = {} } },
+    dialogue = { journal = { records = {} }, topic = { records = {} }, greeting = { records = {} }, persuasion = { records = {} }, voice = { records = {} } },
+    mwscripts = { records = {} },
     factions = { records = {} }, regions = { records = {} },
   }
   for i = 1, #S.weathers do core.weather.records[i] = weatherRecord(i - 1) end
@@ -1539,7 +1562,8 @@ packages['openmw.nearby'] = function(inst)
     players = { handle('player') },
     COLLISION_TYPE = { World = 1, Door = 2, Actor = 4, HeightMap = 8, Projectile = 16, Water = 32, Default = 15, AnyPhysical = 63, Camera = 64, VisualOnly = 128 },
     findPath = function() return 1, {} end,
-    NAVIGATOR_FLAGS = {}, FIND_PATH_STATUS = { Success = 0 },
+    -- OpenMW's own values (components/detournavigator/flags.hpp).
+    NAVIGATOR_FLAGS = { Walk = 1, Swim = 2, OpenDoor = 4, UsePathgrid = 8 }, FIND_PATH_STATUS = { Success = 0 },
   }, { __index = function(_, n)
     local want = kinds[n]
     if not want then return nil end
@@ -1847,6 +1871,13 @@ KEYS._0 = 39
 for i = 1, 12 do KEYS['F' .. i] = 57 + i end
 for i = 0, 9 do KEYS['NP_' .. i] = i == 0 and 98 or 88 + i end
 local acts, trigs = {}, {}
+-- The engine's own actions, there before any script registers one (`input.actions.Sneak.key`).
+for _, k in ipairs({ 'Activate', 'AlwaysRun', 'AutoMove', 'Console', 'CycleSpellLeft', 'CycleSpellRight', 'CycleWeaponLeft',
+  'CycleWeaponRight', 'GameMenu', 'Inventory', 'Journal', 'Jump', 'MoveBackward', 'MoveForward', 'MoveLeft', 'MoveRight',
+  'QuickKeysMenu', 'QuickLoad', 'QuickMenu', 'QuickSave', 'Rest', 'Run', 'Screenshot', 'Sneak', 'ToggleHUD', 'ToggleSpell',
+  'TogglePOV', 'ToggleWeapon', 'Use', 'ZoomIn', 'ZoomOut', 'TogglePostProcessorHUD' }) do
+  acts[k] = { key = k, type = 0, l10n = 'OMWControls', name = k, description = '', defaultValue = false }
+end
 packages['openmw.input'] = function()
   local any = setmetatable({}, { __index = function(_, k) return k end })
   local down = function(c) return S.keysDown[c] == true end

@@ -167,6 +167,18 @@
   documented as a string (`tes3.installDirectory`) is a string, not a table. `modConfigReady` is
   sent after `initialized`, as MWSE does. Tests: `what_the_nexus_dump_s_mods_use_is_there`; the
   survey itself is `survey_one_mwse_mod` (ignored, `WG_MWSE_MOD`).
+- **OpenMW Lua: what Static's 446 downloaded mods use is there** (`luarun.lua`). Running each mod's
+  scripts as its `.omwscripts` register them, with OpenMW 0.51's built-ins, on a test scene: 356
+  ran with no error, 364 after these. A vector's element-wise `emul` and `ediv`;
+  `nearby.NAVIGATOR_FLAGS` with OpenMW's values (it was empty, so `Walk + OpenDoor` failed); the
+  engine's own input actions in `input.actions` before any script registers one (`Sneak`, `Use`...);
+  `core.magic.effects.records` with every effect, by id and as a list (it was empty);
+  `core.dialogue.greeting`, `persuasion` and `voice`; `core.mwscripts`. All 446 together, as one
+  load order: 410 global and 544 player scripts start; what stops is a missing dependency not in
+  the downloads (`ErnPerkFramework`, `CharacterTraits`), a mod's own "not installed" check, or the
+  mod's own syntax (DregaccioTravelLedger has a line break inside a string). Test:
+  `what_static_s_openmw_mods_use_is_there`; the survey is `survey_one_openmw_mod` (ignored,
+  `WG_OMW_MOD`, `WG_OMW_RES`).
 - **Walking actors no longer redraw the whole scene's shadows and are posed every frame near the
   camera** (`06_gl.js`). Each time an actor started or stopped walking its batches were filtered into a
   new statics list. The material groups draw only when built from the renderer's current list, so
