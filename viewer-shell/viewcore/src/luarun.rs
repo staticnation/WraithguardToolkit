@@ -1754,6 +1754,25 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         assert!(!a.contains("not shown") && !a.contains(r#""kind":"error""#), "{a}");
     }
 
+    /// A mod's UI nested deep (the Horizontal Compass: its letters in a strip, in a clipped
+    /// viewport, in its frame) reaches the screen whole: the encoder cut everything past twelve
+    /// levels to null (Static 2026-11-23: "the lua compass no longer shows the N NW W ... headers").
+    #[test]
+    fn a_deep_ui_tree_reaches_the_screen_whole() {
+        let script = "local ui = require('openmw.ui') local util = require('openmw.util')\n\
+            local leaf = ui.create { type = ui.TYPE.Image, props = { size = util.vector2(7, 8), resource = ui.texture { path = 'textures/x.png' } } }\n\
+            local e = leaf\n\
+            for i = 1, 6 do e = ui.create { type = ui.TYPE.Widget, props = { size = util.vector2(i, i) }, content = ui.content { e } } end\n\
+            e.layout.layer = 'HUD' e:update()\n\
+            return {}";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/p.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/p.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let a = runner().call("__wg_start", &start).unwrap();
+        assert!(a.contains(r#""resource":{"path":"textures/x.png"}"#) && a.contains(r#""x":7"#), "{a}");
+    }
+
     /// What Static's downloaded OpenMW mods stopped at (2026-11-23): a vector's element-wise
     /// `emul`/`ediv`, magic effects by id, the dialogue's greetings, the MWScripts' records.
     #[test]

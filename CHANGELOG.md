@@ -137,6 +137,12 @@
 
 ### Fixed
 
+- **A Lua mod's UI nested deep is drawn whole** (`luarun.lua` `json.encode`). The encoder wrote
+  null for anything more than twelve levels down, as a guard against cycles; each UI level is two,
+  so an element five levels into a layout lost its props - the Horizontal Compass's letters (an
+  image strip in a clipped viewport in its frame) had no texture, size or position, and only the
+  frame showed. A cycle is now found as one (a table already on the way down), with 200 levels as
+  the last guard. Test: `a_deep_ui_tree_reaches_the_screen_whole`.
 - **OpenMW and MWSE scripts read any record of the load order, not only what the scene placed**
   (`viewcore::luarec`, `luaproc`, `luarun.lua` `hostRecord`). `types.Miscellaneous.records[id]`
   (a soul gem's value), `types.NPC.classes.record(id).majorSkills`,

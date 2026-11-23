@@ -419,6 +419,10 @@ do
   local esc = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
   local function str(s) return '"' .. s:gsub('[%c"\\]', function(c) return esc[c] or string.format('\\u%04x', c:byte()) end) .. '"' end
   local enc
+  -- A table already on the way down is a cycle: null there. The depth is only a last guard
+  -- (Static 2026-11-23: it was 12, and a mod's UI nested five elements deep - the Horizontal
+  -- Compass's letters, in a strip in a clipped viewport in its frame - had its props sent as null).
+  local onPath = {}
   enc = function(v, out, depth)
     local t = type(v)
     if v == nil then out[#out + 1] = 'null'
@@ -429,7 +433,8 @@ do
       else out[#out + 1] = string.format('%.10g', v) end
     elseif t == 'string' then out[#out + 1] = str(v)
     elseif t == 'table' then
-      if depth > 12 then out[#out + 1] = 'null' return end
+      if depth > 200 or onPath[v] then out[#out + 1] = 'null' return end
+      onPath[v] = true
       if getmetatable(v) == ARRAY or v[1] ~= nil then
         out[#out + 1] = '['
         for i = 1, #v do if i > 1 then out[#out + 1] = ',' end enc(v[i], out, depth + 1) end
@@ -446,9 +451,15 @@ do
         end
         out[#out + 1] = '}'
       end
+      onPath[v] = nil
     else out[#out + 1] = 'null' end
   end
-  json.encode = function(v) local out = {} enc(v, out, 0) return table.concat(out) end
+  json.encode = function(v)
+    local out = {}
+    local ok, err = pcall(enc, v, out, 0)
+    if not ok then for k in pairs(onPath) do onPath[k] = nil end error(err, 0) end
+    return table.concat(out)
+  end
 
   local function utf8(n)
     if n < 0x80 then return string.char(n) end
