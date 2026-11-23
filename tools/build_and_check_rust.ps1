@@ -41,6 +41,12 @@
 .PARAMETER Only
     Run just the named steps, e.g. -Only viewcore,cli
 
+.PARAMETER Clean
+    First trim viewer-shell/target: in each build profile, only the newest copy of each test
+    program and binary is kept (cargo leaves the old ones behind, one per build of a changed
+    crate, and they add up to many gigabytes), and the incremental caches are removed (cargo
+    makes them again). With -Only clean nothing else runs.
+
 .EXAMPLE
     .\tools\build_and_check_rust.ps1
     Build the viewer and run the Rust checks.
@@ -54,8 +60,9 @@ param(
     [switch]$Pages,
     [switch]$SkipViewer,
     [switch]$ClippyReport,
-    [ValidateSet('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'physics', 'commands', 'check', 'clippy', 'pages')]
-    [string[]]$Only
+    [ValidateSet('viewer', 'viewcore', 'luacore', 'ordercore', 'conflicts', 'tools', 'land', 'cli', 'editcore', 'gardenfell', 'meshopt', 'physics', 'commands', 'check', 'clippy', 'pages', 'clean')]
+    [string[]]$Only,
+    [switch]$Clean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -105,6 +112,38 @@ function Invoke-PageTests {
     }
 }
 
+function Invoke-Clean {
+    # Static 2026-11-23: viewer-shell/target grew to 16 GB, most of it test programs and
+    # binaries from earlier builds (name-<16 hex digits>, and their .pdb on Windows). The newest
+    # of each name is kept; the incremental caches go (cargo rebuilds them as it needs).
+    $target = 'viewer-shell/target'
+    if (-not (Test-Path $target)) { Write-Host "  nothing to clean ($target is not there)"; return $true }
+    $freed = 0L
+    $profiles = Get-ChildItem $target -Directory | ForEach-Object {
+        $_
+        Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName 'deps') }
+    } | Where-Object { Test-Path (Join-Path $_.FullName 'deps') }
+    foreach ($p in $profiles) {
+        $deps = Join-Path $p.FullName 'deps'
+        $groups = Get-ChildItem $deps -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(.+)-[0-9a-f]{16}(\.exe|\.pdb)?$' } |
+            Group-Object { ($_.Name -replace '-[0-9a-f]{16}', '') }
+        foreach ($g in $groups) {
+            $g.Group | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | ForEach-Object {
+                $freed += $_.Length
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $inc = Join-Path $p.FullName 'incremental'
+        if (Test-Path $inc) {
+            $freed += (Get-ChildItem $inc -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+            Remove-Item $inc -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Write-Host ("  freed {0:N1} GB" -f ($freed / 1GB)) -ForegroundColor Cyan
+    return $true
+}
+
 function Invoke-Clippy {
     # Our own crates only (the forks and dependencies are not linted). Strict by default,
     # as CI is; -ClippyReport caps every lint at a warning so the step lists them and
@@ -144,6 +183,7 @@ $steps = [ordered]@{
     check    = @{ Label = 'check build';                 Run = { Invoke-Native cargo @('build', '--manifest-path', 'viewer-shell/check/Cargo.toml') } }
     clippy   = @{ Label = $(if ($ClippyReport) { 'clippy (report)' } else { 'clippy' }); Run = { Invoke-Clippy } }
     pages    = @{ Label = 'page boot tests (cell, mesh)'; Run = { Invoke-PageTests } }
+    clean    = @{ Label = 'trim viewer-shell/target'; Run = { Invoke-Clean } }
 }
 
 if ($Only) {
@@ -153,12 +193,15 @@ if ($Only) {
     if ($SkipViewer) { $wanted = $wanted | Where-Object { $_ -ne 'viewer' } }
     if ($Pages) { $wanted += 'pages' }
 }
+# -Clean: the trim before anything else is built.
+if ($Clean -and $wanted -notcontains 'clean') { $wanted = @('clean') + $wanted }
 
 # Cargo reports progress on stderr; don't let Windows PowerShell treat that as an error.
 $ErrorActionPreference = 'Continue'
 
 $results = @()
-foreach ($name in $steps.Keys) {
+$order = @('clean') + @($steps.Keys | Where-Object { $_ -ne 'clean' })
+foreach ($name in $order) {
     if ($wanted -notcontains $name) { continue }
     $step = $steps[$name]
     Write-Host ""

@@ -1708,6 +1708,89 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         assert!(a.contains(r#""text":"data 1""#), "{a}");
     }
 
+    /// An error as the corpus keeps it: a script's line numbers left out (`file.lua:N:`), so an
+    /// edit to a mod's file that moves its lines is not a change.
+    fn corpus_error(t: &str) -> String {
+        let mut out = String::new();
+        let mut rest = t;
+        while let Some(i) = rest.find(':') {
+            out.push_str(&rest[..=i]);
+            rest = &rest[i + 1..];
+            let n = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+            if n > 0 && rest[n..].starts_with(':') {
+                out.push('N');
+                rest = &rest[n..];
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The Lua regression corpus (Static 2026-11-23: "a small regression corpus"): the mods
+    /// `tests/lua_corpus/expected.json` lists, from the person's own copy (`WG_LUA_CORPUS`, the
+    /// folder the paths are under; no mod is in the repository), each run as the surveys run them
+    /// (OpenMW's built-ins from `WG_OMW_RES`), and their errors compared with what is expected: a
+    /// new one fails, one gone is said. `WG_LUA_CORPUS_BLESS=1` writes what they say now as the
+    /// expected. `tools/lua_corpus.ps1` runs it.
+    #[test]
+    #[ignore]
+    fn lua_corpus() {
+        let Ok(root) = std::env::var("WG_LUA_CORPUS") else { return };
+        let root = std::path::PathBuf::from(root);
+        let res = std::env::var("WG_OMW_RES").ok().map(std::path::PathBuf::from);
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/lua_corpus/expected.json");
+        let mut want: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let bless = std::env::var("WG_LUA_CORPUS_BLESS").is_ok_and(|v| v == "1");
+        let (mut new, mut gone, mut missing) = (Vec::new(), Vec::new(), Vec::new());
+        for m in want["mods"].as_array_mut().unwrap() {
+            let path = m["path"].as_str().unwrap().to_string();
+            let dir = root.join(&path);
+            if !dir.is_dir() {
+                missing.push(path);
+                continue;
+            }
+            let answers = if m["kind"] == "mwse" { mwse_mod_answers(&dir) } else { openmw_mod_answers(&dir, res.as_deref()) };
+            let mut got = std::collections::BTreeSet::new();
+            for a in &answers {
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(a) else {
+                    got.insert(corpus_error(a.trim_matches('"')));
+                    continue;
+                };
+                for l in v["log"].as_array().into_iter().flatten() {
+                    if l["kind"] == "error" {
+                        got.insert(corpus_error(l["text"].as_str().unwrap_or("")));
+                    }
+                }
+            }
+            let had: std::collections::BTreeSet<String> = m["errors"].as_array().into_iter().flatten().filter_map(|e| e.as_str().map(str::to_string)).collect();
+            for e in got.difference(&had) {
+                new.push(format!("{path}: {e}"));
+            }
+            for e in had.difference(&got) {
+                gone.push(format!("{path}: {e}"));
+            }
+            if bless {
+                m["errors"] = serde_json::json!(got.into_iter().collect::<Vec<_>>());
+            }
+        }
+        println!("lua corpus: {} mods, {} not in the corpus folder", want["mods"].as_array().map_or(0, |a| a.len()), missing.len());
+        for p in &missing {
+            println!("  not found: {p}");
+        }
+        for e in &gone {
+            println!("  fixed: {e}");
+        }
+        for e in &new {
+            println!("  NEW: {e}");
+        }
+        if bless {
+            std::fs::write(&file, serde_json::to_string_pretty(&want).unwrap() + "\n").unwrap();
+            println!("expected written: {}", file.display());
+            return;
+        }
+        assert!(new.is_empty(), "{} new error(s) in the corpus (above)", new.len());
+    }
+
     /// What the Nexus dump's MWSE mods stopped at (github.com/MWSE/morrowind-nexus-lua-dump,
     /// 2026-11-23): every enumeration, MWSE's table and string additions, the logger, `dofile`
     /// of a mod's own file, its translations, an iterator, the classes as globals, a typed
@@ -1790,8 +1873,16 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
     #[ignore]
     fn survey_one_openmw_mod() {
         let Ok(root) = std::env::var("WG_OMW_MOD") else { return };
-        let root = std::path::PathBuf::from(root);
+        let res = std::env::var("WG_OMW_RES").ok();
+        println!("WGDUMP [{}]", openmw_mod_answers(std::path::Path::new(&root), res.as_deref().map(std::path::Path::new)).join(","));
+    }
+
+    /// An OpenMW mod's data folder run on the survey's scene, its `.omwscripts` as registered and
+    /// OpenMW's built-ins from `res` (a `resources` folder): the start's answer and three steps'.
+    fn openmw_mod_answers(root: &std::path::Path, res: Option<&std::path::Path>) -> Vec<String> {
+        let root = root.to_path_buf();
         let (mut sources, mut list) = (String::new(), Vec::new());
+        let mut seen: Vec<(String, Vec<String>)> = Vec::new();
         let mut stack = vec![root.clone()];
         let push = |out: &mut String, k: &str, v: &str| {
             if !out.is_empty() { out.push(',') }
@@ -1809,18 +1900,36 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
                 let text = String::from_utf8_lossy(&std::fs::read(&p).unwrap()).into_owned();
                 if rel.ends_with(".lua") { push(&mut sources, &rel, &text) }
                 if rel.ends_with(".omwscripts") && !rel.contains('/') {
+                    // Each script once, its flags merged, as the loader keeps it (`luascan`): a mod
+                    // that ships several .omwscripts naming the same scripts (one to enable) runs them once.
                     for e in luacore::omwscripts::parse_omwscripts(&text, &rel).entries {
-                        let f: Vec<String> = e.flags.into_iter().filter(|x| x != "LOAD").collect();
-                        if !f.is_empty() { list.push(format!(r#"{{"path":"{}","flags":[{}]}}"#, e.path.replace('\\', "/").replace('"', ""), f.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(","))) }
+                        let path = e.path.replace('\\', "/").replace('"', "");
+                        let at = match seen.iter().position(|(p, _): &(String, Vec<String>)| p.eq_ignore_ascii_case(&path)) {
+                            Some(i) => i,
+                            None => {
+                                seen.push((path, Vec::new()));
+                                seen.len() - 1
+                            }
+                        };
+                        for f in e.flags.into_iter().filter(|x| x != "LOAD") {
+                            if !seen[at].1.contains(&f) {
+                                seen[at].1.push(f);
+                            }
+                        }
                     }
                 }
             }
         }
+        for (p, f) in &seen {
+            if !f.is_empty() {
+                list.push(format!(r#"{{"path":"{p}","flags":[{}]}}"#, f.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(",")));
+            }
+        }
         // OpenMW's own scripts first, as the preview runs them (`WG_OMW_RES`: a `resources` folder).
         let mut builtin = Vec::new();
-        if let Ok(res) = std::env::var("WG_OMW_RES") {
+        if let Some(res) = res {
             for sub in ["vfs", "vfs-mw"] {
-                let base = std::path::Path::new(&res).join(sub);
+                let base = res.join(sub);
                 let mut st = vec![base.clone()];
                 while let Some(d) = st.pop() {
                     for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
@@ -1852,7 +1961,7 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         for step in [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#, r#"{"dt":1.0}"#, r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#] {
             out.push(r.call("__wg_step", step).unwrap_or_else(|e| format!("\"STEP {}\"", e.to_string().replace('"', "'"))));
         }
-        println!("WGDUMP [{}]", out.join(","));
+        out
     }
 
     /// Not a check of its own: real MWSE mods run on a small scene, for a survey of what breaks.
@@ -1862,7 +1971,12 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
     #[ignore]
     fn survey_one_mwse_mod() {
         let Ok(root) = std::env::var("WG_MWSE_MOD") else { return };
-        let root = std::path::PathBuf::from(root);
+        println!("WGDUMP [{}]", mwse_mod_answers(std::path::Path::new(&root)).join(","));
+    }
+
+    /// An MWSE mod's folder (`MWSE`) run on the survey's scene: the start's answer and three steps'.
+    fn mwse_mod_answers(root: &std::path::Path) -> Vec<String> {
+        let root = root.to_path_buf();
         let mut files = Vec::new();
         let mut stack = vec![root.clone()];
         while let Some(d) = stack.pop() {
@@ -1897,7 +2011,7 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         for step in [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#, r#"{"dt":1.0}"#, r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#] {
             out.push(r.call("__wg_step", step).unwrap_or_else(|e| format!("\"STEP {e}\"")));
         }
-        println!("WGDUMP [{}]", out.join(","));
+        out
     }
 
     #[test]

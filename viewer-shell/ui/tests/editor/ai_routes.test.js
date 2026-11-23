@@ -126,7 +126,7 @@ module.exports = async (t) => {
   // The glide: a live actor moved in place, the scene not drawn again.
   const cp = fs.readFileSync(path.join(UI, 'src', '18_cellpreview.js'), 'utf8');
   const pick = name => { const i = cp.search(new RegExp('^(async )?function ' + name + '\\b', 'm')); if (i < 0) throw new Error('no ' + name); const j = cp.slice(i + 1).search(/^(async function |function |const |\/\*\*|\/\* )/m); return cp.slice(i, i + 1 + j); };
-  vm.runInContext(['refMatrix', 'worldAabb', 'previewMoveRef'].map(pick).join('\n'), ctx);
+  vm.runInContext(['refMatrix', 'worldAabb', 'previewMoveRef', 'previewMoveRefNow'].map(pick).join('\n'), ctx);
   const moved = [];
   // As WebGL's bufferSubData: a typed array only (a plain one threw, and every move was lost).
   ctx.App.R.moveInstance = (b, k, m) => { if (!ArrayBuffer.isView(m)) throw new TypeError('bufferSubData: not an ArrayBufferView'); moved.push([b.id, k, m[3], m[7]]); return !!b.live; };

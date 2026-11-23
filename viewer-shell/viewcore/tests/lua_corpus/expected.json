@@ -1,0 +1,191 @@
+{
+  "mods": [
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/UserInterface/HorizontalCompassOpenMW"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/UserInterface/OpenMW049BetterBars/BetterBars"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/UserInterface/OpenMWHUDMarkersDetectspells/HUDMarkers"
+    },
+    {
+      "errors": [
+        "scripts/InventoryExtenderRedone/player.lua:N: attempt to index a nil value (local 'API')",
+        "scripts/InventoryExtenderRedone/settings/player.lua:N: module scripts.UIToolkit.helpers not found",
+        "scripts/inventoryextenderredone/util/constants.lua:N: module scripts.UIToolkit.scriptContext not found"
+      ],
+      "kind": "openmw",
+      "path": "total-overhaul/UserInterface/InventoryExtenderRedone/InventoryExtenderRedone"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/UserInterface/MagicWindowExtenderOpenMW"
+    },
+    {
+      "errors": [
+        "scripts/uitoolkit/helpers.lua:N: attempt to index a nil value (local 'merged')"
+      ],
+      "kind": "openmw",
+      "path": "total-overhaul/ModdingResources/OpenMWUIToolkit/UIToolkit"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/ModdingResources/VariationFrameworkOpenMW"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/ModdingResources/FollowerDetectionUtilOpenMW"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Combat/BullseyeMarksmanOverhaulOpenMW"
+    },
+    {
+      "errors": [
+        "scripts/protectedbeasts/config.lua:N: missingDep"
+      ],
+      "kind": "openmw",
+      "path": "total-overhaul/Gameplay/ProtectedBeasts/00 Core"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Gameplay/MOMWGameplay/00 Core"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/ModPatches/MOMWLuaSettings/00 Core"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Gameplay/PharisMagickaRegeneration"
+    },
+    {
+      "errors": [
+        "scripts/skill-evolution/config/store.lua:N: attempt to call a nil value (field 'playerSection')"
+      ],
+      "kind": "openmw",
+      "path": "total-overhaul/Leveling/SkillEvolution/00 Core"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Environment/HarvestLights"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Camera/ActionCameraSwap"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Camera/OpenMWConsumingAnimated"
+    },
+    {
+      "errors": [
+        "scripts/MaxYari/ReAnimation_v3/AnimationOverrides.lua:N: attempt to index a nil value (field 'ReAnimation')"
+      ],
+      "kind": "openmw",
+      "path": "total-overhaul/Animation/ReAnimationv3Completefirstpersonanimationpack/00 Core"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/DistantDetails/DistantFixesLuaEdition"
+    },
+    {
+      "errors": [
+        "scripts/bound-balance/common.lua:N: Could not load Bound Balance due to errors!"
+      ],
+      "kind": "openmw",
+      "path": "total-overhaul/Balance/BoundBalance"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "total-overhaul/Balance/DaedraUseBoundEquipmentforOpenMW"
+    },
+    {
+      "errors": [],
+      "kind": "openmw",
+      "path": "custom/umo/AccomplishmentsofMorrowind/AccomplishmentsofMorrowindV101/Accomplishments"
+    },
+    {
+      "errors": [
+        "scripts/bardcraft/performer.lua:N: attempt to index a nil value (field 'SkillFramework')"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/BardcraftOpenMW/Bardcraft"
+    },
+    {
+      "errors": [
+        "scripts/sunsdusk/sd_ui_settings.lua:N: attempt to index a nil value (field 'sleep')"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/SunsDuskNeedsandSurvivalOpenMW/SunsDuskSurvivalandNeeds/Sun's Dusk"
+    },
+    {
+      "errors": [
+        "scripts/MaxYari/MercyCAO/ImprovedAIGlobal.lua:N: Failed opening behaviour tree file."
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/MercyCombatAIOverhaul/MercyCAO"
+    },
+    {
+      "errors": [
+        "scripts/DynamicActors/global.lua:N: Can not open file config/dynamic-actors/dialog-npc-blocklist.yaml",
+        "scripts/DynamicActors/player.lua:N: table index is nil"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/OpenMWDynamicActors/OpenMWDynamicActors"
+    },
+    {
+      "errors": [
+        "scripts/smokingnpcs/archetypes.lua:N: bad argument #1 to 'lower' (string expected, got nil)"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/SmokingNPCsOpenMW/SmokingNPCsOpenMW/Smoking NPCs (OpenMW)"
+    },
+    {
+      "errors": [
+        "scripts/famiglia/global.lua:N: attempt to compare number with nil"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/Famiglia/Famiglia100/Famiglia"
+    },
+    {
+      "errors": [
+        "scripts/OwnlysQuickLoot/ql_p.lua:N: attempt to perform arithmetic on a nil value"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/OpenMW050QuickLoot/QuickLoot/QuickLoot"
+    },
+    {
+      "errors": [
+        "scripts/SwimmingSkill/player.lua:N: attempt to index a nil value (local 'raceRecord')"
+      ],
+      "kind": "openmw",
+      "path": "custom/umo/MorrowSwimAsimpleaquaticsskillmodforOpenMW/MorroswimAquaticsskillmod/Swimming"
+    },
+    {
+      "errors": [],
+      "kind": "mwse",
+      "path": "custom/umo/LucevarCompanion/LucevarCompanion/Data Files/MWSE"
+    }
+  ],
+  "note": "The Lua regression corpus (tools/lua_corpus.ps1, luarun.rs `lua_corpus`): Static's own Lua mods, by path under his copy of them (no mod is in the repository), each with the errors the Preview's Lua gives for it on its own, line numbers left out. A mod alone misses what another mod gives it, so some errors are expected; a new one is a regression. WG_LUA_CORPUS_BLESS=1 writes the current ones."
+}

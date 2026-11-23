@@ -476,6 +476,32 @@ Object.assign(WgEditor, {
     });
   },
 
+  /** Wraithguard (Static 2026-11-23): "As Lua sees it" - the record as OpenMW's Lua gives it to a
+   *  script (`types.X.records[id]`, the engine's `lua_record`), beside the dialog's buttons; for
+   *  the kinds the scripts have records of. Built with the DOM; the values go in as text. */
+  LUA_TAGS:new Set(['MISC','WEAP','ARMO','CLOT','BOOK','ALCH','INGR','LIGH','APPA','LOCK','PROB','REPA','ACTI','CONT','DOOR','STAT','NPC_','CREA','CLAS','RACE','SPEL','ENCH','FACT','BSGN','SCPT']),
+  luaView(body, v){
+    if(v.new || !this.LUA_TAGS.has(String(v.tag))) return;
+    const anchor=body.querySelector('#edUses');
+    if(!anchor) return;
+    const btn=document.createElement('button');
+    btn.className='btn sm'; btn.textContent='As Lua sees it';
+    btn.title='This record as OpenMW\'s Lua gives it to a script (types.X.records[id]): the fields and names a Lua mod reads';
+    anchor.after(btn);
+    anchor.after(document.createTextNode(' '));
+    const out=document.createElement('pre');
+    out.className='edFind'; out.hidden=true;
+    out.style.cssText='max-height:320px;overflow:auto;font-size:11px;white-space:pre-wrap';
+    btn.parentElement.parentElement.after(out);
+    btn.onclick=async()=>{
+      if(!out.hidden){ out.hidden=true; return; }
+      out.hidden=false; out.textContent='…';
+      try{
+        const r=await Engine.call('lua_record', {tag:v.tag, id:v.id});
+        out.textContent=r? JSON.stringify(r, null, 2) : 'OpenMW\'s Lua has no record of this kind for scripts.';
+      }catch(e){ out.textContent=String(e && e.message || e); }
+    };
+  },
   drawRecord(v){
     // A late answer for a record that is no longer the dialog's is dropped, whole.
     const cur=this.record;
@@ -521,6 +547,7 @@ Object.assign(WgEditor, {
     if(v.tag==='INFO') this.checkResult(v);
     const sb=body.querySelector('#edScriptBtn');
     if(sb) sb.onclick=()=>this.openScript(v.tag, v.id, v.plugins);
+    this.luaView(body, v);
     const us=body.querySelector('#edUses');
     if(us) us.onclick=()=>this.showUses(v.tag, v.id, v.plugins);
     const sh=body.querySelector('#edShow');

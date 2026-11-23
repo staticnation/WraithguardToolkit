@@ -97,7 +97,8 @@ pub fn answer(vfs: &Vfs, kind: &str, arg: &str) -> Option<String> {
 
 /// OpenMW's storage file (see the module's note) as JSON: each section a table of its values.
 /// A vector or colour is `{"$v2": [x, y]}`, `{"$v3": ...}`, `{"$v4": ...}`, `{"$color": [r, g,
-/// b, a]}`; a transform or a custom value null. `None` for a file that is not one.
+/// b, a]}`; a transform or a custom value its bytes as they were, `{"$raw": hex}`, so the file
+/// written back ([`storage_write`]) keeps it. `None` for a file that is not one.
 pub fn storage_json(bytes: &[u8]) -> Option<Value> {
     struct R<'a> {
         b: &'a [u8],
@@ -121,22 +122,27 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
         fn str(&mut self, n: usize) -> Option<String> {
             Some(String::from_utf8_lossy(self.take(n)?).into_owned())
         }
+        /// The bytes from `from` to here, as `{"$raw": hex}`.
+        fn raw(&self, from: usize) -> Value {
+            json!({"$raw": self.b[from..self.at].iter().map(|b| format!("{b:02x}")).collect::<String>()})
+        }
         /// One value; `Err(())` at a table's end.
         fn value(&mut self, depth: usize) -> Option<Result<Value, ()>> {
             if depth > 64 {
                 return None;
             }
+            let from = self.at;
             let t = *self.take(1)?.first()?;
             if t & 0x80 != 0 {
                 let (name, len) = (((t & 7) + 1) as usize, ((t >> 3) & 15) as usize);
                 self.take(name + len)?;
-                return Some(Ok(Value::Null));
+                return Some(Ok(self.raw(from)));
             }
             if t & 0x40 != 0 {
                 let name = ((t & 63) + 1) as usize;
                 let len = self.u32()?;
                 self.take(name + len)?;
-                return Some(Ok(Value::Null));
+                return Some(Ok(self.raw(from)));
             }
             if t & 0x20 != 0 {
                 return Some(Ok(json!(self.str((t & 0x1f) as usize)?)));
@@ -162,11 +168,11 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
                 0x14 => json!({"$v4": [self.f64()?, self.f64()?, self.f64()?, self.f64()?]}),
                 0x12 => {
                     self.take(16 * 8)?;
-                    Value::Null
+                    self.raw(from)
                 }
                 0x13 => {
                     self.take(4 * 8)?;
-                    Value::Null
+                    self.raw(from)
                 }
                 0x15 => json!({"$color": [self.f32()?, self.f32()?, self.f32()?, self.f32()?]}),
                 _ => return None,
@@ -204,6 +210,138 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
     let mut r = R { b: bytes, at: 1 };
     let v = r.value(0)?.ok()?;
     v.is_object().then_some(v)
+}
+
+/// JSON back into OpenMW's storage file (the layout in the module's note): what
+/// [`storage_json`] read, after an edit. A list is a table keyed 1..n; `$v2`/`$v3`/`$v4`/
+/// `$color` the values they stand for; `$raw` the bytes it kept; null leaves the key out (Lua
+/// has no nil in a table). `None` for something that is not a table of sections.
+pub fn storage_write(v: &Value) -> Option<Vec<u8>> {
+    fn val(out: &mut Vec<u8>, v: &Value, depth: usize) -> Option<()> {
+        if depth > 64 {
+            return None;
+        }
+        match v {
+            Value::Bool(b) => out.extend([0x02, *b as u8]),
+            Value::Number(n) => {
+                out.push(0x00);
+                out.extend(n.as_f64()?.to_le_bytes());
+            }
+            Value::String(s) => key(out, s),
+            Value::Array(a) => {
+                out.push(0x03);
+                for (i, x) in a.iter().enumerate() {
+                    if x.is_null() {
+                        continue;
+                    }
+                    out.push(0x00);
+                    out.extend(((i + 1) as f64).to_le_bytes());
+                    val(out, x, depth + 1)?;
+                }
+                out.push(0x04);
+            }
+            Value::Object(m) => {
+                let nums = |k: &str, t: u8, n: usize, f32s: bool, out: &mut Vec<u8>| -> Option<()> {
+                    let a = m.get(k)?.as_array()?;
+                    if a.len() != n {
+                        return None;
+                    }
+                    out.push(t);
+                    for x in a {
+                        let f = x.as_f64()?;
+                        if f32s {
+                            out.extend((f as f32).to_le_bytes());
+                        } else {
+                            out.extend(f.to_le_bytes());
+                        }
+                    }
+                    Some(())
+                };
+                if m.len() == 1 {
+                    if let Some(h) = m.get("$raw").and_then(|h| h.as_str()) {
+                        if h.len() % 2 != 0 {
+                            return None;
+                        }
+                        for i in (0..h.len()).step_by(2) {
+                            out.push(u8::from_str_radix(h.get(i..i + 2)?, 16).ok()?);
+                        }
+                        return Some(());
+                    }
+                    if m.contains_key("$v2") {
+                        return nums("$v2", 0x10, 2, false, out);
+                    }
+                    if m.contains_key("$v3") {
+                        return nums("$v3", 0x11, 3, false, out);
+                    }
+                    if m.contains_key("$v4") {
+                        return nums("$v4", 0x14, 4, false, out);
+                    }
+                    if m.contains_key("$color") {
+                        return nums("$color", 0x15, 4, true, out);
+                    }
+                }
+                out.push(0x03);
+                for (k, x) in m {
+                    if x.is_null() {
+                        continue;
+                    }
+                    key(out, k);
+                    val(out, x, depth + 1)?;
+                }
+                out.push(0x04);
+            }
+            Value::Null => return None,
+        }
+        Some(())
+    }
+    fn key(out: &mut Vec<u8>, s: &str) {
+        let b = s.as_bytes();
+        if b.len() < 32 {
+            out.push(0x20 | b.len() as u8);
+        } else {
+            out.push(0x01);
+            out.extend((b.len() as u32).to_le_bytes());
+        }
+        out.extend(b);
+    }
+    if !v.is_object() {
+        return None;
+    }
+    let mut out = vec![0u8];
+    val(&mut out, v, 0)?;
+    Some(out)
+}
+
+/// One setting of a storage file changed (`value` null: taken out), the file written back only
+/// when it reads again as exactly that (the round trip checked) - `Err` says why not.
+pub fn storage_set(bytes: &[u8], section: &str, key: &str, value: Value) -> Result<Vec<u8>, String> {
+    let mut v = storage_json(bytes).ok_or("the file is not one OpenMW's Lua storage reads")?;
+    let sec = v.as_object_mut().ok_or("no sections")?.entry(section.to_string()).or_insert_with(|| json!({}));
+    let m = sec.as_object_mut().ok_or("the section is not a table")?;
+    if value.is_null() {
+        m.remove(key);
+    } else {
+        m.insert(key.to_string(), value);
+    }
+    let out = storage_write(&v).ok_or("the value cannot be stored (a value OpenMW's storage does not hold)")?;
+    // The same settings read back, or nothing is written.
+    let again = storage_json(&out).ok_or("the file written would not read back")?;
+    let clean = |x: &Value| -> Value {
+        // Nulls are left out when written: compare without them.
+        fn strip(x: &Value) -> Value {
+            match x {
+                Value::Object(m) => Value::Object(m.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), strip(v))).collect()),
+                Value::Array(a) => Value::Array(a.iter().map(strip).collect()),
+                Value::Number(n) => json!(n.as_f64()),
+                o => o.clone(),
+            }
+        }
+        strip(x)
+    };
+    if clean(&again) != clean(&v) {
+        return Err("the file written would not read back as the same settings: nothing written".into());
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -266,7 +404,19 @@ mod tests {
         assert_eq!(c["pos"], json!({"$v2": [0.5, 0.05]}));
         assert!((c["tint"]["$color"][1].as_f64().unwrap() - 0.8).abs() < 1e-6);
         assert_eq!(c["note"].as_str().map(str::len), Some(40));
-        assert_eq!(c["obj"], Value::Null);
+        assert_eq!(c["obj"], json!({"$raw": format!("{:02x}616263{}", 0x80 | (2 << 3) | 2, "0909")}), "a custom value kept as its bytes");
+        // Written back as it was read: the same settings, the custom value's bytes kept.
+        let back = storage_write(&v).unwrap();
+        assert_eq!(storage_json(&back).unwrap(), v);
+        // One setting changed: only that one.
+        let changed = storage_set(&b, "Horizontal_Compass_Settings", "stylePath", json!("3")).unwrap();
+        let c2 = storage_json(&changed).unwrap();
+        assert_eq!(c2["Horizontal_Compass_Settings"]["stylePath"], json!("3"));
+        assert_eq!(c2["Horizontal_Compass_Settings"]["obj"], c["obj"]);
+        assert_eq!(c2["Horizontal_Compass_Settings"]["order"], json!(["a", "b"]));
+        let gone = storage_json(&storage_set(&b, "Horizontal_Compass_Settings", "note", Value::Null).unwrap()).unwrap();
+        assert!(gone["Horizontal_Compass_Settings"].get("note").is_none());
+        assert!(storage_set(&[9, 9], "a", "b", json!(1)).is_err(), "not a storage file: refused");
         assert!(storage_json(&[1, 0x03, 0x04]).is_none(), "another version");
         assert!(storage_json(&[0, 0x03]).is_none(), "cut short");
     }

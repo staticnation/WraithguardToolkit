@@ -30,7 +30,38 @@ const WgLua={
   on:(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('wgLuaOn')||'[]')); }catch(_){ return new Set(); } })(),
   _list:null,
 
-  say(path, kind, text){ WgScripts.say(path? String(path).replace(/^scripts\//i, '') : 'lua', kind==='print'? 'do' : kind, text); },
+  say(path, kind, text){
+    // Wraithguard: each script's errors counted, for its badge in the Scripts panel (Static 2026-11-23).
+    if(kind==='error' && path) this.errs.set(this.key(path), (this.errs.get(this.key(path))||0)+1);
+    WgScripts.say(path? String(path).replace(/^scripts\//i, '') : 'lua', kind==='print'? 'do' : kind, text);
+  },
+  /** Each script's errors since the Lua started, and its time a step (ms, smoothed), by `key`. */
+  errs:new Map(), cost:new Map(),
+  /** What each script needs on with it (the engine's `lua_deps`), read once. */
+  deps:null,
+  async loadDeps(){
+    if(this.deps) return this.deps;
+    let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
+    try{ this.deps=await Engine.call('lua_deps', {openmw:dir||null}) || {}; }catch(_){ this.deps={}; }
+    return this.deps;
+  },
+  /** `paths` and every script they need, by what provides their interfaces, recursively:
+   *  `[all, [[script, interface, provider]...]]` for the ones added. */
+  async withNeeds(paths){
+    const D=await this.loadDeps(), have=new Set(paths.map(p=>this.key(p))), out=[...paths], why=[];
+    const q=[...paths];
+    while(q.length){
+      const p=q.shift();
+      const needs=D[p] || D[Object.keys(D).find(k=>this.key(k)===this.key(p))] || [];
+      for(const n of needs){
+        for(const by of n.by||[]){
+          if(have.has(this.key(by))) continue;
+          have.add(this.key(by)); out.push(by); q.push(by); why.push([p, n.interface, by]);
+        }
+      }
+    }
+    return [out, why];
+  },
   weathers(){
     const w=typeof $==='function' && $('#p_weather');
     return w && w.options && w.options.length? [...w.options].map(o=>o.text||o.value||'') : ['Clear','Cloudy','Foggy','Overcast','Rain','Thunderstorm','Ashstorm','Blight','Snow','Blizzard'];
@@ -58,6 +89,7 @@ const WgLua={
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
     if(!got.answer){ if(this.note) this.say('', 'skip', this.note); return; }
     this.running=true; this._all=true;
+    this.errs.clear(); this.cost.clear();
     this.sent.clear(); this._sentG.clear(); this._sentA.clear(); this._sentL.clear(); this._sentJ.clear(); this._sentP=''; this._sentAn='';
     // OpenMW's playlists choose the music while its built-ins run.
     if(this.resources && typeof WgSound==='object') WgSound.place.scriptMusic=true;
@@ -264,7 +296,19 @@ const WgLua={
     let body;
     try{ body=JSON.stringify(this.delta(step)); }catch(e){ this.say('', 'error', 'the scene for Lua: '+String(e && e.message || e)); return; }
     this.busy=true;
-    return Engine.call('lua_run_step',{frame:body}).then(a=>{ this.busy=false; if(this.running) this.apply(a); })
+    const sent=performance.now();
+    return Engine.call('lua_run_step',{frame:body}).then(a=>{
+      this.busy=false;
+      if(typeof WgPerf==='object') WgPerf.trip(performance.now()-sent);
+      if(!this.running) return;
+      if(typeof WgPerf==='object') WgPerf.time('lua.apply', ()=>this.apply(a)); else this.apply(a);
+      // Each script's time this step, smoothed for the Scripts panel's cost column.
+      const c=a && a.status && a.status.cost;
+      if(c) for(const k of new Set([...Object.keys(c), ...this.cost.keys()])){
+        const key=this.key(k), was=this.cost.get(key)||0, now=+c[k]||0;
+        this.cost.set(key, was*0.9+now*0.1);
+      }
+    })
       .catch(e=>{ this.busy=false; if(!this.running) return; this.say('', 'error', 'OpenMW Lua stopped: '+String(e && e.message || e)); this.stop(); });
   },
 

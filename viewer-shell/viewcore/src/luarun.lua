@@ -846,6 +846,7 @@ end
 local revive
 revive = function(v)
   if type(v) ~= 'table' then return v end
+  if v['$raw'] then return nil end   -- a transform or a game object: kept for writing back, not for the scripts
   if v['$v2'] then return util.vector2(v['$v2'][1], v['$v2'][2]) end
   if v['$v3'] then return util.vector3(v['$v3'][1], v['$v3'][2], v['$v3'][3]) end
   if v['$v4'] and util.vector4 then return util.vector4(v['$v4'][1], v['$v4'][2], v['$v4'][3], v['$v4'][4]) end
@@ -1109,9 +1110,13 @@ local globalQueue, localQueue = {}, {}
 local ifaceGlobal, ifaceLocal = {}, {}
 local timers, named = {}, {}
 
+-- Wraithguard: each script's time since the last answer (ms), its outermost calls (a call into
+-- another script's interface is the caller's) - the Scripts panel's cost column (Static 2026-11-23).
+local costs = {}
 local function call(inst, fn, ...)
   if type(fn) ~= 'function' then return true end
   local was = current
+  local t0 = was == nil and clock() or nil
   current = inst
   -- This call's budget (a call inside a call keeps the outer one's when it ends).
   local d0, m0 = deadline, memory_top
@@ -1120,6 +1125,7 @@ local function call(inst, fn, ...)
   local stopped = timedOut
   deadline, memory_top, timedOut = d0, m0, false
   current = was
+  if t0 then local p = inst.path or '?' costs[p] = (costs[p] or 0) + (clock() - t0) * 1000 end
   if stopped then
     inst.dead = true
     res = { false, TIMEOUT }
@@ -2864,12 +2870,14 @@ local function status()
     end
   end
   for _, i in ipairs(mwse_on) do if (i.errors or 0) > 0 and not i.dead then bad[#bad + 1] = i.path end end
-  return { global = g, player = p, ['local'] = l, mwse = #mwse_on, failing = bad, timers = #timers + #mwse_timers }
+  local cost = {}
+  for path, ms in pairs(costs) do cost[path] = math.floor(ms * 1000 + 0.5) / 1000 end
+  return { global = g, player = p, ['local'] = l, mwse = #mwse_on, failing = bad, timers = #timers + #mwse_timers, cost = cost }
 end
 local function answer()
   uiFlush()
   local out = { effects = json.array(OUT), log = json.array(LOG), status = status() }
-  OUT, LOG = {}, {}
+  OUT, LOG, costs = {}, {}, {}
   return json.encode(out)
 end
 

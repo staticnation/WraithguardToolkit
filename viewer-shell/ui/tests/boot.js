@@ -1248,6 +1248,29 @@ setTimeout(async ()=>{
     }
     await engineCall('lua_run_stop',{});
   }catch(e){ errors.push('OpenMW Lua: '+short(e)); }
+  /* "Check my Lua mods" (80_wg_luacheck.js, lua_check): the engine answers a report or says why
+     not (a Morrowind.ini setup has no Lua), and the Tools page draws a report from the DOM. */
+  try{
+    let rep=null, why='';
+    try{ rep=await engineCall('lua_check',{}); }catch(e){ why=String(e); }
+    if(rep){ const r=typeof rep==='string'? JSON.parse(rep) : rep; if(!Array.isArray(r.mods) || !Array.isArray(r.gaps) || !Array.isArray(r.lint)) errors.push('lua_check: no mods, gaps or lint: '+JSON.stringify(r).slice(0,200)); else console.log('lua check: '+r.mods.length+' mods, '+r.gaps.length+' gaps, '+r.lint.length+' lint'); }
+    else if(!/Lua/.test(why)) errors.push('lua_check refused without saying why: '+why);
+    else console.log('lua check: '+why.slice(0,80));
+    w.eval('WgToolsPage.build(); WgToolsPage.show("luacheck")');
+    w.eval(`WgLuaCheck.data={mods:[{name:'perks.omwscripts',kind:'openmw',scripts:['scripts/p/a.lua'],status:'dependency',found:[{class:'dependency',about:'interface ErnPerkFramework',script:'scripts/p/a.lua',text:'<b>x</b> nil'}]},{name:'ok.omwscripts',kind:'openmw',scripts:['a'],status:'ok',found:[]}],
+      gaps:[{name:'openmw.postprocessing.load',mods:2,examples:['a','b']}],lint:[{kind:'copies',name:'h.omwscripts',text:'h is in 2 data folders',files:['E:/a','E:/b']}],resources:'x'}; WgLuaCheck.draw();`);
+    const pane=d.getElementById('tlLua'), body=d.getElementById('tlLuaBody');
+    if(!pane || pane.hidden) errors.push('the Lua mods section is not shown');
+    else if(!/ErnPerkFramework/.test(body.textContent) || !/postprocessing/.test(body.textContent) || !/2 data folders/.test(body.textContent)) errors.push('the Lua mods report is not drawn: '+body.textContent.slice(0,200));
+    else if(body.querySelector('b b')) errors.push('a mod\'s text reached the Lua mods report as markup');
+    else if(/ok\.omwscripts/.test(body.textContent)) errors.push('the "with problems" filter shows an ok mod');
+    w.eval('WgToolsPage.show("lint")');
+  }catch(e){ errors.push('Lua mods check: '+short(e)); }
+  // A record as Lua sees it (lua_record): an id the load order lacks is null, not an error.
+  try{
+    const none=await engineCall('lua_record',{tag:'MISC', id:'wg_no_such_record'});
+    if(none!==null && none!=='null') errors.push('lua_record answered for a record the load order lacks: '+JSON.stringify(none));
+  }catch(e){ errors.push('lua_record: '+short(e)); }
   /* WG_AI_CHECK=1: the Scripts turned on in the page, a few seconds run, and what the AI did -
      each actor with a package, where it began and where it is now (a setup whose cell has an
      actor with its own AI package: WG_VIEW_CFG). */

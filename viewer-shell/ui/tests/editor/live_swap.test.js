@@ -19,7 +19,7 @@ const method = name => {
 };
 
 module.exports = async (t) => {
-  const swapLive = method('swapLive'), skinClock = method('_skinClock');
+  const swapLive = method('swapLive'), skinClock = method('_skinClock'), poseInterval = method('poseInterval');
   const a = { id: 'a' }, b = { id: 'b' }, oldW = { id: 'old' }, c = { id: 'c' }, newW = { id: 'new', skin: {} };
   const statics = [a, oldW, b, c];
   const groups = { src: statics };
@@ -37,7 +37,7 @@ module.exports = async (t) => {
   // A live actor near the camera is posed every frame, wherever its run's box has grown to.
   const mats = new Float32Array([1, 0, 0, 100, 0, 1, 0, 200, 0, 0, 1, 0]);
   const live = { live: true, mats, groups: [{ b: [-50000, -50000, 0, 50000, 50000, 100] }] };
-  const C = { _uvSecs: 12.3456, _eyeNow: [120, 220, 100] };
+  const C = { _uvSecs: 12.3456, _eyeNow: [120, 220, 100], poseInterval };
   t.ok(skinClock.call(C, live) === 12.3456, 'near: every frame');
   mats[3] = 7000;
   t.ok(Math.abs(skinClock.call(C, live) - 12.3) < 1e-9, 'farther: ten a second, by where it stands ' + skinClock.call(C, live));

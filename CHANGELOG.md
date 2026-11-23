@@ -240,6 +240,44 @@
 
 ### Added
 
+- **Where a frame's CPU time goes, in the performance report** (`05_wg_perf.js`, `11_events.js`). The
+  report timed the GPU by pass and the page's submit as one number; it now also says the page's own
+  parts a frame over its last 120 frames - drawing, posing skins, MWScript, the actors' AI, Lua's
+  answers applied, actors moved and their animations swapped (mean and worst) - with how many parts
+  were posed and actors moved, the gaps between drawn frames with the long tasks among them (the
+  collector's pauses show up there), and Lua's round trips. Always on: a few clock reads a frame.
+- **Actor info** (`79_wg_actorinfo.js`, the viewport's 🛈 switch): over each actor near the camera
+  while the Scripts run, its AI package (and combat or fleeing), the animation it plays and whether
+  it is blending or still loading, whether it waits for its walk mesh, and how often it is posed.
+- **Tools → Lua mods** (`viewcore::luacheck`, `lua_check`, `80_wg_luacheck.js`): each Lua mod of the
+  load order run on its own (OpenMW's built-ins, a small scene, records and files answered as in the
+  Preview; MWSE mods each main.lua; three workers at a time) and what its scripts said sorted -
+  another mod needed (a module, an interface, or its own "not installed" check), a plugin not
+  loaded, the mod's own fault, other errors - and what the Preview does not run yet, ranked by how
+  many mods reach for it. Above them the load-order lint: interfaces used that no script provides,
+  settings groups registered in two files, a mod in two data folders.
+- **The Scripts panel: each script's errors and time, and what it needs** (`73_wg_scripts.js`,
+  `74_wg_lua.js`, `luacheck::deps`, `lua_deps`). A badge on each row: its errors since the start and
+  its time a frame (a Lua script's from the runner's own clock, `status.cost`; an MWScript's from
+  the page). Turning a Lua script or file on also turns on the scripts that provide the interfaces
+  its mod uses (OpenMW's built-ins among them), and the log says which and why.
+- **Tools → Lua settings** (`luafiles::storage_write`/`storage_set`, `lua_settings_read`/`write`,
+  `81_wg_luasettings.js`): the settings OpenMW keeps for Lua mods (`player_storage.bin`,
+  `global_storage.bin`) by section, and one changed at a time: true/false, numbers, text, vectors and
+  colours; a list, a table or a value it cannot show is kept as it is (its bytes carried through).
+  The file is written only when it reads back as exactly the settings meant, through a new file
+  moved over the old, and the untouched original is kept once as `<file>.wg-backup`.
+- **"As Lua sees it" in the record dialog** (`lua_record`, `50_wg_editor_record.js`): the record as
+  OpenMW's Lua gives it to a script (`types.X.records[id]`), for the kinds the scripts have records of.
+- **`tools/apply_patch.ps1`**: a patch checked, applied, the quick checks for what it touches run and
+  its suggested commit title (`Suggested-Commit:`) printed; nothing committed.
+  **`build_and_check_rust.ps1 -Clean`** trims `viewer-shell/target` first (the old test programs
+  cargo leaves behind, the incremental caches); `-Only clean` does only that.
+- **The Lua regression corpus** (`viewcore/tests/lua_corpus/expected.json`, `lua_corpus`,
+  `tools/lua_corpus.ps1`): 31 of Static's Lua mods (HUDs, interface providers, YAML and settings
+  users, AI and animation overhauls, an MWSE mod), by path under his own copy - no mod is in the
+  repository - with the errors each gives on its own; a new one fails the run, one gone is said,
+  `-Bless` writes the current ones.
 - **MWSE mods run in the Preview** (`luarun.lua`, `luarun::start_json`). Each MWSE mod's `main.lua`
   (`MWSE/mods/**`, and the older `MWSE/lua/*`) runs once at the start, in the same sandbox and limits as
   OpenMW's scripts, with:

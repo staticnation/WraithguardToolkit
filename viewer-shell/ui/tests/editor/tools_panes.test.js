@@ -12,6 +12,8 @@ module.exports = async (t) => {
   // The Load order page's escaper, which the Tools page borrows.
   w.eval("var loEsc=s=>String(s).replace(/[&<>\"']/g,c=>'&#'+c.charCodeAt(0)+';');");
   w.eval(source('src/61_wg_tools.js'));
+  w.eval(source('src/80_wg_luacheck.js').replace(/^const WgLuaCheck=/m, 'var WgLuaCheck='));
+  w.eval(source('src/81_wg_luasettings.js').replace(/^const WgLuaSettings=/m, 'var WgLuaSettings='));
   const T = w.WgToolsPage;
   T.build();
   const root = w.document.getElementById('wgTL');

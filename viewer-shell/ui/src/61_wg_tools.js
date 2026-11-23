@@ -52,7 +52,11 @@ const WgToolsPage={
     ['mergesettings','Merge settings','A plugin\'s .mergedlands.toml: which of its land layers Merge Lands takes, and how'],
     ['m2m','Merge to master','A plugin folded into its master, or a whole load order into one master (merge_to_master)'],
     ['meshopt','Mesh optimizer','Draw-order copies of the load order\'s meshes, only where it helps'],
-    ['meshcheck','Check meshes','The load order\'s meshes checked for the faults exporters write, and repaired copies of those that can be mended']],
+    ['meshcheck','Check meshes','The load order\'s meshes checked for the faults exporters write, and repaired copies of those that can be mended'],
+    // Wraithguard (Static 2026-11-23): 80_wg_luacheck.js.
+    ['luacheck','Lua mods','Each Lua mod run on its own: what it needs that is missing, and what the Preview does not run yet'],
+    // Wraithguard (Static 2026-11-23): 81_wg_luasettings.js.
+    ['luasettings','Lua settings','The settings OpenMW keeps for your Lua mods: read and change them outside the game']],
   t3:{files:[], res:null},
   m2:{plugin:'', master:'', files:[]},
   jr:{data:null, quest:null},
@@ -267,6 +271,8 @@ const WgToolsPage={
     document.body.appendChild(el);
     for(const d of el.querySelectorAll('#tlNav [data-t]')) d.onclick=()=>this.show(d.dataset.t);
     $('#tlLintRun').onclick=()=>this.runLint();
+    if(typeof WgLuaCheck==='object' && !$('#tlLua')){ el.appendChild(WgLuaCheck.pane()); WgLuaCheck.wire(); }
+    if(typeof WgLuaSettings==='object' && !$('#tlLuaSet')){ el.appendChild(WgLuaSettings.pane()); WgLuaSettings.wire(); }
     $('#tlBkScan').onclick=()=>this.scanBackups();
     $('#tlMsPick').onclick=()=>this.pickPlugin();
     $('#tlSvPick').onclick=()=>this.saveCheck(1);
@@ -427,6 +433,8 @@ const WgToolsPage={
     $('#tlMo').hidden=tool!=='meshopt';
     $('#tlMc').hidden=tool!=='meshcheck';
     $('#tlM2m').hidden=tool!=='m2m';
+    { const lua=$('#tlLua'); if(lua) lua.hidden=tool!=='luacheck'; }
+    { const ls=$('#tlLuaSet'); if(ls) ls.hidden=tool!=='luasettings'; if(tool==='luasettings' && typeof WgLuaSettings==='object' && !WgLuaSettings.data) WgLuaSettings.load(); }
     if(tool==='mergelands') this.landsHome();
     if(tool==='mergeobjects') this.obInit();
     if(tool==='mergesettings') this.mergeMine();

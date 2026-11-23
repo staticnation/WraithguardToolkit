@@ -5,6 +5,7 @@
 04_img.js
 04_tx_markup.js
 05_text.js
+05_wg_perf.js
 06_mge.js
 06_gl.js
 07_ini.js
@@ -87,4 +88,7 @@
 76_wg_physics.js
 77_wg_ai.js
 78_wg_animblend.js
+79_wg_actorinfo.js
+80_wg_luacheck.js
+81_wg_luasettings.js
 11_events.js

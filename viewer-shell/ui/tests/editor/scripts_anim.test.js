@@ -55,6 +55,7 @@ module.exports = async (t) => {
         if (c === 'anim_groups') return JSON.stringify(Object.fromEntries(a.models.map(m => [m, m.startsWith('__npc') ? [['Idle', 0, 2], ['Idle3', 10, 14]] : m.includes('strider') ? [['Idle', 0, 26.667], ['Idle2', 26.667, 30.667]] : []])));
         if (c === 'lua_run_start') { starts.push(a); return { backend: 'Lua 5.4', resources: '', note: '', answer: { effects: [], log: [], status: null } }; }
         if (c === 'lua_run_step') return { effects: [], log: [], status: null };
+        if (c === 'lua_deps') return { 'scripts/mod/b.lua': [{ interface: 'Steward', by: ['scripts/mod/a.lua'] }, { interface: 'UI', by: ['@builtins'] }], 'scripts/mod/a.lua': [{ interface: 'Steward', by: ['scripts/mod/b.lua'] }] };
         return {};
       },
     },
@@ -142,6 +143,13 @@ module.exports = async (t) => {
   t.ok(starts.length === before + 1 && !sent.includes('scripts/mod/b.lua') && !sent.includes('@builtins') && sent.includes('@mwse') && sent.includes(list[0].path.toLowerCase()), 'the Lua starts again with only those ' + JSON.stringify(sent));
   L.setOff('scripts/mod/b.lua', true);
   t.ok(L.isOff('scripts/mod/b.lua') && !L.isOff('@builtins'), 'turned back off');
+
+  // A script turned on brings what provides the interfaces its mod uses (Static 2026-11-23), once each.
+  const [withN, why] = await L.withNeeds(['scripts/mod/b.lua']);
+  t.ok(JSON.stringify(withN) === '["scripts/mod/b.lua","scripts/mod/a.lua","@builtins"]' && why.length === 2 && why[0][1] === 'Steward', 'on with what it needs ' + JSON.stringify([withN, why]));
+  // Its errors and its time, for the panel's badges.
+  L.say('scripts/mod/b.lua', 'error', 'boom'); L.say('scripts/mod/b.lua', 'error', 'boom again');
+  t.ok(L.errs.get('scripts/mod/b.lua') === 2, 'a script\'s errors counted');
 
   // An MWScript turned off is not run.
   const g = () => S.state.globals.get('townlit').v;

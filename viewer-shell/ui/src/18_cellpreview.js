@@ -2716,6 +2716,7 @@ async function previewSwapActor(key, spec){
   // Something newer was asked for meanwhile, or the scene was built again under it.
   if(ask!==L.ask || App._liveRefs.get(key)!==L) return false;
   if(!info || info.err || !info.parts || !info.parts.length) return false;
+  const tSwap=performance.now();
   const add=info.parts.map(part=>{
     const bt=R.buildStaticBatch(part, {m:L.arr, n:L.arr.length/12|0, groups:L.runs, lamp:null}, part.glTex? part.glTex.gl : null, true);
     bt.live=true;
@@ -2739,6 +2740,7 @@ async function previewSwapActor(key, spec){
   R.swapLive(L.batches, add);
   L.batches=add; L.model=model; L.spec=spec||null; L.vis=info.visAabb||L.vis;
   if(L.pick){ L.pick.model=model; L.pick.parts=info.parts; L.pick.phase=null; }
+  if(typeof WgPerf==='object'){ WgPerf.add('swap', performance.now()-tSwap); WgPerf.count('swapped'); }
   return true;
 }
 
@@ -2760,6 +2762,13 @@ function previewWarmActor(key, spec){
  *  moved with it. False when it is not live (not drawn, or drawn in the shared groups):
  *  the caller rebuilds instead. `pos` in world units, `rot` in radians, as a reference. */
 function previewMoveRef(key, pos, rot, scale){
+  // Wraithguard: timed as `move` (05_wg_perf.js).
+  if(typeof WgPerf!=='object') return previewMoveRefNow(key, pos, rot, scale);
+  const t=performance.now();
+  try{ return previewMoveRefNow(key, pos, rot, scale); }
+  finally{ WgPerf.add('move', performance.now()-t); WgPerf.count('moved'); }
+}
+function previewMoveRefNow(key, pos, rot, scale){
   const L=App._liveRefs && App._liveRefs.get(key), R=App.R, o=(App._scene && App._scene.origin)||[0,0];
   if(!L || !R || !R.moveInstance || !L.batches.length) return false;
   const m=new Float32Array(refMatrix([pos[0]-o[0], pos[1]-o[1], pos[2]], rot, scale));

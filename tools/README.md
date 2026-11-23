@@ -2,7 +2,13 @@
 
 Since 5.0 (the Python app retired; `CHANGELOG.md`, 5.0.0):
 
-- `build_and_check_rust.ps1`: every Rust check CI runs, locally; `check_pushed.ps1`.
+- `build_and_check_rust.ps1`: every Rust check CI runs, locally (`-Clean` first trims
+  `viewer-shell/target`: the old test programs cargo leaves behind and the incremental caches;
+  `-Only clean` does only that); `check_pushed.ps1`.
+- `apply_patch.ps1 <patch>`: a patch checked (`git apply --check`), applied, the quick checks for
+  what it touches run, and its suggested commit title printed. Nothing is committed.
+- `lua_corpus.ps1`: the Lua regression corpus run against your own copy of the mods
+  (`viewer-shell/viewcore/tests/lua_corpus/`); no mod is in the repository.
 - `page_guard/`, `meshopt_oracle/`, `gen_g7_nif.py`: checks and generators for the viewer
   and its crates, still runnable.
 - `gen_*.py` that import `wraithguard` (`gen_cli_cases.py`, `gen_editcore_tables.py`,

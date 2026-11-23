@@ -5352,13 +5352,26 @@ class Renderer{
       cx=0.5*(g[0]+g[3]); cy=0.5*(g[1]+g[4]); cz=0.5*(g[2]+g[5]);
     }
     const dx=cx-eye[0], dy=cy-eye[1], dz=cz-eye[2];
-    const d2=dx*dx+dy*dy+dz*dz;
-    // Every frame near the camera (Static 2026-11-23: the actors' animation was choppy), then 30, 10 and 2 a second.
-    if(d2<3000*3000) return secs;
-    const iv = d2<6000*6000? 1/30 : d2<9000*9000? 0.1 : d2<12000*12000? 0.5 : 0;
+    const iv=this.poseInterval(dx*dx+dy*dy+dz*dz);
+    if(iv===null) return secs;
     return iv? Math.floor(secs/iv)*iv : 0;
   }
+  /** Wraithguard: how often a skinned part this far off (squared, scene units) is posed:
+   *  `null` every frame, else seconds between poses (0: it holds one pose). Every frame near the
+   *  camera (Static 2026-11-23: the actors' animation was choppy), then 30, 10 and 2 a second.
+   *  The actor overlay (79_wg_actorinfo.js) says it from here. */
+  poseInterval(d2){
+    if(d2<3000*3000) return null;
+    return d2<6000*6000? 1/30 : d2<9000*9000? 0.1 : d2<12000*12000? 0.5 : 0;
+  }
+  /** Wraithguard: `_skinPose`, timed as `pose` (05_wg_perf.js); a part already in this pose costs nothing. */
   _skinUpdate(part, secs){
+    if(part._skinAt===secs || typeof WgPerf!=='object') return this._skinPose(part, secs);
+    const t=performance.now();
+    this._skinPose(part, secs);
+    WgPerf.add('pose', performance.now()-t); WgPerf.count('posed');
+  }
+  _skinPose(part, secs){
     const sk=part.skin, mo=part.morph, g=part._gpu;
     if((!sk && !mo) || !g || g.gl!==this.gl || part._skinAt===secs) return;
     part._skinAt=secs;
@@ -8797,7 +8810,15 @@ class Renderer{
     if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; this.dirty=true; return true; }
     return false;
   }
+  /** Wraithguard: a frame, timed into `WgPerf` (05_wg_perf.js) - the whole as `draw`, and the
+   *  frame's books closed. */
   draw(){
+    if(typeof WgPerf!=='object') return this._drawFrame();
+    const t=performance.now();
+    try{ return this._drawFrame(); }
+    finally{ WgPerf.add('draw', performance.now()-t); WgPerf.frame(); }
+  }
+  _drawFrame(){
     const gl=this.gl, o=this.opts, c=this.cam;
     if(this._gpuT && this._gpuT.armed){ this._gpuT.armed=false; this._gpuT.active=true; }   // 18ct: this frame, timed by pass
     const grew=this.resize();

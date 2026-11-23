@@ -1159,6 +1159,7 @@ function markInstall(kind,label,title){
     if(typeof WgEditor==='object') WgEditor.button();
     if(typeof WgLand==='object') WgLand.button();
     if(typeof WgCellGrid==='object') WgCellGrid.wire();
+    if(typeof WgActorInfo==='object') WgActorInfo.wire();
     if(typeof WgWalk==='object') WgWalk.attach();
     if(typeof WgScripts==='object') WgScripts.wire();
     fs.querySelector('.p').textContent=label;
@@ -1618,6 +1619,8 @@ function openLog(){
        frame's latency, submit to last pixel; the GPU's own clock below is its busy time
        over the same twenty. */
     let ms=null, cpu=null, calls=null, tq=null, q=null;
+    // Wraithguard: the page's own frames as they were, before the report draws twenty of its own.
+    const cpuSum=typeof WgPerf==='object'? WgPerf.summary() : null;
     const px=new Uint8Array(4);
     const wait=()=>{ try{ gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px); }catch(_){ } };
     try{
@@ -1720,6 +1723,26 @@ function openLog(){
                         fs.p95.toFixed(1)+' ms, worst '+fs.worst.toFixed(1)+' ms, '+Math.round(fs.over*100)+
                         '% over one 60 Hz refresh ('+(1000/fs.mean).toFixed(0)+' fps as shown)'
                       : 'on screen: no run of frames measured yet — move the camera for a second, then open the report again'});
+    /* Wraithguard (Static 2026-11-23): where the page's own time went over the last frames it
+       drew (05_wg_perf.js) - which part of a slow scene is the page's, not the GPU's. */
+    if(cpuSum){
+      const PART={draw:'drawing', pose:'posing skins', mwscript:'MWScript', ai:'actors\' AI', 'lua.apply':'applying Lua\'s answers',
+                  move:'moving actors', swap:'swapping actors\' animations'};
+      const parts=cpuSum.parts.filter(x=>x.mean>=0.05 || x.worst>=1)
+        .map(x=>(PART[x.name]||x.name)+' '+x.mean.toFixed(1)+(x.worst>=2*x.mean+1? ' (worst '+x.worst.toFixed(1)+')' : ''));
+      const c=cpuSum.counts, cnt=[];
+      if(c.posed) cnt.push(Math.round(c.posed)+' parts posed');
+      if(c.moved) cnt.push(Math.round(c.moved)+' actors moved');
+      if(c.actors) cnt.push(Math.round(c.actors)+' actors');
+      if(c.swapped) cnt.push((c.swapped*cpuSum.frames).toFixed(0)+' animation swaps in all');
+      line({k:'ok', t:'page CPU, mean ms a frame over its last '+cpuSum.frames+' frames: '+(parts.length? parts.join(' · ') : 'nothing measurable')+
+                     (cnt.length? ' — '+cnt.join(', ')+' a frame' : '')});
+      line({k: cpuSum.gap.p95>50? 'w' : 'ok', t:'between drawn frames: median '+cpuSum.gap.median.toFixed(1)+' ms, 95th '+cpuSum.gap.p95.toFixed(1)+
+                     ' ms, worst '+cpuSum.gap.worst.toFixed(1)+' ms'+
+                     (cpuSum.long.n? ' — '+cpuSum.long.n+' long task'+(cpuSum.long.n===1? '' : 's')+' (over 50 ms, the collector\'s pauses among them), worst '+cpuSum.long.worst.toFixed(0)+' ms' : '')});
+      if(cpuSum.trip) line({k:'ok', t:'OpenMW Lua: a step there and back median '+cpuSum.trip.median.toFixed(1)+' ms, worst '+cpuSum.trip.worst.toFixed(1)+
+                     ' ms over '+cpuSum.trip.n+' steps (off the frame: the actors move on meanwhile)'});
+    }
     if(calls) line({k:'ok', t:'WebGL calls last frame: '+n(calls.total)+' ('+n(calls.draws)+' draws'+
                       (calls.multi? ', '+n(calls.multi)+' multi-draw' : '')+', '+n(calls.uniforms)+' uniforms, '+
                       n(calls.binds)+' binds)'});

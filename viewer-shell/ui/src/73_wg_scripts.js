@@ -230,12 +230,19 @@ const WgScripts={
   /** One frame of every running script. */
   frame(dt){
     this._dt=dt;
+    const P=typeof WgPerf==='object'? WgPerf : null, t0=performance.now();
     for(const g of this.globalRun.values()) this.runOne(g, null);
     // A disabled object's script runs on (it is how a lamp turns itself back on).
     for(const it of this.inst.values()) this.runOne(it, it);
+    const t1=performance.now();
+    if(P) P.add('mwscript', t1-t0);
+    for(const k of new Set([...this._mwNow.keys(), ...this.mwCost.keys()])) this.mwCost.set(k, (this.mwCost.get(k)||0)*0.9+(this._mwNow.get(k)||0)*0.1);
+    this._mwNow.clear();
     // OpenMW Lua (74_wg_lua.js), against the same scene.
     if(typeof WgLua==='object') WgLua.frame(dt);
+    const t2=performance.now();
     this.actorsFrame(dt);
+    if(P){ P.add('ai', performance.now()-t2); P.count('actors', this.actors.size); }
     this.animsFrame();
     this.loopsFrame();
     if(this._dirtyAI && performance.now()-this._lastRebuild>1500){ this._dirtyAI=false; this._dirtyScene=true; }
@@ -267,14 +274,20 @@ const WgScripts={
     }
   },
   runOne(run, self){
-    if(this.mwOff.has(String(run.script||'').toLowerCase())) return;
+    const name=String(run.script||'').toLowerCase();
+    if(this.mwOff.has(name)) return;
     const sc=this.script(run.script);
     if(!sc || sc.error) return;
     if(!run.locals){ run.locals=new Map(); for(const l of sc.locals) run.locals.set(l.name, {kind:l.kind, v:0}); }
     const ctx={run, self, sc, steps:0, act:run._activate? (run._activate=false, true) : false};
+    const t0=performance.now();
     try{ this.block(sc.body, ctx); }
-    catch(e){ if(e!==this.RETURN) this.say(run.script, 'error', String(e && e.message || e)); }
+    catch(e){ if(e!==this.RETURN){ this.say(run.script, 'error', String(e && e.message || e)); this.mwErr.set(name, (this.mwErr.get(name)||0)+1); } }
+    // Wraithguard: each script's time a frame, all its instances (the Scripts panel's cost column).
+    this._mwNow.set(name, (this._mwNow.get(name)||0)+performance.now()-t0);
   },
+  /** Each MWScript's errors, and its time a frame (ms, smoothed), by lowercased name (Static 2026-11-23). */
+  mwErr:new Map(), mwCost:new Map(), _mwNow:new Map(),
   RETURN:{},
   block(list, ctx){
     for(const s of list){
@@ -1423,7 +1436,7 @@ const WgScripts={
       const dt=Math.min(0.1, Math.max(0, (now-(this._last||now))/1000)); this._last=now;
       if(App._scene!==this._sceneSeen && App._scene && performance.now()-this._lastRebuild>300) this.gather().then(()=>{ if(typeof WgLua==='object') WgLua.gather(); });
       if(!this.paused && dt>0) this.frame(dt);
-      this._uiT=(this._uiT||0)+dt; if(this._uiT>0.5){ this._uiT=0; this.drawLive(); }
+      this._uiT=(this._uiT||0)+dt; if(this._uiT>0.5){ this._uiT=0; this.drawLive(); this.drawBadges(); }
     };
     this._raf=requestAnimationFrame(step);
   },
@@ -1519,6 +1532,23 @@ const WgScripts={
   /** Which scripts run: a switch for each of the scene's MWScripts and the load order's
    *  Lua scripts (and one for OpenMW's built-ins), a filter over both, and All/None for what
    *  the filter shows. A Lua change starts the Lua again; an MWScript change is at once. */
+  /** Each row's errors and time a frame (Static 2026-11-23): a Lua script's from the engine's
+   *  step (`WgLua.errs`, `.cost`), a file's its scripts' together, an MWScript's from the page. */
+  drawBadges(){
+    const box=this._el && this._el.querySelector('#wgScrWhich'); if(!box) return;
+    const L=typeof WgLua==='object'? WgLua : null;
+    for(const el of box.querySelectorAll('.wgBadge')){
+      const [kind, ...rest]=String(el.dataset.bk||'').split('|'), key=rest.join('|');
+      let err=0, ms=0;
+      if(kind==='lua' && L){ err=L.errs.get(L.key(key))||0; ms=L.cost.get(L.key(key))||0; }
+      else if(kind==='luafile' && L){ for(const p of (this._whichFiles && this._whichFiles.get(key))||[]){ err+=L.errs.get(L.key(p))||0; ms+=L.cost.get(L.key(p))||0; } }
+      else if(kind==='mw'){ err=this.mwErr.get(key)||0; ms=this.mwCost.get(key)||0; }
+      const t=(err? '⚠'+err+' ' : '')+(ms>=0.05? ms.toFixed(1)+' ms' : '');
+      if(el.textContent!==t) el.textContent=t;
+      el.style.color=err? 'var(--err)' : 'var(--tx3)';
+      el.title=(err? err+' error'+(err===1? '' : 's')+' (see the log). ' : '')+(ms>=0.05? 'About '+ms.toFixed(2)+' ms a frame.' : '');
+    }
+  },
   async drawWhich(force){
     const box=this._el && this._el.querySelector('#wgScrWhich'); if(!box) return;
     if(!force && box.contains(document.activeElement) && document.activeElement.id==='wgWhichQ') return;   // not under the person typing
@@ -1527,7 +1557,9 @@ const WgScripts={
     const q=this._whichQ.toLowerCase();
     const show=t=>!q || t.toLowerCase().includes(q);
     const row=(kind, key, label, on, sub)=>'<label class="wgWhich" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" data-kind="'+kind+'" data-key="'+escHtml(key)+'"'+(on? ' checked' : '')+'>'+
-      '<span style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(key)+'">'+escHtml(label)+'</span>'+(sub? '<span class="hint">'+escHtml(sub)+'</span>' : '')+'</label>';
+      '<span style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(key)+'">'+escHtml(label)+'</span>'+(sub? '<span class="hint">'+escHtml(sub)+'</span>' : '')+
+      // Wraithguard: its errors and its time a frame, filled by `drawBadges` (Static 2026-11-23).
+      '<span class="wgBadge" data-bk="'+escHtml(kind+'|'+key)+'" style="margin-left:auto;font-family:var(--mono);font-size:11px;white-space:nowrap"></span></label>';
     let h='<div style="display:flex;gap:4px;margin-bottom:4px"><input id="wgWhichQ" class="inp" placeholder="Filter scripts" style="flex:1" value="'+escHtml(this._whichQ)+'">'+
       '<button class="btn sm" id="wgWhichAll" title="Run every script the filter shows">All</button><button class="btn sm" id="wgWhichNone" title="Run none of the scripts the filter shows">None</button>'+
       '<button class="btn sm'+(this.whichByFile()? ' pri' : '')+'" id="wgWhichByFile" title="Turn Lua mods on and off by the .omwscripts (or .omwaddon) file that registers them, or one script at a time">'+(this.whichByFile()? 'By file' : 'By script')+'</button></div>';
@@ -1561,6 +1593,18 @@ const WgScripts={
     if(byFile) box.querySelectorAll('input[data-kind=luafile]').forEach(cb=>{ const ps=files.get(cb.dataset.key)||[]; const on=ps.filter(p=>!WgLua.isOff(p)).length; cb.indeterminate=on>0 && on<ps.length; });
     const set=(kind, keys, on)=>{
       if(!keys.length) return;
+      /* Wraithguard (Static 2026-11-23): a Lua script turned on brings what it needs - the scripts
+         that provide the interfaces its mod uses (`lua_deps`), OpenMW's built-ins among them. */
+      if(on && (kind==='lua' || kind==='luafile') && typeof WgLua==='object'){
+        const ps=kind==='luafile'? [].concat(...keys.map(k=>files.get(k)||[])) : keys;
+        WgLua.withNeeds(ps).then(([, why])=>{
+          const more=[...new Set(why.map(w=>w[2]))].filter(p=>WgLua.isOff(p));
+          if(!more.length) return;
+          WgLua.setOff(more, false);
+          for(const [who, iface, by] of why) if(more.includes(by)) this.say('', 'do', 'also turned on '+(by==='@builtins'? 'OpenMW\'s built-ins' : by.replace(/^scripts\//i, ''))+': '+who.replace(/^scripts\//i, '')+' uses I.'+iface);
+          this.drawWhich(true);
+        }).catch(()=>{});
+      }
       // A file stands for the scripts it registers.
       if(kind==='luafile'){ const ps=[].concat(...keys.map(k=>files.get(k)||[])); if(ps.length) WgLua.setOff(ps, !on); this.say('', 'do', (on? 'turned on ' : 'turned off ')+(keys.length===1? keys[0] : keys.length+' files')+' ('+ps.length+' script'+(ps.length===1? '' : 's')+')'+(WgLua.running? ' (the Lua starts again)' : '')); return; }
       if(kind==='lua') WgLua.setOff(keys, !on);
@@ -1568,6 +1612,7 @@ const WgScripts={
       this.say('', 'do', (on? 'turned on ' : 'turned off ')+(keys.length===1? keys[0].replace('@builtins', 'OpenMW\'s built-ins') : keys.length+' scripts')+(kind==='lua' && WgLua.running? ' (the Lua starts again)' : ''));
     };
     box.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.onchange=()=>{ set(cb.dataset.kind, [cb.dataset.key], cb.checked); if(cb.dataset.kind==='luafile') this.drawWhich(true); });
+    this.drawBadges();
     const all=on=>{
       const shownLua=[...box.querySelectorAll('input[data-kind=lua]')].map(c=>c.dataset.key);
       const shownFiles=[...box.querySelectorAll('input[data-kind=luafile]')].map(c=>c.dataset.key);

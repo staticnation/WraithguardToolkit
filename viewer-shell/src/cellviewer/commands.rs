@@ -3821,16 +3821,7 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
         return Ok(serde_json::json!({"note": "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts."}).to_string());
     };
     let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
-    // The OpenMW folder the person chose (or its resources), before the cfg and the usual places.
-    // Else Setup's OpenMW folder (the settings file's `openmw_install`).
-    let chosen = openmw
-        .filter(|p| !p.trim().is_empty())
-        .or_else(|| {
-            let s = toolscore::settings::read(&settings_path("").ok()?);
-            s.get("openmw_install").and_then(|v| v.as_str()).map(str::to_string).filter(|p| !p.trim().is_empty())
-        })
-        .map(|p| std::path::PathBuf::from(p.trim().trim_matches('"')));
-    let resources = viewcore::luacore::findings::find_resources(cfg, chosen.as_deref());
+    let resources = lua_resources(openmw, cfg);
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = lua_worker(jit.as_deref())?;
     /* Any record of the load order the scripts ask for by id (`luarec`, Static 2026-11-23: "look
@@ -3876,6 +3867,244 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let note = if resources.is_none() { "OpenMW's resources folder was not found: its built-in scripts (I.AI, activation, music, combat) are not running. Choose the OpenMW folder (the one with openmw.exe) to run them." } else { "" };
     let answer: serde_json::Value = serde_json::from_str(&answer).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"backend": backend, "resources": resources.map(|p| p.display().to_string()), "note": note, "answer": answer}).to_string())
+}
+
+/// Wraithguard: OpenMW's resources folder for the Preview's Lua: the OpenMW folder the person
+/// chose (or its resources), before the cfg and the usual places; else Setup's OpenMW folder
+/// (the settings file's `openmw_install`).
+fn lua_resources(openmw: Option<String>, cfg: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    let chosen = openmw
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| {
+            let s = toolscore::settings::read(&settings_path("").ok()?);
+            s.get("openmw_install").and_then(|v| v.as_str()).map(str::to_string).filter(|p| !p.trim().is_empty())
+        })
+        .map(|p| std::path::PathBuf::from(p.trim().trim_matches('"')));
+    viewcore::luacore::findings::find_resources(cfg, chosen.as_deref())
+}
+
+/// Wraithguard: "Check my Lua mods" (Tools; Static 2026-11-23). Each Lua mod of the load order
+/// run on its own - OpenMW's built-ins, the mod's scripts, a small scene (the player and an NPC,
+/// a container), records and files answered as in the Preview - for a start and three frames,
+/// and what its scripts said sorted (`viewcore::luacheck::report`): a dependency missing, a
+/// plugin not loaded, the mod's own fault, other errors, and what the Preview does not run yet,
+/// ranked. MWSE mods each `main.lua` on its own. With the load-order lint (`luacheck::lint`).
+/// Three workers at a time, one record index between them.
+/// Wraithguard: the load order's Lua, read once for the Tools page and the Scripts panel
+/// (`lua_check`, `lua_deps`): the registered scripts and their files, every source with OpenMW's
+/// own (the start message `start_json` makes, everything on), and OpenMW's own registered scripts.
+struct LuaAll {
+    vfs: std::sync::Arc<viewcore::vfs::Vfs>,
+    world: Option<std::sync::Arc<viewcore::world::World>>,
+    reg_files: Vec<(String, Vec<String>, Vec<String>)>,
+    reg: Vec<(String, Vec<String>)>,
+    content: Vec<String>,
+    all: serde_json::Value,
+    sources: std::collections::HashMap<String, String>,
+    builtins: Vec<serde_json::Value>,
+    resources: Option<std::path::PathBuf>,
+}
+fn lua_all(openmw: Option<String>, state: &State) -> Result<LuaAll, String> {
+    let (vfs, order, world) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone(), app.world.clone())
+    };
+    let Some(reg_files) = viewcore::luascan::registered_by_file(&vfs, order.as_deref())? else {
+        return Err("Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts.".into());
+    };
+    let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
+    let resources = lua_resources(openmw, cfg);
+    let content = viewcore::luascan::content(order.as_deref());
+    let gmst: Vec<(String, f32)> = world.as_ref().map(|w| w.gmst.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();
+    let gmst_text: Vec<(String, String)> = world.as_ref().map(|w| w.gmst_text.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+    let reg: Vec<(String, Vec<String>)> = reg_files.iter().map(|(p, f, _)| (p.clone(), f.clone())).collect();
+    let all = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &["Clear".to_string()], &content, &[], &gmst, &gmst_text);
+    let all: serde_json::Value = serde_json::from_str(&all).map_err(|e| e.to_string())?;
+    let sources = all["sources"].as_object().map(|o| o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect()).unwrap_or_default();
+    let builtins: Vec<serde_json::Value> = all["scripts"].as_array().cloned().unwrap_or_default().into_iter()
+        .filter(|s| s["path"].as_str().is_some_and(|p| !reg.iter().any(|(q, _)| q.eq_ignore_ascii_case(p)))).collect();
+    Ok(LuaAll { vfs, world, reg_files, reg, content, all, sources, builtins, resources })
+}
+
+/// Wraithguard: what each registered Lua script needs on with it (`luacheck::deps`): the scripts
+/// that provide the interfaces its mod uses, `@builtins` for OpenMW's own - the Scripts panel turns
+/// them on with it (Static 2026-11-23).
+#[tauri::command(async)]
+fn lua_deps(openmw: Option<String>, state: State) -> Result<String, String> {
+    let a = lua_all(openmw, &state)?;
+    let reg: Vec<String> = a.reg.iter().map(|(p, _)| p.clone()).collect();
+    let builtins: Vec<String> = a.builtins.iter().filter_map(|s| s["path"].as_str().map(str::to_string)).collect();
+    Ok(viewcore::luacheck::deps(&a.sources, &reg, &builtins).to_string())
+}
+
+#[tauri::command(async)]
+fn lua_check(openmw: Option<String>, state: State) -> Result<String, String> {
+    use std::collections::BTreeMap;
+    let LuaAll { vfs, world, reg_files, reg: _, content, all, sources, builtins, resources } = lua_all(openmw, &state)?;
+    let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
+    // The mods: a content file's scripts together (its first content file), as the by-file mode.
+    let mut mods: BTreeMap<String, Vec<(String, Vec<String>)>> = BTreeMap::new();
+    for (p, f, files) in &reg_files {
+        let k = files.first().cloned().unwrap_or_else(|| p.clone());
+        mods.entry(k).or_default().push((p.clone(), f.clone()));
+    }
+    let scene = serde_json::json!({"player": {"pos": [100, 200, 0], "cell": {"name": "Balmora", "ext": false}},
+        "objects": {"k1": {"id": "wg_check_box", "tag": "CONT", "pos": [0, 0, 0]}, "k2": {"id": "wg_check_npc", "tag": "NPC_", "pos": [300, 0, 0]}}});
+    // (name, kind, scripts, the start message)
+    let mut jobs: Vec<(String, String, Vec<String>, String)> = Vec::new();
+    for (name, scripts) in &mods {
+        let mut start = all.clone();
+        let mut list = builtins.clone();
+        list.extend(scripts.iter().map(|(p, f)| serde_json::json!({"path": p, "flags": f.iter().filter(|x| *x != "LOAD").collect::<Vec<_>>()})));
+        start["scripts"] = serde_json::Value::Array(list);
+        start["mwse"] = serde_json::json!([]);
+        start["state"] = scene.clone();
+        jobs.push((name.clone(), "openmw".into(), scripts.iter().map(|(p, _)| p.clone()).collect(), start.to_string()));
+    }
+    for main in all["mwse"].as_array().cloned().unwrap_or_default() {
+        let Some(main) = main.as_str() else { continue };
+        let mut start = all.clone();
+        start["scripts"] = serde_json::json!([]);
+        start["mwse"] = serde_json::json!([main]);
+        start["state"] = scene.clone();
+        let name = main.trim_end_matches("/main.lua").to_string();
+        jobs.push((name, "mwse".into(), vec![main.to_string()], start.to_string()));
+    }
+    let records = std::sync::Arc::new(std::sync::Mutex::new(world.clone().map(viewcore::luarec::Records::of_world)));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let runs: std::sync::Mutex<Vec<(usize, viewcore::luacheck::ModRun)>> = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|sc| {
+        for _ in 0..3 {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some((name, kind, scripts, start)) = jobs.get(i) else { break };
+                let mut run = viewcore::luacheck::ModRun { name: name.clone(), kind: kind.clone(), scripts: scripts.clone(), ..Default::default() };
+                let collect = |run: &mut viewcore::luacheck::ModRun, a: &str| {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(a) {
+                        for l in v["log"].as_array().into_iter().flatten() {
+                            let g = |k: &str| l[k].as_str().unwrap_or("").to_string();
+                            if matches!(g("kind").as_str(), "error" | "skip") {
+                                run.log.push((g("path"), g("kind"), g("text")));
+                            }
+                        }
+                    }
+                };
+                match lua_worker(jit.as_deref()) {
+                    Ok(mut p) => {
+                        let recs = records.clone();
+                        let files = vfs.clone();
+                        p.records = Some(Box::new(move |kinds: &str, id: &str| {
+                            if kinds.starts_with('@') {
+                                return viewcore::luafiles::answer(&files, kinds, id);
+                            }
+                            let kinds: Vec<&str> = kinds.split(',').map(str::trim).filter(|k| !k.is_empty()).collect();
+                            recs.lock().ok()?.as_mut()?.lookup(&kinds, id)
+                        }));
+                        match p.call("__wg_start", start, std::time::Duration::from_secs(30)) {
+                            Ok(a) => {
+                                collect(&mut run, &a);
+                                for _ in 0..3 {
+                                    match p.call("__wg_step", r#"{"dt":0.2}"#, std::time::Duration::from_secs(15)) {
+                                        Ok(a) => collect(&mut run, &a),
+                                        Err(e) => {
+                                            run.log.push((String::new(), "error".into(), e.trim_start_matches(viewcore::luaproc::STOPPED).trim().to_string()));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => run.failed = Some(e.trim_start_matches(viewcore::luaproc::STOPPED).trim().to_string()),
+                        }
+                    }
+                    Err(e) => run.failed = Some(e),
+                }
+                if let Ok(mut g) = runs.lock() {
+                    g.push((i, run));
+                }
+            });
+        }
+    });
+    let mut runs = runs.into_inner().map_err(|e| e.to_string())?;
+    runs.sort_by_key(|(i, _)| *i);
+    let runs: Vec<viewcore::luacheck::ModRun> = runs.into_iter().map(|(_, r)| r).collect();
+    let line = |p: &str, n: usize| sources.get(&p.to_ascii_lowercase()).and_then(|t| t.lines().nth(n.saturating_sub(1))).map(str::to_string);
+    let mut report = viewcore::luacheck::report(&runs, &line);
+    // The content files each data folder holds a copy of.
+    let copies: Vec<(String, Vec<String>)> = content
+        .iter()
+        .filter(|c| c.to_ascii_lowercase().ends_with(".omwscripts"))
+        .map(|c| (c.clone(), vfs.providers(c, &[]).into_iter().map(|(label, _)| label).collect::<Vec<_>>()))
+        .collect();
+    report["lint"] = viewcore::luacheck::lint(&sources, &copies);
+    report["resources"] = serde_json::json!(resources.map(|p| p.display().to_string()));
+    Ok(report.to_string())
+}
+
+/// Wraithguard: OpenMW's Lua storage file `which` (`player` / `global`): beside openmw.cfg.
+fn lua_storage_path(which: &str, state: &State) -> Result<std::path::PathBuf, String> {
+    let order = state.app().order_file.clone();
+    let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p)).ok_or("Not an OpenMW setup: there is no Lua storage to read.")?;
+    let name = match which {
+        "player" => "player_storage.bin",
+        "global" => "global_storage.bin",
+        _ => return Err(format!("no such storage: {which}")),
+    };
+    Ok(cfg.parent().ok_or("openmw.cfg has no folder")?.join(name))
+}
+
+/// Wraithguard: the settings OpenMW keeps for Lua mods (Tools → Lua settings; Static
+/// 2026-11-23): `{player: {path, sections}, global: {path, sections}}`, each file's sections as
+/// `luafiles::storage_json` reads them (null where there is no file).
+#[tauri::command(async)]
+fn lua_settings_read(state: State) -> Result<String, String> {
+    let mut out = serde_json::Map::new();
+    for which in ["player", "global"] {
+        let p = lua_storage_path(which, &state)?;
+        let sections = std::fs::read(&p).ok().and_then(|b| viewcore::luafiles::storage_json(&b));
+        out.insert(which.into(), serde_json::json!({"path": p.display().to_string(), "sections": sections, "backup": p.with_extension("bin.wg-backup").exists()}));
+    }
+    Ok(serde_json::Value::Object(out).to_string())
+}
+
+/// Wraithguard: one Lua setting changed in OpenMW's storage file (`value` null: taken out). The
+/// file written only when it reads back as exactly the settings meant (`luafiles::storage_set`);
+/// the original kept once as `<file>.wg-backup` before the first change; written to a new file
+/// and moved over the old, so a failure leaves the old one whole.
+#[tauri::command(async)]
+fn lua_settings_write(which: String, section: String, key: String, value: serde_json::Value, state: State) -> Result<String, String> {
+    let p = lua_storage_path(&which, &state)?;
+    let old = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let new = viewcore::luafiles::storage_set(&old, &section, &key, value)?;
+    let backup = p.with_extension("bin.wg-backup");
+    if !backup.exists() {
+        std::fs::write(&backup, &old).map_err(|e| format!("the backup {}: {e}", backup.display()))?;
+    }
+    let tmp = p.with_extension("bin.wg-new");
+    std::fs::write(&tmp, &new).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &p).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{}: {e}", p.display())
+    })?;
+    Ok(serde_json::json!({"path": p.display().to_string(), "backup": backup.display().to_string()}).to_string())
+}
+
+/// Wraithguard: the record index `lua_record` keeps for the world it was made for.
+type LuaRecordIndex = Option<(usize, viewcore::luarec::Records)>;
+static LUA_RECORDS: std::sync::Mutex<LuaRecordIndex> = std::sync::Mutex::new(None);
+
+/// Wraithguard: a record as OpenMW's Lua gives it to a script (`types.X.records[id]`,
+/// `viewcore::luarec`) - the record dialog's "As Lua sees it" (Static 2026-11-23). Null for a
+/// kind the scripts have no records of. The index is kept while the same world is loaded.
+#[tauri::command(async)]
+fn lua_record(tag: String, id: String, state: State) -> Result<String, String> {
+    let w = state.app().world.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let key = std::sync::Arc::as_ptr(&w) as usize;
+    let mut g = LUA_RECORDS.lock().map_err(|e| e.to_string())?;
+    if g.as_ref().map(|(k, _)| *k) != Some(key) {
+        *g = Some((key, viewcore::luarec::Records::of_world(w)));
+    }
+    let r = g.as_mut().and_then(|(_, r)| r.lookup(&[tag.as_str()], &id));
+    Ok(r.unwrap_or_else(|| "null".into()))
 }
 
 /// Wraithguard: the OpenMW resources folder the Preview's Lua runs on (its built-ins and fonts).
@@ -4685,6 +4914,11 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_scene,
             anim_groups,
             lua_run_start,
+            lua_check,
+            lua_deps,
+            lua_settings_read,
+            lua_settings_write,
+            lua_record,
             lua_run_step,
             lua_run_stop,
             dialogue_state_from_save,
