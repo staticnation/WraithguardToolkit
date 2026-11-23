@@ -1065,6 +1065,9 @@ local function api_value(t, path, A)
   if t == 'boolean' then return false end
   if t == 'string' then return '' end
   if t == 'table' then return {} end
+  -- An iterator (`for o in tes3.iterateObjects(...)`, `cell:iterateReferences()`): one that
+  -- gives nothing, rather than nil to call (the Nexus dump, 2026-11-23: 130 mods stopped there).
+  if t == 'function' then return function() return nil end end
   if A and A.types[t] then return api_fill({}, t, path, true, nil, A) end
   return nil
 end
@@ -1090,6 +1093,14 @@ local function api_look(tname, k, path, fields, ctx, A)
     local f = D.fields[k]
     if f ~= nil then
       if not fields then return nil end
+      -- A plain value first: MWSE documents `string` and `table` as libraries too, and
+      -- `tes3.installDirectory` (a string) came back as a table of string's calls.
+      if f == 'string' or f == 'number' or f == 'boolean' or f == 'integer' then
+        if f == 'string' then return k end
+        if f == 'boolean' then return false end
+        api_n = api_n + 1 return api_n
+      end
+      if f == 'table' then return {} end
       if A.types[f] then return api_fill({}, f, path .. '.' .. k, true, ctx, A) end
       -- A constant (an enumeration's member): a number of its own, or its own name.
       if f == 'number' then api_n = api_n + 1 return api_n end
@@ -2218,9 +2229,180 @@ local function mwse_copy(t, seen)
   return c
 end
 
+
+------------------------------------------------- MWSE's additions to Lua's libraries
+-- MWSE adds to `table` and `string` (core/lib: `table.copy`, `string.startswith`...), and the
+-- mods use them on every other line: the documented ones, done here in plain Lua. Found by
+-- running the Nexus dump's MWSE mods (github.com/MWSE/morrowind-nexus-lua-dump, 2026-11-23).
+local function mwse_deep(t, seen)
+  if type(t) ~= 'table' then return t end
+  seen = seen or {}
+  if seen[t] then return seen[t] end
+  local c = {} seen[t] = c
+  for k, v in pairs(t) do c[mwse_deep(k, seen)] = mwse_deep(v, seen) end
+  return c
+end
+local function mwse_equal(a, b)
+  if a == b then return true end
+  if type(a) ~= 'table' or type(b) ~= 'table' then return false end
+  for k, v in pairs(a) do if not mwse_equal(v, b[k]) then return false end end
+  for k in pairs(b) do if a[k] == nil then return false end end
+  return true
+end
+local function mwse_sorted(list, sort)
+  if sort == true then table.sort(list, function(x, y) if type(x) == type(y) and (type(x) == 'number' or type(x) == 'string') then return x < y end return tostring(x) < tostring(y) end)
+  elseif type(sort) == 'function' then table.sort(list, sort) end
+  return list
+end
+local function mwse_copymissing(to, from)
+  for k, v in pairs(from or {}) do
+    if to[k] == nil then to[k] = mwse_deep(v)
+    elseif type(to[k]) == 'table' and type(v) == 'table' then mwse_copymissing(to[k], v) end
+  end
+  return to
+end
+local MWSE_TABLE = {
+  copy = function(from, to) to = to or {} for k, v in pairs(from or {}) do to[k] = mwse_deep(v) end return to end,
+  deepcopy = function(t) return mwse_deep(t) end,
+  shallowcopy = function(t) local c = {} for k, v in pairs(t or {}) do c[k] = v end return c end,
+  copymissing = mwse_copymissing,
+  clear = function(t) for k in pairs(t) do t[k] = nil end end,
+  empty = function(t) return next(t) == nil end,
+  isempty = function(t) return next(t) == nil end,
+  size = function(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end,
+  find = function(t, v) for k, x in pairs(t) do if x == v then return k end end return nil end,
+  contains = function(t, v) for _, x in pairs(t) do if x == v then return true end end return false end,
+  removevalue = function(t, v)
+    for k, x in pairs(t) do
+      if x == v then if type(k) == 'number' and k <= #t then table.remove(t, k) else t[k] = nil end return true end
+    end
+    return false
+  end,
+  invert = function(t) local r = {} for k, v in pairs(t) do r[v] = k end return r end,
+  keys = function(t, sort) local r = {} for k in pairs(t) do r[#r + 1] = k end return mwse_sorted(r, sort) end,
+  values = function(t, sort) local r = {} for _, v in pairs(t) do r[#r + 1] = v end return mwse_sorted(r, sort) end,
+  equal = mwse_equal, isequal = mwse_equal,
+  isarray = function(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n == #t end,
+  get = function(t, k, d) local v = t[k] if v == nil then return d end return v end,
+  getorset = function(t, k, d) local v = t[k] if v == nil then t[k] = d v = d end return v end,
+  getset = function(t, k, d) local v = t[k] if v == nil then t[k] = d v = d end return v end,
+  swap = function(t, k, v) local old = t[k] t[k] = v return old end,
+  choice = function(t) local ks = {} for k in pairs(t) do ks[#ks + 1] = k end if #ks == 0 then return nil end local k = ks[math.random(#ks)] return t[k], k end,
+  shuffle = function(t, n) n = n or #t for i = n, 2, -1 do local j = math.random(i) t[i], t[j] = t[j], t[i] end return t end,
+  new = function() return {} end,
+  wrapindex = function(t, i) local n = #t if n == 0 then return nil end return ((i - 1) % n) + 1 end,
+  filter = function(t, f, ...) local r = {} for k, v in pairs(t) do if f(k, v, ...) then r[k] = v end end return r end,
+  filterarray = function(t, f, ...) local r = {} for i, v in ipairs(t) do if f(i, v, ...) then r[#r + 1] = v end end return r end,
+  map = function(t, f, ...) local r = {} for k, v in pairs(t) do r[k] = f(k, v, ...) end return r end,
+  findminscore = function(t, f)
+    local bk, bv, bs
+    for k, v in pairs(t) do local sc = f(v) if sc and (bs == nil or sc < bs) then bk, bv, bs = k, v, sc end end
+    return bk, bv, bs
+  end,
+  sortedpairs = function(t, f)
+    local ks = mwse_sorted((function() local r = {} for k in pairs(t) do r[#r + 1] = k end return r end)(), f or true)
+    local i = 0
+    return function() i = i + 1 local k = ks[i] if k ~= nil then return k, t[k] end end
+  end,
+  binsearch = function(t, v, f)
+    local lo, hi = 1, #t
+    while lo <= hi do
+      local mid = math.floor((lo + hi) / 2)
+      local x = f and f(t[mid]) or t[mid]
+      if x == v then return mid elseif x < v then lo = mid + 1 else hi = mid - 1 end
+    end
+    return nil
+  end,
+  bininsert = function(t, v, f)
+    local lo, hi = 1, #t
+    local key = f and f(v) or v
+    while lo <= hi do
+      local mid = math.floor((lo + hi) / 2)
+      local x = f and f(t[mid]) or t[mid]
+      if key < x then hi = mid - 1 else lo = mid + 1 end
+    end
+    table.insert(t, lo, v)
+    return lo
+  end,
+  traverse = function(t, key)
+    key = key or 'children'
+    local stack, i = {}, 0
+    for _, c in ipairs(type(t) == 'table' and (t[key] or t) or {}) do stack[#stack + 1] = c end
+    return function()
+      i = i + 1
+      local n = stack[i]
+      if n ~= nil and type(n) == 'table' and type(n[key]) == 'table' then for _, c in ipairs(n[key]) do stack[#stack + 1] = c end end
+      return n
+    end
+  end,
+  makereadonly = function(t) return setmetatable({}, { __index = t, __newindex = function() error('this table is read-only', 2) end }) end,
+}
+local MWSE_STRING = {
+  startswith = function(s, p) return string.sub(s, 1, #p) == p end,
+  endswith = function(s, p) return p == '' or string.sub(s, -#p) == p end,
+  trim = function(s) return (string.gsub(s, '^%s*(.-)%s*$', '%1')) end,
+  split = function(s, sep) sep = sep or '%s' local r = {} for x in string.gmatch(s, '([^' .. sep .. ']+)') do r[#r + 1] = x end return r end,
+  insert = function(s, s2, pos) pos = pos or #s return string.sub(s, 1, pos) .. s2 .. string.sub(s, pos + 1) end,
+  multifind = function(s, pats, init, plain)
+    for _, p in ipairs(pats) do local a, b = string.find(s, p, init, plain) if a then return p, a, b end end
+    return nil
+  end,
+}
+-- MWSE's logger (`mwse.Logger`, and the older `require('logging.logger')`): a working one, its
+-- lines into the preview's log at its level (INFO unless the mod says).
+local LOG_LEVELS = { NONE = 0, ERROR = 1, WARN = 2, INFO = 3, DEBUG = 4, TRACE = 5 }
+local function mwse_logger_lib(inst)
+  local L = { logLevel = { none = 'NONE', error = 'ERROR', warn = 'WARN', info = 'INFO', debug = 'DEBUG', trace = 'TRACE' } }
+  local byName = {}
+  local M = {}
+  M.__index = M
+  local function lv(x)
+    if type(x) == 'number' then return x end
+    return LOG_LEVELS[string.upper(tostring(x or 'INFO'))] or 3
+  end
+  function L.new(o)
+    if type(o) ~= 'table' then o = { modName = o } end
+    local name = o.modName or o.name or o.moduleName or inst.path
+    local self = setmetatable({ modName = name, moduleName = o.moduleName, level = lv(o.level or o.logLevel) }, M)
+    byName[name] = self
+    return self
+  end
+  L.getLogger = function(name) return byName[name] or L.new({ modName = name }) end
+  L.get = L.getLogger
+  L.getLoggers = function() local r = {} for _, l in pairs(byName) do r[#r + 1] = l end return r end
+  local function say(self, n, tag, fmt, ...)
+    if (self.level or 3) < n then return end
+    local text = fmt
+    if select('#', ...) > 0 then local ok, s = pcall(string.format, tostring(fmt), ...) text = ok and s or tostring(fmt) end
+    if type(text) == 'function' then local ok, s = pcall(text) text = ok and s or '' end
+    log('print', inst.path, '[' .. tostring(self.modName) .. (self.moduleName and ('.' .. self.moduleName) or '') .. '] ' .. tag .. ': ' .. tostring(text))
+  end
+  function M:error(f, ...) say(self, 1, 'ERROR', f, ...) end
+  function M:warn(f, ...) say(self, 2, 'WARN', f, ...) end
+  function M:info(f, ...) say(self, 3, 'INFO', f, ...) end
+  function M:debug(f, ...) say(self, 4, 'DEBUG', f, ...) end
+  function M:trace(f, ...) say(self, 5, 'TRACE', f, ...) end
+  function M:assert(c, f, ...) if not c then say(self, 1, 'ERROR', f, ...) end return c end
+  function M:setLogLevel(x) self.level = lv(x) end
+  M.setLevel = M.setLogLevel
+  function M:getLevelString() for k, v in pairs(LOG_LEVELS) do if v == self.level then return k end end return 'INFO' end
+  function M:setModName(n) self.modName = n end
+  function M:setModuleName(n) self.moduleName = n end
+  function M:setOutputFile() end
+  function M:setFormatter() end
+  function M:setIncludeTimestamp() end
+  function M:setAbbreviateHeader() end
+  function M:writeInitMessage() end
+  function M:doLog(lvl, f, ...) say(self, lv(lvl), tostring(lvl), f, ...) end
+  return L
+end
+
 local function mwse_env(inst, root)
   local env = sandbox(inst)
-  local loaded = {}
+  for k, v in pairs(MWSE_TABLE) do env.table[k] = v end
+  for k, v in pairs(MWSE_STRING) do env.string[k] = v end
+  local logging = mwse_logger_lib(inst)
+  local loaded = { ['logging.logger'] = logging }
   -- `require('author.mod.config')`: MWSE/mods/author/mod/config.lua (or MWSE/lua/...); MWSE's
   -- own modules and Lua's C ones are not here.
   env.require = function(name)
@@ -2246,7 +2428,35 @@ local function mwse_env(inst, root)
     return v
   end
   env.include = function(name) local ok, v = pcall(env.require, name) if ok then return v end return nil end
-  env.dofile = nil
+  -- MWSE's `dofile('author.mod.file')`: the mod's own file, read again each time (no other files).
+  env.dofile = function(name)
+    local file = string.lower(tostring(name)):gsub('\\', '/'):gsub('%.lua$', '')
+    file = file:gsub('^data files/', ''):gsub('^mwse/mods/', ''):gsub('%.', '/')
+    for _, base in ipairs({ 'mwse/mods/', 'mwse/lua/', root }) do
+      local text = sources[base .. file .. '.lua']
+      if text then
+        local f, err = loadIn(text, '@' .. base .. file .. '.lua', env)
+        if not f then error(err, 2) end
+        return f()
+      end
+    end
+    error('cannot open ' .. tostring(name) .. ' (only the mods\' own files are read in the preview)', 2)
+  end
+  -- MWSE's `debug.log` and where a chunk came from (mods find their own folder by it); none of
+  -- Lua's debug library.
+  env.debug = {
+    log = function(v) log('print', inst.path, tostring(v)) return v end,
+    traceback = function(m) return tostring(m or '') end,
+    getinfo = function() return { source = '@' .. inst.path, short_src = inst.path, currentline = 0, what = 'Lua' } end,
+  }
+  -- No files are read or written in the preview: `io.open` answers nil, as for a missing file.
+  env.io = {
+    open = function(f) once('mwse:io', 'skip', 'io.open is not run in the preview (no files are read)') return nil, tostring(f) .. ': not read in the preview' end,
+    lines = function() once('mwse:io', 'skip', 'io.open is not run in the preview (no files are read)') return function() return nil end end,
+  }
+  env.os.remove = function() return nil, 'not in the preview' end
+  env.os.rename = function() return nil, 'not in the preview' end
+  env.os.exit = function() once('mwse:os.exit', 'skip', 'os.exit is not run in the preview') end
   env.mwse = mwse_partial('mwse', {
     version = 21000000, buildDate = 20260101,
     log = function(fmt, ...) local ok, s = pcall(string.format, tostring(fmt), ...) log('print', inst.path, ok and s or tostring(fmt)) end,
@@ -2262,6 +2472,26 @@ local function mwse_env(inst, root)
     saveConfig = function(name, t) mwse_config[tostring(name)] = json.encode(t) return true end,
     registerModConfig = function(name) once('mwse:mcm:' .. tostring(name), 'skip', 'the Mod Config Menu (' .. tostring(name) .. ') is not drawn in the preview') end,
     getVersion = function() return 21000000 end,
+    Logger = logging,
+    logLevel = logging.logLevel,
+    memory = mwse_stub('mwse.memory'),
+    -- A mod's strings (`i18n/eng.lua`, by key or dotted path), `%{name}` filled from `data`.
+    loadTranslations = function(mod)
+      local dir = string.lower(tostring(mod)):gsub('\\', '/'):gsub('%.', '/')
+      local t
+      for _, base in ipairs({ 'mwse/mods/', 'mwse/lua/' }) do
+        local text = sources[base .. dir .. '/i18n/eng.lua']
+        if text then local f = loadIn(text, '@' .. base .. dir .. '/i18n/eng.lua', env) if f then local ok, v = pcall(f) if ok and type(v) == 'table' then t = v end end break end
+      end
+      t = t or {}
+      return function(key, data)
+        local v = t[key]
+        if v == nil then v = t for part in string.gmatch(tostring(key), '[^%.]+') do v = type(v) == 'table' and v[part] or nil end end
+        if type(v) ~= 'string' then return tostring(key) end
+        if type(data) == 'table' then v = v:gsub('%%{(%w+)}', function(n) return data[n] ~= nil and tostring(data[n]) or '%{' .. n .. '}' end) end
+        return v
+      end
+    end,
   })
   env.event = {
     register = function(name, fn, opts)
@@ -2295,6 +2525,9 @@ local function mwse_env(inst, root)
     objectType = mwse_enum('objectType'), event = mwse_enum('event'), scanCode = mwse_enum('scanCode'),
     effect = mwse_enum('effect'), skill = mwse_enum('skill'), attribute = mwse_enum('attribute'),
     getPlayerRef = function() return mwse_ref('player') end,
+    -- The old getters MWSE still answers (deprecated, but in use).
+    getMobilePlayer = function() return tes3_mobilePlayer end,
+    isKeyDown = function() return false end,
     getPlayerCell = function() return mwse_cellOf(S.player.cell) end,
     getReference = function(id) local k = mwse_find(id) return k and mwse_ref(k) or nil end,
     getObject = function(id)
@@ -2352,6 +2585,22 @@ local function mwse_env(inst, root)
     getFileExists = function() return false end,
     worldController = mwse_partial('tes3worldController', { hour = setmetatable({}, { __index = function(_, k) if k == 'value' then return S.hour end end }) }),
   })
+  -- Every enumeration MWSE has (`tes3.gmst`, `tes3.weaponType`, `tes3.keybind`...), not only the
+  -- six above: 60 of the dump's mods stopped at one.
+  for name in pairs(MWSE_API and MWSE_API.enums or {}) do if rawget(env.tes3, name) == nil then rawset(env.tes3, name, mwse_enum(name)) end end
+  rawset(env.tes3, 'getDataHandler', function() return env.tes3.dataHandler end)
+  rawset(env.tes3, 'getGame', function() return env.tes3.game end)
+  rawset(env.tes3, 'getWorldController', function() return env.tes3.worldController end)
+  -- MWSE's classes are globals too (`tes3vector3.new`, `tes3matrix33.new`, `niSourceTexture.createFromPath`):
+  -- each as its documented calls; a vector is a vector.
+  setmetatable(env, { __index = function(t, k)
+    if type(k) ~= 'string' or not (MWSE_API and MWSE_API.types[k]) or MWSE_API.libs[k] or not (k:match('^tes3') or k:match('^ni')) then return nil end
+    local c = api_fill({}, k, k, false, nil, MWSE_API)
+    if k == 'tes3vector3' then rawset(c, 'new', function(x, y, z) return v3(x, y, z) end) end
+    if k == 'tes3vector2' then rawset(c, 'new', function(x, y) return v2(x, y) end) end
+    rawset(t, k, c)
+    return c
+  end })
   -- The other libraries MWSE documents (`tes3ui`, `mge`, `lfs`, `mwscript`, `ni`, `toml`...): every call,
   -- typed; `event`, `timer` and `json` keep what they do here and get the rest.
   for lib in pairs(MWSE_API and MWSE_API.libs or {}) do
@@ -2388,6 +2637,9 @@ local function mwse_start(list)
   end
   if #mwse_on == 0 then return end
   mwse_fire('initialized', {})
+  -- Then the Mod Config Menu's (MWSE sends it once the mods are up; 865 of the dump's mods set
+  -- their menu up in it, some their settings too). The menu is not drawn here.
+  mwse_fire('modConfigReady', {})
   mwse_fire('loaded', { newGame = false, filename = 'preview', quickload = false })
   local c = S.player.cell
   mwse_cell = mwse_cellKey(c)

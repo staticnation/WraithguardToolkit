@@ -48,6 +48,11 @@ const WgLua={
     let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
     // The engine is told what not to run: everything not turned on.
     const off=['@builtins', '@mwse', ...(await this.scriptList()).map(r=>this.key(r.path))].filter(k=>!this.on.has(k));
+    /* Static 2026-11-23 ("these are off so why are they running?"): the menu-only scripts are not
+       listed (nothing of theirs is drawn here), so they were never in `off` and every one ran.
+       One runs with its own mod: when a script of the same content file, or of the same
+       scripts/<mod>/ folder, is on. */
+    off.push(...this.menuOff());
     try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null, off}); }
     catch(e){ this.say('', 'error', 'OpenMW Lua did not start: '+String(e && e.message || e)); return; }
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
@@ -120,11 +125,23 @@ const WgLua={
       // The content files that register it (`.omwscripts`, `.omwaddon`): the by-file mode.
       for(const [i, f] of tb.script_files||[]) if(rows[i]) rows[i].files.push(String(f));
       this._list=rows.filter(r=>!r.flags.length || r.flags.some(f=>f!=='MENU' && f!=='LOAD'));
+      this._menus=rows.filter(r=>!this._list.includes(r));
       this._note=(tb.head && tb.head[0] && tb.head[0][0]) || '';
     }catch(_){ this._list=[]; }
     return this._list;
   },
   key(path){ return String(path).replace(/\\/g, '/').toLowerCase(); },
+  /** The menu-only scripts whose mod is off (see `start`): none of their file's or folder's scripts on. */
+  menuOff(){
+    const top=p=>{ const m=/^scripts\/([^/]+)\//.exec(this.key(p)); return m? m[1] : null; };
+    const onFiles=new Set(), onTops=new Set();
+    for(const r of this._list||[]) if(this.on.has(this.key(r.path))){
+      for(const f of r.files||[]) onFiles.add(String(f).toLowerCase());
+      const t=top(r.path); if(t) onTops.add(t);
+    }
+    return (this._menus||[]).filter(r=>!this.on.has(this.key(r.path)) &&
+      !(r.files||[]).some(f=>onFiles.has(String(f).toLowerCase())) && !onTops.has(top(r.path))).map(r=>this.key(r.path));
+  },
   isOff(path){ return !this.on.has(this.key(path)); },
   /** Turn scripts on or off (`paths`, or `@builtins`); a running Lua starts again without them. */
   setOff(paths, off){

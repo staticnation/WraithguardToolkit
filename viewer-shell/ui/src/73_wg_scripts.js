@@ -692,6 +692,7 @@ const WgScripts={
         try{
           // A Lua script that took the AI off drives it itself (`self.controls`); else the AI does.
           if(A.luaAI===false){ if(A.ctl) this.byControls(A, dt, pace); }
+          else if(!A.combat && this.warming(A.key)){ /* waits for its walk mesh (`warm`) */ }
           else this.actorStep(A, dt, pace.walk, pace.run, W);
         }
         catch(e){ const k='aierr|'+A.key; if(!this._logged.has(k)){ this._logged.add(k); this.say(A.id, 'error', 'AI: '+String(e && e.message || e)); } }
@@ -1334,18 +1335,45 @@ const WgScripts={
    *  glided there meanwhile. The AI's walk begins at 0 (`loop`), so it is the very mesh. */
   warm(key){
     if(typeof previewWarmActor!=='function') return;
+    /* Static 2026-11-23 ("while in 'warmup' actors slide around"): it waits where it stands
+       until its walk mesh is in (`warming`, `actorsFrame`), rather than gliding in its idle
+       pose meanwhile - a minute at most. */
+    const W=(this._warming=this._warming||new Map());
+    if(!W.has(key)) W.set(key, performance.now());
     // Not drawn live yet (the AI takes them up before the scene is drawn with them live):
     // kept until it is (`keepLive`).
     if(!(App._liveRefs && App._liveRefs.has(key))){ (this._warmWant=this._warmWant||new Set()).add(key); return; }
-    this._warmQ=(this._warmQ||Promise.resolve()).then(async()=>{
-      if(!this.on) return false;
-      // The very mesh its walk will be: at its pace against the walk's velocity (77_wg_ai.js `playRate`).
-      const A=this.actors.get(key), model=this.modelOfKey(key);
-      await this.groupsOf(model);
-      const pace=(A && typeof WgAI==='object')? WgAI.speeds(A).walk : 0;
-      const rate=typeof WgAI==='object'? WgAI.playRate(model, 'WalkForward', pace) : 1;
-      return previewWarmActor(key, 'WalkForward@0'+(rate!==1? '*'+rate : ''));
-    }).catch(()=>false);
+    (this._warmList=this._warmList||[]).push(key);
+    // Three at a time (the engine builds each walk mesh; one at a time, the last of a town's
+    // people waited out all the others').
+    this._warmBusy=this._warmBusy|0;
+    while(this._warmBusy<3 && this._warmList.length){
+      this._warmBusy++;
+      const next=async()=>{
+        const k=this._warmList.shift();
+        if(k==null){ this._warmBusy--; return; }
+        try{
+          if(this.on){
+            // The very mesh its walk will be: at its pace against the walk's velocity (77_wg_ai.js `playRate`).
+            const A=this.actors.get(k), model=this.modelOfKey(k);
+            await this.groupsOf(model);
+            const pace=(A && typeof WgAI==='object')? WgAI.speeds(A).walk : 0;
+            const rate=typeof WgAI==='object'? WgAI.playRate(model, 'WalkForward', pace) : 1;
+            await previewWarmActor(k, 'WalkForward@0'+(rate!==1? '*'+rate : ''));
+          }
+        }catch(_){ }
+        this._warming.delete(k);
+        return next();
+      };
+      next();
+    }
+  },
+  /** Whether `key` still waits for its walk mesh (`warm`): held where it stands, a minute at most. */
+  warming(key){
+    const W=this._warming, t=W && W.get(key);
+    if(t==null) return false;
+    if(performance.now()-t>60000){ W.delete(key); return false; }
+    return true;
   },
   /** The current scene's references to what is known of them: an instance for each scripted
    *  one, and each actor's own AI packages started. Run after each gathering, whichever scene
@@ -1432,7 +1460,7 @@ const WgScripts={
     if(rebuild) App._scene=null;
     this.disabled.clear(); this.moved.clear(); this.anims.clear(); this.placed=[]; this.inst.clear(); this.globalRun.clear();
     for(const k of [...this.loops.keys()]) this.loopStop(k);
-    this._globalsRead=false; this._asked=null; this._packed=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
+    this._globalsRead=false; this._asked=null; this._packed=null; this._warming=null; this._warmList=[]; this._warmWant=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
     this.actors.clear(); this.actorDefs.clear(); this.playing.clear(); this.topics.clear(); this.msg=null; this.drawMsg();
     this.fade(0, 0);
     if(typeof WgLua==='object') WgLua.stop();

@@ -137,6 +137,36 @@
 
 ### Fixed
 
+- **Actors' animation costs far less each frame** (`10_preview.js` `skinBoneMats`). Each bone's
+  matrix was built from the root of its own chain, so the spine was worked out again for every
+  bone under it and again for each skinned part of an actor, with fresh arrays at every step:
+  thousands of short-lived objects an actor a frame, and the garbage collector's pauses on top
+  (the choppy animation and the slow menus while actors walked). The chains are now one tree per
+  skin, each node worked out once a frame and shared by the actor's other parts at the same
+  moment. The result is the same to the last bit; the blend after an animation change keeps the
+  bone-by-bone path. Test: `skin_tree.test.js` (4x on a small skeleton, more on a real one).
+- **Lua menu scripts no longer run while their mod is off** (`74_wg_lua.js` `menuOff`). The
+  Scripts panel does not list menu-only scripts, so they were never in the list of scripts turned
+  off and every one ran. A menu script now runs only when a script of the same content file, or
+  of the same `scripts/<mod>/` folder, is turned on.
+- **Actors no longer glide during the warmup** (`73_wg_scripts.js` `warm`, `warming`). An actor the
+  AI took up started walking at once while its walk mesh was still being built, sliding in its
+  idle pose. It now waits where it stands until the mesh is in (a minute at most), and the walk
+  meshes are built three at a time instead of one after another.
+- **MWSE mods: what real mods use is there** (`luarun.lua`). Running the 1,788 MWSE mods of the
+  Nexus Lua dump (github.com/MWSE/morrowind-nexus-lua-dump) on a test scene found the gaps; 1,536
+  now start without an error, from 1,304. Every `tes3` enumeration (`tes3.gmst`, `weaponType`,
+  `keybind`... only six were there); MWSE's additions to `table` and `string` (`table.copy`,
+  `table.find`, `string.startswith`...); a working logger (`mwse.Logger`,
+  `require('logging.logger')`, `mwse.logLevel`); `dofile` of a mod's own file; `mwse.loadTranslations`
+  from the mod's `i18n/eng.lua`; `debug.log` and `debug.getinfo` (where the chunk came from only);
+  `io.open` answering nil (no files are read); the old getters (`tes3.getMobilePlayer`,
+  `getDataHandler`, `getGame`); the classes as globals (`tes3vector3.new`, `tes3matrix33`,
+  `niSourceTexture`...); `mwse.memory` as a stub. A call documented to give an iterator
+  (`tes3.iterateObjects`, `cell:iterateReferences`) gives an empty one instead of nil, and a field
+  documented as a string (`tes3.installDirectory`) is a string, not a table. `modConfigReady` is
+  sent after `initialized`, as MWSE does. Tests: `what_the_nexus_dump_s_mods_use_is_there`; the
+  survey itself is `survey_one_mwse_mod` (ignored, `WG_MWSE_MOD`).
 - **Walking actors no longer redraw the whole scene's shadows and are posed every frame near the
   camera** (`06_gl.js`). Each time an actor started or stopped walking its batches were filtered into a
   new statics list. The material groups draw only when built from the renderer's current list, so

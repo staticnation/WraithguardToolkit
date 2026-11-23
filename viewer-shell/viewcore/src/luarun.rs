@@ -1668,6 +1668,97 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         assert!(a.contains(r#""text":"data 1""#), "{a}");
     }
 
+    /// What the Nexus dump's MWSE mods stopped at (github.com/MWSE/morrowind-nexus-lua-dump,
+    /// 2026-11-23): every enumeration, MWSE's table and string additions, the logger, `dofile`
+    /// of a mod's own file, its translations, an iterator, the classes as globals, a typed
+    /// string field, and `modConfigReady`.
+    #[test]
+    fn what_the_nexus_dump_s_mods_use_is_there() {
+        let main = r#"
+            local log = require('logging.logger').new({ name = 'wgdump', logLevel = 'DEBUG' })
+            local L2 = mwse.Logger.new()
+            local i18n = mwse.loadTranslations('wg.dump')
+            local more = dofile('wg.dump.more')
+            local n = 0
+            for o in tes3.iterateObjects(tes3.objectType.npc) do n = n + 1 end
+            local v = tes3vector3.new(1, 2, 3)
+            local t = table.copy({ a = { b = 1 } })
+            log:debug('gmst %s key %s weapon %s', type(tes3.gmst.iMaxActivateDist), type(tes3.keybind.journal), type(tes3.weaponType.shortBladeOneHand))
+            log:trace('not shown')
+            mwse.log('copy %d find %s starts %s split %d dir %s', t.a.b, tostring(table.find({ 'x', 'y' }, 'y')), tostring(string.startswith('hello', 'he')), #string.split('a,b,c', ','), type(tes3.installDirectory))
+            mwse.log('i18n %s / %s / %s more %s iter %d vec %d level %s', i18n('greet', { who = 'Fargoth' }), i18n('menu.title'), i18n('nope'), more, n, v.z, mwse.logLevel.info)
+            event.register('modConfigReady', function() L2:info('mcm ready') end)
+        "#;
+        let esc = |t: &str| {
+            let mut e = String::from("\"");
+            crate::json::escape_into(t, &mut e);
+            e.push('"');
+            e
+        };
+        let start = format!(
+            r#"{{"scripts":[],"sources":{{"mwse/mods/wg/dump/main.lua":{},"mwse/mods/wg/dump/more.lua":{},"mwse/mods/wg/dump/i18n/eng.lua":{}}},"mwse":["mwse/mods/wg/dump/main.lua"],"files":[],"weathers":["Clear"]}}"#,
+            esc(main),
+            esc("return 'loaded'"),
+            esc("return { greet = 'Hello, %{who}', menu = { title = 'Settings' } }")
+        );
+        let mut r = runner();
+        let a = r.call("__wg_start", &start).unwrap();
+        for want in [
+            "[wgdump] DEBUG: gmst number key number weapon number",
+            "copy 1 find 2 starts true split 3 dir string",
+            "i18n Hello, Fargoth / Settings / nope more loaded iter 0 vec 3 level INFO",
+            "INFO: mcm ready",
+        ] {
+            assert!(a.contains(want), "{want}: {a}");
+        }
+        assert!(!a.contains("not shown") && !a.contains(r#""kind":"error""#), "{a}");
+    }
+
+    /// Not a check of its own: real MWSE mods run on a small scene, for a survey of what breaks.
+    /// `WG_MWSE_MOD` is a mod's `MWSE` folder (from the Nexus dump,
+    /// github.com/MWSE/morrowind-nexus-lua-dump); prints one `WGDUMP {json}` line.
+    #[test]
+    #[ignore]
+    fn survey_one_mwse_mod() {
+        let Ok(root) = std::env::var("WG_MWSE_MOD") else { return };
+        let root = std::path::PathBuf::from(root);
+        let mut files = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(d) = stack.pop() {
+            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let p = e.path();
+                if p.is_dir() { stack.push(p) } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")) { files.push(p) }
+            }
+        }
+        let mut sources = String::new();
+        let mut names = Vec::new();
+        for f in &files {
+            let rel = f.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/").to_lowercase();
+            let key = format!("mwse/{rel}");
+            let text = String::from_utf8_lossy(&std::fs::read(f).unwrap()).into_owned();
+            if !sources.is_empty() { sources.push(',') }
+            sources.push('"');
+            crate::json::escape_into(&key, &mut sources);
+            sources.push_str("\":\"");
+            crate::json::escape_into(&text, &mut sources);
+            sources.push('"');
+            names.push(key);
+        }
+        let mains: Vec<String> = mwse_mains(&names).into_iter().map(|m| format!("\"{m}\"")).collect();
+        let start = format!(
+            r#"{{"scripts":[],"sources":{{{sources}}},"mwse":[{}],"files":[],"weathers":["Clear"],"state":{}}}"#,
+            mains.join(","),
+            r#"{"player":{"pos":[100,200,0],"cell":{"name":"Balmora","ext":false}},"objects":{"k1":{"id":"wg_box","tag":"CONT","pos":[0,0,0]},"k2":{"id":"fargoth","tag":"NPC_","pos":[300,0,0]}}}"#
+        );
+        let mut r = runner();
+        r.call("__wg_set_limits", "5,262144").unwrap();
+        let mut out = vec![r.call("__wg_start", &start).unwrap_or_else(|e| format!("\"START {e}\""))];
+        for step in [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#, r#"{"dt":1.0}"#, r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#] {
+            out.push(r.call("__wg_step", step).unwrap_or_else(|e| format!("\"STEP {e}\"")));
+        }
+        println!("WGDUMP [{}]", out.join(","));
+    }
+
     #[test]
     fn mwse_starts_one_main_lua_a_mod() {
         let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();

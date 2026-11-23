@@ -131,11 +131,14 @@ module.exports = async (t) => {
   t.ok(JSON.stringify(list.map(r => r.files)) === '[["mod.omwscripts"],["mod.omwscripts","other.omwaddon"]]', 'each with the files that register it (the by-file mode) ' + JSON.stringify(list));
   // Lua mods start turned off (Static 2026-11-23): nothing runs until it is turned on.
   t.ok(L.isOff('scripts/mod/b.lua') && L.isOff('@builtins') && L.isOff('@mwse'), 'every Lua script starts turned off');
+  // Its menu script too, while its mod is off (Static 2026-11-23: "these are off so why are they running?").
+  t.ok(JSON.stringify(L.menuOff()) === '["scripts/mod/menu.lua"]', 'a menu script is off with its mod ' + JSON.stringify(L.menuOff()));
   const before = starts.length;
   L.setOff(['Scripts\\Mod\\B.lua', '@builtins'], false);
   t.ok(!L.isOff('scripts/mod/b.lua') && JSON.parse(store.get('wgLuaOn')).includes('scripts/mod/b.lua'), 'turned on, kept, in any spelling');
   await tick();
   const sent = starts[starts.length - 1].off;
+  t.ok(!sent.includes('scripts/mod/menu.lua'), 'and runs once a script of its file is on ' + JSON.stringify(sent));
   t.ok(starts.length === before + 1 && !sent.includes('scripts/mod/b.lua') && !sent.includes('@builtins') && sent.includes('@mwse') && sent.includes(list[0].path.toLowerCase()), 'the Lua starts again with only those ' + JSON.stringify(sent));
   L.setOff('scripts/mod/b.lua', true);
   t.ok(L.isOff('scripts/mod/b.lua') && !L.isOff('@builtins'), 'turned back off');
