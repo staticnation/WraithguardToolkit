@@ -395,6 +395,7 @@ mod tests {
             local n = 0 for _ in vfs.pathsWithPrefix('scripts/m/') do n = n + 1 end\n\
             local y = markup.loadYaml('scripts/m/list.yaml')\n\
             print('omw', s:get('style'), s:get('pos').x, first, n, y.tracks[2], vfs.fileExists('scripts/m/nope.txt'))\n\
+            print('kept', s:get('max') == math.huge, s:get('byNum')[3], s:get('byNum')['3'] == nil, s:get('obj') == nil)\n\
             return {}";
         let mwse = "local c = mwse.loadConfig('wgmod', { volume = 1, mute = false })\n\
             local e = json.loadfile('config/extra')\n\
@@ -408,12 +409,13 @@ mod tests {
             e
         };
         let start = format!(
-            r#"{{"storage":{{"player":{{"SettingsWg":{{"style":"mine","pos":{{"$v2":[0.25,0.5]}}}}}}}},"scripts":[{{"path":"scripts/t/omw.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/omw.lua":{},"mwse/mods/wg/main.lua":{}}},"mwse":["mwse/mods/wg/main.lua"],"files":[],"weathers":["Clear"]}}"#,
+            r#"{{"storage":{{"player":{{"SettingsWg":{{"style":"mine","pos":{{"$v2":[0.25,0.5]}},"max":{{"$raw":"00000000000000f07f","$num":"inf"}},"byNum":{{"$table":[[3,"x"],[7,"y"]]}},"obj":{{"$raw":"92616263"}}}}}}}},"scripts":[{{"path":"scripts/t/omw.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/omw.lua":{},"mwse/mods/wg/main.lua":{}}},"mwse":["mwse/mods/wg/main.lua"],"files":[],"weathers":["Clear"]}}"#,
             esc(omw),
             esc(mwse)
         );
         let a = p.call("__wg_start", &start, Duration::from_secs(30)).unwrap();
         assert!(a.contains(r#""text":"omw mine 0.25 first 2 b.mp3 false""#), "{a}");
+        assert!(a.contains(r#""text":"kept true x true true""#), "an infinity, a number key and a value only kept for writing back: {a}");
         assert!(a.contains(r#""text":"mwse 7 false 3 WG open nil""#), "{a}");
     }
 

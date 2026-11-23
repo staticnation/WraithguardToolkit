@@ -11,7 +11,9 @@
 //! - The settings the player saved in OpenMW (`player_storage.bin`, `global_storage.bin`,
 //!   beside openmw.cfg): read once at the start ([`storage_json`]) and put in the storage
 //!   sections before any script runs, so OpenMW's settings scripts find them and do not put
-//!   the defaults in their place. The file's layout - a version byte (0), then one value:
+//!   the defaults in their place. The file's layout - a version byte (0; 1 in the OpenMW Static
+//!   plays on, Static 2026-11-23: his player_storage.bin, 275 sections, read whole with the same
+//!   layout), then one value:
 //!   0x00 a number (f64), 0x01 a long string (u32 length), 0x02 a boolean (a byte),
 //!   0x03 ... 0x04 a table (key, value pairs to its end), 0x10/0x11/0x14 a vector of 2/3/4
 //!   f64s, 0x12 a transform (16 f64s), 0x13 a rotation (4 f64s), 0x15 a colour (4 f32s);
@@ -148,7 +150,18 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
                 return Some(Ok(json!(self.str((t & 0x1f) as usize)?)));
             }
             let v = match t {
-                0x00 => json!(self.f64()?),
+                0x00 => {
+                    let f = self.f64()?;
+                    if f.is_finite() {
+                        json!(f)
+                    } else {
+                        // JSON has no infinity (a mod's "no maximum" is math.huge): the number's
+                        // bytes kept, and what it is for the scripts (S3maphore, Static 2026-11-23).
+                        let mut r = self.raw(from);
+                        r["$num"] = json!(if f.is_nan() { "nan" } else if f > 0.0 { "inf" } else { "-inf" });
+                        r
+                    }
+                }
                 0x01 => {
                     let n = self.u32()?;
                     json!(self.str(n)?)
@@ -180,7 +193,10 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
             Some(Ok(v))
         }
     }
-    /// A table's pairs as JSON: a list when its keys are 1..n, else an object (keys as text).
+    /// A table's pairs as JSON: a list when its keys are 1..n, an object when they are all text,
+    /// else its pairs as they are, `{"$table": [[key, value]...]}` - a number or a true/false key
+    /// stays one (Static's file, 2026-11-23: about fifty tables keyed by numbers out of order,
+    /// which as an object's text keys would have been written back as text: `t["3"]`, not `t[3]`).
     fn table(mut pairs: Vec<(Value, Value)>) -> Value {
         let n = pairs.len();
         let list = !pairs.is_empty() && {
@@ -192,19 +208,18 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
             pairs.sort_by(|a, b| a.0.as_f64().unwrap_or(0.0).total_cmp(&b.0.as_f64().unwrap_or(0.0)));
             return Value::Array(pairs.into_iter().map(|(_, v)| v).collect());
         }
+        if !pairs.iter().all(|(k, _)| k.is_string()) {
+            return json!({"$table": pairs.into_iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>()});
+        }
         let mut m = Map::new();
         for (k, v) in pairs {
-            let key = match k {
-                Value::String(s) => s,
-                Value::Number(n) => n.to_string(),
-                Value::Bool(b) => b.to_string(),
-                _ => continue,
-            };
-            m.insert(key, v);
+            if let Value::String(s) = k {
+                m.insert(s, v);
+            }
         }
         Value::Object(m)
     }
-    if bytes.first() != Some(&0) {
+    if !matches!(bytes.first(), Some(&(0 | 1))) {
         return None;
     }
     let mut r = R { b: bytes, at: 1 };
@@ -217,6 +232,11 @@ pub fn storage_json(bytes: &[u8]) -> Option<Value> {
 /// `$color` the values they stand for; `$raw` the bytes it kept; null leaves the key out (Lua
 /// has no nil in a table). `None` for something that is not a table of sections.
 pub fn storage_write(v: &Value) -> Option<Vec<u8>> {
+    storage_write_as(v, 0)
+}
+
+/// [`storage_write`] with the file's version byte (`storage_set` keeps the one it read).
+pub fn storage_write_as(v: &Value, version: u8) -> Option<Vec<u8>> {
     fn val(out: &mut Vec<u8>, v: &Value, depth: usize) -> Option<()> {
         if depth > 64 {
             return None;
@@ -257,16 +277,31 @@ pub fn storage_write(v: &Value) -> Option<Vec<u8>> {
                     }
                     Some(())
                 };
-                if m.len() == 1 {
-                    if let Some(h) = m.get("$raw").and_then(|h| h.as_str()) {
-                        if h.len() % 2 != 0 {
-                            return None;
+                // A table with keys other than text, pair by pair (`storage_json`'s `table`).
+                if let Some(ps) = m.get("$table").and_then(|p| p.as_array()).filter(|_| m.len() == 1) {
+                    out.push(0x03);
+                    for p in ps {
+                        let (k, x) = (p.get(0)?, p.get(1)?);
+                        if k.is_null() || x.is_null() {
+                            continue;
                         }
-                        for i in (0..h.len()).step_by(2) {
-                            out.push(u8::from_str_radix(h.get(i..i + 2)?, 16).ok()?);
-                        }
-                        return Some(());
+                        val(out, k, depth + 1)?;
+                        val(out, x, depth + 1)?;
                     }
+                    out.push(0x04);
+                    return Some(());
+                }
+                // Bytes kept as they were read (a transform, a game object, an infinity).
+                if let Some(h) = m.get("$raw").and_then(|h| h.as_str()) {
+                    if h.len() % 2 != 0 {
+                        return None;
+                    }
+                    for i in (0..h.len()).step_by(2) {
+                        out.push(u8::from_str_radix(h.get(i..i + 2)?, 16).ok()?);
+                    }
+                    return Some(());
+                }
+                if m.len() == 1 {
                     if m.contains_key("$v2") {
                         return nums("$v2", 0x10, 2, false, out);
                     }
@@ -307,7 +342,7 @@ pub fn storage_write(v: &Value) -> Option<Vec<u8>> {
     if !v.is_object() {
         return None;
     }
-    let mut out = vec![0u8];
+    let mut out = vec![version];
     val(&mut out, v, 0)?;
     Some(out)
 }
@@ -323,7 +358,7 @@ pub fn storage_set(bytes: &[u8], section: &str, key: &str, value: Value) -> Resu
     } else {
         m.insert(key.to_string(), value);
     }
-    let out = storage_write(&v).ok_or("the value cannot be stored (a value OpenMW's storage does not hold)")?;
+    let out = storage_write_as(&v, bytes[0]).ok_or("the value cannot be stored (a value OpenMW's storage does not hold)")?;
     // The same settings read back, or nothing is written.
     let again = storage_json(&out).ok_or("the file written would not read back")?;
     let clean = |x: &Value| -> Value {
@@ -417,8 +452,85 @@ mod tests {
         let gone = storage_json(&storage_set(&b, "Horizontal_Compass_Settings", "note", Value::Null).unwrap()).unwrap();
         assert!(gone["Horizontal_Compass_Settings"].get("note").is_none());
         assert!(storage_set(&[9, 9], "a", "b", json!(1)).is_err(), "not a storage file: refused");
-        assert!(storage_json(&[1, 0x03, 0x04]).is_none(), "another version");
+        assert!(storage_json(&[2, 0x03, 0x04]).is_none(), "another version");
+        // A table keyed by numbers out of order: its keys stay numbers.
+        let mut nk = vec![0u8, 0x03, 0x21, b't', 0x03, 0x00];
+        nk.extend(3.0f64.to_le_bytes());
+        nk.extend([0x21, b'x', 0x00]);
+        nk.extend(7.0f64.to_le_bytes());
+        nk.extend([0x21, b'y', 0x04, 0x04]);
+        let nv = storage_json(&nk).unwrap();
+        assert_eq!(nv["t"], json!({"$table": [[3.0, "x"], [7.0, "y"]]}));
+        assert_eq!(storage_write(&nv).unwrap(), nk, "number keys written as numbers");
+        // An infinity (a mod's "no maximum"): kept, and said for the scripts.
+        let mut inf = vec![0u8, 0x03, 0x21, b'm', 0x00];
+        inf.extend(f64::INFINITY.to_le_bytes());
+        inf.push(0x04);
+        let iv = storage_json(&inf).unwrap();
+        assert_eq!(iv["m"]["$num"], json!("inf"));
+        assert_eq!(storage_write(&iv).unwrap(), inf, "written back byte for byte");
+        // Version 1 (newer OpenMW): the same layout; written back as version 1.
+        let mut b1 = b.clone();
+        b1[0] = 1;
+        assert_eq!(storage_json(&b1).unwrap(), v);
+        assert_eq!(storage_set(&b1, "Horizontal_Compass_Settings", "stylePath", json!("3")).unwrap()[0], 1);
         assert!(storage_json(&[0, 0x03]).is_none(), "cut short");
+    }
+
+    /// A real storage file (`WG_STORAGE`, a copy - it is only read): read, written back, read
+    /// again as the same settings; and one setting changed, the rest kept.
+    #[test]
+    #[ignore]
+    fn a_real_storage_file_round_trips() {
+        let Ok(p) = std::env::var("WG_STORAGE") else { return };
+        let b = std::fs::read(&p).unwrap();
+        let v = storage_json(&b).expect("read");
+        let sections = v.as_object().unwrap();
+        let values: usize = sections.values().map(|s| s.as_object().map_or(0, |m| m.len())).sum();
+        let raws = v.to_string().matches("$raw").count();
+        let back = storage_write_as(&v, b[0]).expect("write");
+        let again = storage_json(&back).expect("read back");
+        fn diff(a: &Value, b: &Value, at: String, out: &mut Vec<String>) {
+            match (a, b) {
+                (Value::Object(x), Value::Object(y)) => {
+                    for (k, v) in x {
+                        match y.get(k) {
+                            Some(w) => diff(v, w, format!("{at}/{k}"), out),
+                            None => out.push(format!("{at}/{k}: gone")),
+                        }
+                    }
+                    for k in y.keys() {
+                        if !x.contains_key(k) {
+                            out.push(format!("{at}/{k}: new"));
+                        }
+                    }
+                }
+                (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+                    for (i, (v, w)) in x.iter().zip(y).enumerate() {
+                        diff(v, w, format!("{at}[{i}]"), out);
+                    }
+                }
+                _ if a != b => out.push(format!("{at}: {} -> {}", a.to_string().chars().take(80).collect::<String>(), b.to_string().chars().take(80).collect::<String>())),
+                _ => {}
+            }
+        }
+        let mut d = Vec::new();
+        diff(&v, &again, String::new(), &mut d);
+        assert!(d.is_empty(), "{} difference(s): {:?}", d.len(), &d[..d.len().min(8)]);
+        let same_bytes = back == b;
+        // The same values the same way: only the order of a table's keys may differ (OpenMW's is
+        // its hash table's), so the file is as long as OpenMW's, to the byte.
+        assert_eq!(back.len(), b.len(), "written back as long as OpenMW wrote it");
+        if let Ok(out) = std::env::var("WG_STORAGE_OUT") {
+            std::fs::write(out, &back).unwrap();
+        }
+        // Every value set to itself: the file reads as before.
+        let (name, sec) = sections.iter().find(|(_, s)| s.as_object().is_some_and(|m| !m.is_empty())).unwrap();
+        let (k, x) = sec.as_object().unwrap().iter().next().unwrap();
+        let again = storage_json(&storage_set(&b, name, k, x.clone()).expect("set")).unwrap();
+        assert_eq!(again, v);
+        println!("REAL {} bytes, {} sections, {} values, {} kept as raw bytes, written back {} bytes ({}), set {name}.{k}: unchanged",
+            b.len(), sections.len(), values, raws, back.len(), if same_bytes { "byte for byte" } else { "same settings, another key order" });
     }
 
     #[test]

@@ -51,6 +51,8 @@ const WgLuaSettings={
     if(typeof v==='string') return 'str';
     if(v && typeof v==='object' && !Array.isArray(v)){
       for(const k of ['$v2', '$v3', '$v4', '$color']) if(Array.isArray(v[k])) return k;
+      if(v.$table) return 'table';
+      if(v.$num) return 'inf';
       if(v.$raw) return 'raw';
     }
     return 'table';
@@ -58,6 +60,7 @@ const WgLuaSettings={
   /** A value shown short, as text. */
   show(v){
     const k=this.kind(v);
+    if(k==='inf') return v.$num==='inf'? '∞ (no limit)' : v.$num==='-inf'? '−∞' : 'not a number';
     if(k==='raw') return '(a value kept as it is)';
     if(k[0]==='$') return k.slice(1)+'('+v[k].map(x=>+(+x).toFixed(4)).join(', ')+')';
     const s=JSON.stringify(v);

@@ -267,6 +267,13 @@
   colours; a list, a table or a value it cannot show is kept as it is (its bytes carried through).
   The file is written only when it reads back as exactly the settings meant, through a new file
   moved over the old, and the untouched original is kept once as `<file>.wg-backup`.
+  Checked on Static's own `player_storage.bin` (275 sections, 1,430 values): read whole, and written
+  back with the same values, key types and bytes (only the order of keys differs). It took three
+  fixes found that way: the newer OpenMW's version byte (1; the layout is the same, and a file is
+  written back with the version it had), an infinity (S3maphore's "no maximum": JSON has none, so
+  its bytes are kept, and the scripts get `math.huge`), and tables keyed by numbers out of order
+  (kept as pairs, `$table`, so `t[3]` stays a number key and is not written back as `t["3"]`).
+  Test: `a_real_storage_file_round_trips` (ignored, `WG_STORAGE`, on a copy).
 - **"As Lua sees it" in the record dialog** (`lua_record`, `50_wg_editor_record.js`): the record as
   OpenMW's Lua gives it to a script (`types.X.records[id]`), for the kinds the scripts have records of.
 - **`tools/apply_patch.ps1`**: a patch checked, applied, the quick checks for what it touches run and

@@ -846,7 +846,9 @@ end
 local revive
 revive = function(v)
   if type(v) ~= 'table' then return v end
+  if v['$num'] then return v['$num'] == 'inf' and math.huge or v['$num'] == '-inf' and -math.huge or 0 / 0 end
   if v['$raw'] then return nil end   -- a transform or a game object: kept for writing back, not for the scripts
+  if v['$table'] then local t = {} for _, p in ipairs(v['$table']) do local k = revive(p[1]) if k ~= nil then t[k] = revive(p[2]) end end return t end
   if v['$v2'] then return util.vector2(v['$v2'][1], v['$v2'][2]) end
   if v['$v3'] then return util.vector3(v['$v3'][1], v['$v3'][2], v['$v3'][3]) end
   if v['$v4'] and util.vector4 then return util.vector4(v['$v4'][1], v['$v4'][2], v['$v4'][3], v['$v4'][4]) end
