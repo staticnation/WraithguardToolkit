@@ -364,6 +364,11 @@ function animMatrixAt(anim, secs, from, f){
   if(anim && anim.vis && anim.vis.length && !animVisibleAt(anim, secs)) return ANIM_HIDDEN;
   if(!anim || !anim.nodes || !anim.nodes.length) return ANIM_IDENT;
   let m=[1,0,0,0,1,0,0,0,1,0,0,0], s=1, j=0;
+  // Not blending: through the nodes kept this frame (`animChainCached`).
+  if(!(from && f<1)){
+    const c=animChainCached(anim, secs); m=c.m; s=c.s;
+    return new Float32Array([m[0]*s,m[3]*s,m[6]*s,0, m[1]*s,m[4]*s,m[7]*s,0, m[2]*s,m[5]*s,m[8]*s,0, m[9],m[10],m[11],1]);
+  }
   for(const L of anim.nodes){
     const pre=mulTS(m,s,L.pre,L.preS==null? 1 : +L.preS);
     const n=blendTS(from && from[j++], animNodeAt(L,secs), f);
@@ -400,19 +405,27 @@ function animChainTS(nodes, secs, from, f){
 /** Every bone's skinning matrix at `secs`: its chain, then the still tail down to the
  *  bone, then the skin-to-bone transform. */
 function skinBoneMats(skin, secs, from, f){
-  // Blending (a few tenths of a second after an animation changes): bone by bone, as the
-  // blend may differ between two bones over the same node (78_wg_animblend.js `begin`).
-  if(from && f<1) return skin.bones.map((b,i)=>{
-    const p=boneFullTS(b, secs, from[i], f);
-    return mulTS(p.m,p.s,b.trafo,b.trafoS==null? 1 : +b.trafoS);
-  });
+  const T=skinTree(skin);
+  skinTreePose(T, secs);
+  // Blending (a few tenths of a second after an animation changes; 78_wg_animblend.js `begin`).
+  if(from && f<1) return skinBlended(skin, T, secs, from, f);
   /* Wraithguard (Static 2026-11-23: "fps drop when actors are moving"): each node once. A bone's
      chain runs from the root, so the spine was worked out again for every bone under it, and
      again for each of an actor's skinned parts, each step a few new arrays: thousands of
      objects an actor a frame, and the collector's pauses on top. The chains are one tree
      (`skinTree`); a node is worked out once a frame and kept for the other parts of the same
      actor at the same moment (`SKIN_NODES`, by the node and everything above it). */
-  const T=skinTree(skin), N=T.nodes, out=T.out;
+  const out=T.out;
+  return skin.bones.map((b,i)=>{
+    const ni=T.boneNode[i], c=ni<0? SKIN_ROOT : out[ni];
+    const p=mulTS(c.m,c.s,b.post,b.postS==null? 1 : +b.postS);
+    return mulTS(p.m,p.s,b.trafo,b.trafoS==null? 1 : +b.trafoS);
+  });
+}
+/** Each node of a skin's tree at `secs` into `T.out`: kept from another part of the same
+ *  actor at the same moment where there is one (`SKIN_NODES`). */
+function skinTreePose(T, secs){
+  const N=T.nodes, out=T.out;
   for(let k=0;k<N.length;k++){
     const nd=N[k];
     const c=SKIN_NODES.get(nd.sig);
@@ -425,11 +438,79 @@ function skinBoneMats(skin, secs, from, f){
     out[k]=r;
     SKIN_NODES.set(nd.sig, r);
   }
+}
+/** Wraithguard: the bones mid-blend, node by node as well (Static 2026-11-23: "could still use
+ *  optimization to be more fluid"). A bone's `from` is its chain's old pose link by link, or
+ *  its whole old transform (`{full}`), or nothing. A node two bones share was in the same old
+ *  pose for both, so it is blended once (from the first bone with links that has it); a bone
+ *  with a whole transform is its unblended chain blended from it, as `boneFullTS` has it. */
+function skinBlended(skin, T, secs, from, f){
+  const N=T.nodes, out=T.out, bl=T.bl||(T.bl=new Array(N.length));
+  const done=T.done||(T.done=new Uint8Array(N.length));
+  const pose=T.pose||(T.pose=new Array(N.length));   // the old pose each blended node was given
+  done.fill(0);
+  const same=(a,b)=>{
+    if(a===b) return true;
+    if(!a || !b || Math.abs(a.s-b.s)>1e-9) return false;
+    for(let q=0;q<12;q++) if(Math.abs(a.m[q]-b.m[q])>1e-9) return false;
+    return true;
+  };
+  // Two nodes alike in the new animation are one node here; their old poses can still differ.
+  // A bone that finds its own unlike the one the node was blended from is blended on its own.
+  const alone=new Set();
+  for(let i=0;i<skin.bones.length;i++){
+    const w=from[i]; if(!w || w.full) continue;
+    const path=T.paths[i];
+    for(let j=0;j<path.length;j++){
+      const k=path[j];
+      if(done[k]){ if(!same(pose[k], w[j])){ alone.add(i); break; } continue; }
+      done[k]=1; pose[k]=w[j];
+      const nd=N[k], L=nd.L, pk=nd.parent;
+      const par=pk<0? SKIN_ROOT : (done[pk]? bl[pk] : out[pk]);
+      const pre=mulTS(par.m,par.s,L.pre,L.preS==null? 1 : +L.preS);
+      const n=blendTS(w[j], animNodeAt(L,secs), f);
+      bl[k]=mulTS(pre.m,pre.s,n.m,n.s);
+    }
+  }
   return skin.bones.map((b,i)=>{
-    const ni=T.boneNode[i], c=ni<0? SKIN_ROOT : out[ni];
-    const p=mulTS(c.m,c.s,b.post,b.postS==null? 1 : +b.postS);
+    const w=from[i], ni=T.boneNode[i];
+    if(alone.has(i)){ const p=boneFullTS(b, secs, w, f); return mulTS(p.m,p.s,b.trafo,b.trafoS==null? 1 : +b.trafoS); }
+    let c=ni<0? SKIN_ROOT : out[ni];
+    if(w && !w.full && ni>=0) c=bl[ni];
+    let p=mulTS(c.m,c.s,b.post,b.postS==null? 1 : +b.postS);
+    if(w && w.full) p=blendTS(w.full, p, f);
     return mulTS(p.m,p.s,b.trafo,b.trafoS==null? 1 : +b.trafoS);
   });
+}
+/** Wraithguard: a rigid part's chain at `secs` through the same nodes (`SKIN_NODES`): a head
+ *  or a held weapon under the skeleton's nodes takes them from the body's skin, worked out
+ *  once this frame. The chain's numbers (`_sigs`) are found once a part. */
+function animChainCached(anim, secs){
+  const nodes=anim.nodes;
+  if(!anim._sigs){
+    if(SKIN_SIG.size>200000){ SKIN_SIG.clear(); SKIN_NODES.clear(); }
+    let psig=0;
+    anim._sigs=nodes.map(L=>{
+      const key=psig+'/'+skinLinkSig(L);
+      let sig=SKIN_SIG.get(key);
+      if(sig==null){ sig=++SKIN_SIG_N; SKIN_SIG.set(key, sig); }
+      psig=sig;
+      return sig;
+    });
+  }
+  let par=SKIN_ROOT;
+  for(let j=0;j<nodes.length;j++){
+    const sig=anim._sigs[j], c=SKIN_NODES.get(sig);
+    if(c && c.t===secs){ par=c; continue; }
+    const L=nodes[j];
+    const pre=mulTS(par.m,par.s,L.pre,L.preS==null? 1 : +L.preS);
+    const a=animNodeAt(L,secs);
+    const r=mulTS(pre.m,pre.s,a.m,a.s);
+    r.t=secs;
+    SKIN_NODES.set(sig, r);
+    par=r;
+  }
+  return par;
 }
 const SKIN_ROOT={m:[1,0,0,0,1,0,0,0,1,0,0,0], s:1};
 const SKIN_SIG=new Map();     // a node's path from the root (its links' contents) -> its number
@@ -449,9 +530,11 @@ function skinLinkSig(L){
 function skinTree(skin){
   if(skin._tree) return skin._tree;
   if(SKIN_SIG.size>200000){ SKIN_SIG.clear(); SKIN_NODES.clear(); }
-  const nodes=[], index=new Map(), boneNode=[];
+  const nodes=[], index=new Map(), boneNode=[], paths=[];
   for(const b of skin.bones){
     let parent=-1, psig=0;
+    const path=[];
+    paths.push(path);
     for(const L of (b.chain||[])){
       const key=psig+'/'+skinLinkSig(L);
       let sig=SKIN_SIG.get(key);
@@ -459,10 +542,11 @@ function skinTree(skin){
       let ni=index.get(sig);
       if(ni==null){ ni=nodes.length; nodes.push({L, parent, sig}); index.set(sig, ni); }
       parent=ni; psig=sig;
+      path.push(ni);
     }
     boneNode.push(parent);
   }
-  return skin._tree={nodes, boneNode, out:new Array(nodes.length)};
+  return skin._tree={nodes, boneNode, paths, out:new Array(nodes.length)};
 }
 /** Wraithguard: a bone's chain and still tail at `secs` (its matrix before the skin-to-bone
  *  transform), blended from `from`: the chain's own nodes when the old animation moved the

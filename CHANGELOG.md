@@ -137,6 +137,25 @@
 
 ### Fixed
 
+- **OpenMW and MWSE scripts read any record of the load order, not only what the scene placed**
+  (`viewcore::luarec`, `luaproc`, `luarun.lua` `hostRecord`). `types.Miscellaneous.records[id]`
+  (a soul gem's value), `types.NPC.classes.record(id).majorSkills`,
+  `types.NPC.races.records[id].height.female`, `types.Weapon.records[id].type`,
+  `core.magic.spells.records`, `core.magic.enchantments.records`, `core.factions.records`,
+  `core.mwscripts.records`, `types.Player.birthSigns`, and MWSE's `tes3.getObject` all had a stand-in
+  or nil for anything not in the scene. The worker now asks the program mid-call
+  (`{"t":"rec"}`), which reads the record from the plugin whose version is live (each plugin's
+  record offsets read once, then only the record asked for), types it with Gardenfell and gives it
+  OpenMW's field names; the worker keeps the answer. Magic effects keep their stand-ins (their
+  records are numbered, not named). Tests: `a_record_not_placed_is_found_by_id_with_openmw_s_names`,
+  `a_record_is_asked_of_the_program_mid_call`.
+- **The blend after an animation changes, and rigid parts, use the shared node tree too**
+  (`10_preview.js` `skinBlended`, `animChainCached`). For about a quarter second after each walk or
+  idle change an actor's skin went back to working out every bone's chain from the root; a head,
+  hair or a held weapon did so every frame. Mid-blend each node is now blended once, and a rigid
+  part takes its nodes from the skin's, already worked out this frame. The same matrices to the
+  last bit (`skin_tree.test.js`, against the bone-by-bone path); a bone whose old pose of a shared
+  node differs from another's is blended on its own.
 - **Actors' animation costs far less each frame** (`10_preview.js` `skinBoneMats`). Each bone's
   matrix was built from the root of its own chain, so the spine was worked out again for every
   bone under it and again for each skinned part of an actor, with fresh arrays at every step:

@@ -401,6 +401,19 @@ pub fn ray(a: [f64; 3], b: [f64; 3], ignore: Option<&str>, mask: u32) -> Option<
     g.as_ref()?.cast(a, b, ignore, mask)
 }
 
+/// Wraithguard: who answers `__wg_record(kinds, id)` - a record of the load order by id, as
+/// OpenMW's Lua gives it (`luarec`), JSON. In the worker, a question to the program over the
+/// pipe (`luaproc::serve`); in a test, whatever the test sets. Nothing: the scripts get nil.
+pub type RecordAsk = Box<dyn FnMut(&str, &str) -> Option<String> + Send>;
+pub static RECORD_ASK: std::sync::Mutex<Option<RecordAsk>> = std::sync::Mutex::new(None);
+
+/// A record of the load order (`RECORD_ASK`): `kinds` the four-letter tags, comma-separated.
+pub fn record(kinds: &str, id: &str) -> Option<String> {
+    let mut g = RECORD_ASK.lock().ok()?;
+    let f = g.as_mut()?;
+    f(kinds, id)
+}
+
 type St = *mut c_void;
 
 /// The install's LuaJIT, its five calls (Lua 5.1's C API).
@@ -467,6 +480,29 @@ unsafe extern "C" fn ray_c(l: St) -> c_int {
     }
 }
 
+/// `__wg_record(kinds, id)` on LuaJIT: the record's JSON, or nothing.
+unsafe extern "C" fn record_c(l: St) -> c_int {
+    let Some(f) = RAY_FNS.lock().ok().and_then(|g| *g) else { return 0 };
+    let got = std::panic::catch_unwind(|| {
+        // SAFETY: called by Lua with its own state; indexes within the arguments given.
+        unsafe {
+            let s = |i: c_int| -> Option<String> {
+                if (f.gettop)(l) < i || (f.type_)(l, i) != 4 {
+                    return None;
+                }
+                let mut len = 0usize;
+                let p = (f.tolstring)(l, i, &mut len);
+                (!p.is_null()).then(|| String::from_utf8_lossy(std::slice::from_raw_parts(p as *const u8, len)).into_owned())
+            };
+            record(&s(1)?, &s(2)?)
+        }
+    });
+    let Ok(Some(j)) = got else { return 0 };
+    // SAFETY: pushes onto the same state; Lua makes room for a C function's result.
+    unsafe { (f.pushlstring)(l, j.as_ptr() as *const c_char, j.len()) };
+    1
+}
+
 impl Jit {
     fn open(path: &Path) -> Result<Jit, String> {
         // SAFETY: OpenMW's own LuaJIT; the symbols are Lua 5.1's C API, called with its types.
@@ -509,6 +545,8 @@ impl Jit {
             }
             pushcclosure(jit.l, ray_c, 0);
             setfield(jit.l, LUA_GLOBALSINDEX, c"__wg_ray".as_ptr());
+            pushcclosure(jit.l, record_c, 0);
+            setfield(jit.l, LUA_GLOBALSINDEX, c"__wg_record".as_ptr());
             Ok(jit)
         }
     }
@@ -610,6 +648,8 @@ impl Runner {
             })
             .map_err(|e| e.to_string())?;
         lua.globals().set("__wg_ray", rayf).map_err(|e| e.to_string())?;
+        let recf = lua.create_function(|_, (kinds, id): (String, String)| Ok(record(&kinds, &id))).map_err(|e| e.to_string())?;
+        lua.globals().set("__wg_record", recf).map_err(|e| e.to_string())?;
         lua.load(PRELUDE).set_name("=wg_luarun").exec().map_err(|e| e.to_string())?;
         let mut r = Runner { vm: Vm::Lua54(lua), backend: format!("Lua 5.4 (built in){why}") };
         r.call("__wg_api", OPENMW_API)?;

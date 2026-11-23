@@ -49,7 +49,8 @@ blending_rules:
 module.exports = async (t) => {
   const ctx = { console, Math, JSON, Map, Set, Promise, Object, Array, String, Number, Float32Array, Engine: { async call() { return { global: OPENMW_YAML, files: { 'r/guar.nif': '{"blending_rules":[{"from":"*","to":"runforward","easing":"cubicOut","duration":0.5}]}' } }; } } };
   vm.createContext(ctx);
-  vm.runInContext(['ctrlTime', 'keyAt', 'quatAt', 'quatMat3', 'mat3Quat', 'slerpQ', 'blendTS', 'animLinksAt', 'mul3x3', 'mulTS', 'animNodeAt', 'animChainTS', 'skinBoneMats', 'boneFullTS', 'sameChain'].map(pick).join('\n')
+  vm.runInContext(['ctrlTime', 'keyAt', 'quatAt', 'quatMat3', 'mat3Quat', 'slerpQ', 'blendTS', 'animLinksAt', 'mul3x3', 'mulTS', 'animNodeAt', 'animChainTS', 'boneFullTS', 'sameChain'].map(pick).join('\n')
+    + '\n' + (() => { const i = cp.indexOf('function skinBoneMats('), j = cp.indexOf('/** Wraithguard: a bone\'s chain and still tail', i); return cp.slice(i, j); })()
     + '\n' + fs.readFileSync(path.join(SRC, '78_wg_animblend.js'), 'utf8').replace(/^const WgAnimBlend=/m, 'var WgAnimBlend='), ctx);
   const B = ctx.WgAnimBlend;
 

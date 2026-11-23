@@ -797,9 +797,37 @@ local function effectRecords()
   return list
 end
 
+-- Wraithguard (Static 2026-11-23: "look up any record from the load order on demand, not just
+-- placed ones"): a record of the load order by id, as OpenMW's Lua gives it, asked of the
+-- program (`__wg_record`, viewcore luarec.rs) the first time and kept. `kinds`: the record's
+-- four-letter tags, comma-separated. Nil where the load order has none (or no program answers).
+local recCache = {}
+local function hostRecord(kinds, id)
+  if type(id) ~= 'string' or id == '' or type(__wg_record) ~= 'function' then return nil end
+  local key = kinds .. '|' .. string.lower(id)
+  local c = recCache[key]
+  if c == nil then
+    local ok, text = pcall(__wg_record, kinds, id)
+    c = (ok and type(text) == 'string' and json.decode(text)) or false
+    recCache[key] = c
+  end
+  return c or nil
+end
+-- A table of records by id from the load order (`records[id]`, `record(id)`), with `fallback`
+-- answering where the load order has none.
+local function recordsOf(kinds, fallback)
+  local list = setmetatable({}, { __index = function(_, k)
+    local r = hostRecord(kinds, k)
+    if r == nil and fallback then return fallback(k) end
+    return r
+  end })
+  return list, function(id) if type(id) == 'table' then id = id.id or id.recordId end return list[id] end
+end
+
 ----------------------------------------------------------------------------- types
 local function typeOf(name, tags)
   local t = { name = name }
+  local kinds = table.concat(tags, ',')
   t.objectIsInstance = function(o)
     local k = keyOf(o)
     local tg = k == 'player' and 'PLAYER' or ((obj_of(k) or {}).tag or '')
@@ -812,12 +840,16 @@ local function typeOf(name, tags)
     local id = type(o) == 'string' and o or o.recordId
     if not id then return nil end
     local d = type(o) == 'table' and obj_of(keyOf(o)) or nil
+    local r = kinds ~= '' and kinds ~= 'PLAYER' and hostRecord(kinds, id)
+    if r then return r end
     return { id = id, name = id, model = d and d.model or '', icon = '', mwscript = d and d.script or nil }
   end
   -- By id as OpenMW's lists answer too (`self.type.records[self.recordId].mwscript`,
   -- FriendlierFire): a placed object's id is a record; a number or an id not placed, nil.
   t.records = setmetatable({}, { __index = function(_, k)
     if type(k) ~= 'string' then return nil end
+    local r = kinds ~= '' and kinds ~= 'PLAYER' and hostRecord(kinds, k)
+    if r then return r end
     local lk = string.lower(k)
     for key, d in pairs(S.objects) do if d.id and string.lower(d.id) == lk then return { id = k, name = k, model = d.model or '', icon = '', mwscript = d.script } end end
     if lk == 'player' then return { id = 'player', name = 'player', model = '', icon = '' } end
@@ -994,8 +1026,15 @@ for _, t in ipairs({ types.NPC, types.Creature, types.Player }) do
 end
 -- Records looked up by id answer something with the id (the preview reads no race or class).
 local function anyRecords() return setmetatable({}, { __index = function(_, id) if type(id) == 'string' then return { id = id, name = id, isPlayable = true, isBeast = false, skills = {}, spells = {}, attributes = {} } end end }) end
-types.NPC.races = { records = anyRecords(), record = function(id) return anyRecords()[id] end }
-types.NPC.classes = { records = anyRecords(), record = function(id) return anyRecords()[id] end }
+do
+  -- The load order's races and classes (`luarec`); a stand-in where it has none.
+  local races, race = recordsOf('RACE', function(id) return anyRecords()[id] end)
+  local classes, class = recordsOf('CLAS', function(id) return anyRecords()[id] end)
+  types.NPC.races = { records = races, record = race }
+  types.NPC.classes = { records = classes, record = class }
+  local signs, sign = recordsOf('BSGN')
+  types.Player.birthSigns = { records = signs, record = sign }
+end
 types.NPC.getDisposition = function() return 50 end
 types.NPC.getBaseDisposition = function() return 50 end
 types.NPC.setBaseDisposition = function() end
@@ -1321,11 +1360,11 @@ packages['openmw.core'] = function(inst)
     magic = { EFFECT_TYPE = MAGIC_EFFECTS, RANGE = { Self = 0, Touch = 1, Target = 2 },
       SPELL_TYPE = { Spell = 0, Ability = 1, Blight = 2, Disease = 3, Curse = 4, Power = 5 },
       ENCHANTMENT_TYPE = { CastOnce = 0, CastOnStrike = 1, CastOnUse = 2, ConstantEffect = 3 },
-      effects = { records = effectRecords() }, spells = { records = {} }, enchantments = { records = {} } },
+      effects = { records = effectRecords() }, spells = { records = (recordsOf('SPEL')) }, enchantments = { records = (recordsOf('ENCH')) } },
     stats = STATS,
     dialogue = { journal = { records = {} }, topic = { records = {} }, greeting = { records = {} }, persuasion = { records = {} }, voice = { records = {} } },
-    mwscripts = { records = {} },
-    factions = { records = {} }, regions = { records = {} },
+    mwscripts = { records = (recordsOf('SCPT')) },
+    factions = { records = (recordsOf('FACT')) }, regions = { records = {} },
   }
   for i = 1, #S.weathers do core.weather.records[i] = weatherRecord(i - 1) end
   return core
@@ -2564,7 +2603,16 @@ local function mwse_env(inst, root)
     getObject = function(id)
       local k = mwse_find(id)
       if k then return mwse_ref(k).object end
-      once('mwse:getObject', 'skip', 'tes3.getObject answers only for what is in the Preview\'s scene')
+      -- Anything else of the load order (`luarec`), with MWSE's names for what they share.
+      local r = hostRecord('', tostring(id or ''))
+      if r then
+        local t = r.recordType or ''
+        local ot = 0
+        for i = #t, 1, -1 do ot = ot * 256 + string.byte(t, i) end
+        return mwse_partial('tes3object', { id = r.id, name = r.name, value = r.value, weight = r.weight, mesh = r.model,
+          icon = r.icon, script = r.mwscript, objectType = ot, enchantment = r.enchant, quality = r.quality,
+          level = r.level, race = r.race, class = r.class })
+      end
       return nil
     end,
     messageBox = function(m, ...)

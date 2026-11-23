@@ -3833,6 +3833,15 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let resources = viewcore::luacore::findings::find_resources(cfg, chosen.as_deref());
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
     let mut run = lua_worker(jit.as_deref())?;
+    /* Any record of the load order the scripts ask for by id (`luarec`, Static 2026-11-23: "look
+       up any record from the load order on demand, not just placed ones"). */
+    if let Some(w) = state.app().world.clone() {
+        let mut recs = viewcore::luarec::Records::of_world(w);
+        run.records = Some(Box::new(move |kinds: &str, id: &str| {
+            let kinds: Vec<&str> = kinds.split(',').map(str::trim).filter(|k| !k.is_empty()).collect();
+            recs.lookup(&kinds, id)
+        }));
+    }
     let content = viewcore::luascan::content(order.as_deref());
     // The load order's numeric game settings, for `core.getGMST`.
     let gmst: Vec<(String, f32)> = state.app().world.as_ref().map(|w| w.gmst.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();

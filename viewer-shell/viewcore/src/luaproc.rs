@@ -17,6 +17,9 @@
 //!                       {"t":"col", ...}  what changed of the scene's collision (no answer)
 //!                       {"t":"call","func":name,"arg":json}
 //!   worker -> program   {"t":"ok","v":text}  {"t":"err","v":text}
+//!                       {"t":"rec","kinds":"CLAS,RACE","id":id}  mid-call: a record of the
+//!                       load order (`luarec`); the program answers {"t":"recv","v":json|null}
+//!                       and the call goes on (Static 2026-11-23)
 //!
 //! `nearby.castRay` is answered in the worker, against its own copy of the scene's collision
 //! (`luarun::Collider::apply`): the program sends what changed before each call - the models'
@@ -109,6 +112,18 @@ pub fn serve() -> i32 {
     // Capped before any Lua runs (`MEMORY_CAP_MB`).
     let mb = std::env::var("WG_LUA_WORKER_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(MEMORY_CAP_MB);
     cap_memory(mb);
+    // A record the scripts ask for, asked of the program in the middle of the call.
+    if let Ok(mut g) = luarun::RECORD_ASK.lock() {
+        *g = Some(Box::new(|kinds: &str, id: &str| {
+            send(&mut std::io::stdout().lock(), &serde_json::json!({"t": "rec", "kinds": kinds, "id": id})).ok()?;
+            loop {
+                let m = read_msg(&mut std::io::stdin().lock())?;
+                if m.get("t").and_then(|t| t.as_str()) == Some("recv") {
+                    return m.get("v").and_then(|v| v.as_str()).map(str::to_string);
+                }
+            }
+        }));
+    }
     let mut run: Option<Runner> = None;
     loop {
         let Some(m) = read_msg(&mut std::io::stdin().lock()) else { return 0 };
@@ -153,6 +168,8 @@ pub struct Proc {
     /// What runs the scripts (`Runner::backend`), said by the worker.
     pub backend: String,
     dead: bool,
+    /// Who answers the scripts' records (`{"t":"rec"}`): the load order's (`luarec::Records`).
+    pub records: Option<luarun::RecordAsk>,
 }
 
 impl Proc {
@@ -179,7 +196,7 @@ impl Proc {
                 }
             }
         });
-        let mut p = Proc { child, to, from, backend: String::new(), dead: false };
+        let mut p = Proc { child, to, from, backend: String::new(), dead: false, records: None };
         let jit = jit.map(|j| j.to_string_lossy().into_owned());
         p.backend = p.ask(&serde_json::json!({"t": "new", "jit": jit, "force54": force_54}), limit)?;
         Ok(p)
@@ -228,6 +245,14 @@ impl Proc {
                     match m.get("t").and_then(|t| t.as_str()) {
                         Some("ok") => return Ok(v),
                         Some("err") => return Err(v),
+                        Some("rec") => {
+                            let g = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let answer = self.records.as_mut().and_then(|f| f(&g("kinds"), &g("id")));
+                            if send(&mut self.to, &serde_json::json!({"t": "recv", "v": answer})).is_err() {
+                                self.end();
+                                return Err(format!("{STOPPED} the Lua worker has gone (it may have crashed)"));
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -311,6 +336,32 @@ mod tests {
         assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
         assert!(!p.alive());
         assert!(p.call("__wg_step", "{}", Duration::from_secs(5)).unwrap_err().starts_with(STOPPED));
+    }
+
+    /// A record the scene never placed, asked for by a script in the middle of a call: the
+    /// worker asks the program (`{"t":"rec"}`), the program answers from the load order, and the
+    /// call goes on; asked again, the worker keeps what it was told (Static 2026-11-23).
+    #[test]
+    fn a_record_is_asked_of_the_program_mid_call() {
+        let mut p = worker(Duration::from_secs(30)).unwrap();
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let seen = asked.clone();
+        p.records = Some(Box::new(move |kinds: &str, id: &str| {
+            seen.lock().unwrap().push(format!("{kinds}:{id}"));
+            (kinds == "CLAS" && id == "wg_thief").then(|| r#"{"id":"wg_thief","majorSkills":["sneak","security"],"recordType":"CLAS"}"#.to_string())
+        }));
+        let script = "local types = require('openmw.types')\n\
+            local c = types.NPC.classes.record('wg_thief')\n\
+            local again = types.NPC.classes.records['wg_thief']\n\
+            print('class', c.majorSkills[1], again.majorSkills[2], types.NPC.classes.records['nobody'] ~= nil)";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/rec.lua","flags":["GLOBAL"]}}],"sources":{{"scripts/t/rec.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let a = p.call("__wg_start", &start, Duration::from_secs(30)).unwrap();
+        assert!(a.contains(r#""text":"class sneak security true""#), "{a}");
+        assert_eq!(*asked.lock().unwrap(), vec!["CLAS:wg_thief".to_string(), "CLAS:nobody".to_string()], "asked once each");
+        assert!(p.alive());
     }
 
     /// The rays are the worker's own: the scene's collision is sent to it (`send_col`) and a
