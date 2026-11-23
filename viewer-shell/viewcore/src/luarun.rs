@@ -2042,6 +2042,30 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         assert!(a.contains(r#""text":"5 2 X true 1""#), "{a}");
     }
 
+    /// OpenMW's standard libraries are read-only to its scripts (`luastate.cpp` `makeReadOnly`,
+    /// Static 2026-11-23): a write stops the script, as in the game - a library meant for MWSE
+    /// that adds `table.size` when MWSE is not there ran on in the Preview. Reading, `pairs`, `#`
+    /// and the string methods work; `os` is OpenMW's three; an MWSE mod keeps its own writable.
+    #[test]
+    fn openmw_s_libraries_are_read_only() {
+        let reads = "local n = 0 for _ in pairs(string) do n = n + 1 end\n\
+            print('reads', string.format('%d', 7), ('x'):upper(), n > 10, #table == 0, type(os.clock), type(os.time), getmetatable('').__index == string)";
+        let writes = "print('before') function table.size(t) return 0 end print('after')";
+        let meta = "getmetatable('').__index.upper = nil print('meta wrote')";
+        let (_r, a, _) = started(&[("scripts/t/r.lua", reads), ("scripts/t/w.lua", writes), ("scripts/t/m.lua", meta)], 0.5, 262_144);
+        assert!(a.contains(r#""text":"reads 7 X true true nil function true""#), "{a}");
+        assert!(a.contains(r#""text":"before""#) && !a.contains(r#""text":"after""#) && a.contains("table is read-only: 'size' cannot be set"), "{a}");
+        assert!(!a.contains("meta wrote") && a.contains("string is read-only"), "{a}");
+        // An MWSE mod: its own table, writable (MWSE's are).
+        let main = "table.mine = function() return 5 end mwse.log('mwse %d %s', table.mine(), type(os.clock))";
+        let mut e = String::from("\"");
+        crate::json::escape_into(main, &mut e);
+        e.push('"');
+        let start = format!(r#"{{"scripts":[],"sources":{{"mwse/mods/wg/ro/main.lua":{e}}},"mwse":["mwse/mods/wg/ro/main.lua"],"files":[],"weathers":["Clear"]}}"#);
+        let b = runner().call("__wg_start", &start).unwrap();
+        assert!(b.contains(r#""text":"mwse 5 function""#), "{b}");
+    }
+
     /// An endless loop is stopped and named, in time, and the scripts after it still run.
     #[test]
     fn an_endless_loop_is_stopped_and_the_rest_still_run() {

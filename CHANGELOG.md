@@ -137,6 +137,15 @@
 
 ### Fixed
 
+- **OpenMW's standard libraries are read-only in the Preview, as in the game** (`luarun.lua`
+  `readOnly`). OpenMW gives its scripts `string`, `table`, `math`, `coroutine` and `os` read-only
+  (`components/lua/luastate.cpp`, `makeReadOnly`), and its `os` is only `date`, `difftime` and
+  `time`; the Preview gave each script a copy it could change, so a script that writes
+  `table.size = ...` (a library meant for MWSE adding what MWSE has, as FluadHTN's does) ran on in
+  the Preview and stops in the game. A write is now the error, and `getmetatable('').__index` is
+  the read-only `string` too; reading, `pairs`, `ipairs`, `next` and the string methods work. MWSE
+  mods keep their libraries writable, as MWSE's are. None of Static's 446 downloaded mods writes to
+  one. Test: `openmw_s_libraries_are_read_only`.
 - **Lua scripts read their mods' files and the settings the player saved** (`viewcore::luafiles`,
   `luarun.lua` `hostAsk`). Static: "do settings files like tomls reach the lua scripts?" - none did.
   Now, on the record lookup's channel (the worker asks the program mid-call):

@@ -2077,6 +2077,25 @@ local function loadIn(text, name, env)
   return f, err
 end
 local scriptMetas = setmetatable({}, { __mode = 'k' })   -- the metatables scripts gave (`sandbox`)
+-- Wraithguard (Static 2026-11-23): OpenMW gives scripts its standard libraries read-only
+-- (components/lua/luastate.cpp, `makeReadOnly`): a script that writes `table.size = ...`, as a
+-- library meant for MWSE does when MWSE is not there (FluadHTN's TableExt), stops with an error in
+-- the game - and ran on in the Preview, which gave each script a copy it could change. The same
+-- here: a library is read through, and a write is the error OpenMW's gives. `pairs`, `ipairs`,
+-- `next` and `#` read the library under it, as OpenMW's own do. MWSE mods keep theirs writable.
+local roBacking = setmetatable({}, { __mode = 'k' })
+local function readOnly(t, name)
+  local p = setmetatable({}, {
+    __index = t,
+    __newindex = function(_, k) error("attempt to index a userdata value (" .. name .. " is read-only: '" .. tostring(k) .. "' cannot be set)", 2) end,
+    __len = function() return #t end,
+    __pairs = function() return next, t, nil end,
+    __metatable = false,
+  })
+  roBacking[p] = t
+  return p
+end
+local function underRO(t) return roBacking[t] or t end
 local function sandbox(inst)
   local env = {}
   for _, n in ipairs(BASE) do env[n] = G[n] end
@@ -2138,6 +2157,16 @@ local function sandbox(inst)
   env.table = tbl
   env.print = function(...) local t = {} for i = 1, select('#', ...) do t[i] = tostring((select(i, ...))) end log('print', inst.path, table.concat(t, ' ')) end
   env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
+  -- OpenMW's own (`luastate.cpp`): the libraries read-only, `os` only date, difftime and time.
+  if inst.ctx ~= 'mwse' then
+    env.os = readOnly({ time = os.time, date = os.date, difftime = os.difftime }, 'os')
+    for _, n in ipairs({ 'string', 'table', 'math', 'coroutine' }) do env[n] = readOnly(env[n], n) end
+    stringMeta.__index = env.string   -- `getmetatable('').__index` is the read-only one too
+    local rawPairs, rawIpairs, rawNext = G.pairs, G.ipairs, G.next
+    env.pairs = function(t) return rawPairs(underRO(t)) end
+    env.ipairs = function(t) return rawIpairs(underRO(t)) end
+    env.next = function(t, k) return rawNext(underRO(t), k) end
+  end
   env._G = env
   local loaded = {}
   env.require = function(name)
