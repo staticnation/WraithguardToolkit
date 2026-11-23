@@ -23,6 +23,7 @@ pub mod layout;
 pub mod luascan;
 pub mod luarun;
 pub mod luaproc;
+pub mod luafiles;
 pub mod luarec;
 pub mod mge;
 pub mod markers;

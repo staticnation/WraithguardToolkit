@@ -824,6 +824,37 @@ local function hostRecord(kinds, id)
   end
   return c or nil
 end
+-- Wraithguard: a file of the data folders, or data read from one (`luafiles`: `@file` its text,
+-- `@list` the paths under a prefix, `@yaml`/`@toml` a file as data, `@yamltext`/`@tomltext`
+-- text as data), asked of the program the same way. Kept, but for text given (`nocache`).
+local fileCache = {}
+local function hostAsk(kind, arg, nocache)
+  if type(arg) ~= 'string' or type(__wg_record) ~= 'function' then return nil end
+  local key = kind .. '|' .. arg
+  local c
+  if not nocache then c = fileCache[key] end
+  if c == nil then
+    local ok, text = pcall(__wg_record, kind, arg)
+    if ok and type(text) == 'string' then c = json.decode(text) end
+    if c == nil then c = false end
+    if not nocache then fileCache[key] = c end
+  end
+  if c == false then return nil end
+  return c
+end
+-- A value from OpenMW's storage file (`luafiles::storage_json`): its vectors and colours again.
+local revive
+revive = function(v)
+  if type(v) ~= 'table' then return v end
+  if v['$v2'] then return util.vector2(v['$v2'][1], v['$v2'][2]) end
+  if v['$v3'] then return util.vector3(v['$v3'][1], v['$v3'][2], v['$v3'][3]) end
+  if v['$v4'] and util.vector4 then return util.vector4(v['$v4'][1], v['$v4'][2], v['$v4'][3], v['$v4'][4]) end
+  if v['$color'] then return util.color.rgba(v['$color'][1], v['$color'][2], v['$color'][3], v['$color'][4]) end
+  local t = {}
+  for k, x in pairs(v) do t[k] = revive(x) end
+  return t
+end
+
 -- A table of records by id from the load order (`records[id]`, `record(id)`), with `fallback`
 -- answering where the load order has none.
 local function recordsOf(kinds, fallback)
@@ -1429,31 +1460,59 @@ local function vfsFile(text)
 end
 packages['openmw.vfs'] = function()
   return {
+    -- The music the scene was given, then the rest of the data folders (`luafiles` `@list`).
     pathsWithPrefix = function(prefix)
-      local p, i = string.lower(prefix), 0
+      local p, i, j, seen, more = string.lower(string.gsub(tostring(prefix), '\\', '/')), 0, 0, {}, nil
       return function()
         while true do
           i = i + 1
           local f = S.files[i]
+          if not f then break end
+          if string.lower(f):sub(1, #p) == p then seen[string.lower(f)] = true return f end
+        end
+        more = more or hostAsk('@list', p) or {}
+        while true do
+          j = j + 1
+          local f = more[j]
           if not f then return nil end
-          if string.lower(f):sub(1, #p) == p then return f end
+          if not seen[f] then return f end
         end
       end
     end,
-    fileExists = function(path) local p = string.lower(path) for _, f in ipairs(S.files) do if string.lower(f) == p then return true end end return sources[p] ~= nil end,
+    fileExists = function(path)
+      local p = string.lower(string.gsub(tostring(path), '\\', '/'))
+      for _, f in ipairs(S.files) do if string.lower(f) == p then return true end end
+      return sources[p] ~= nil or hostAsk('@file', p) ~= nil
+    end,
     -- The texts the runner was given (scripts and what they require, OpenMW's own): a file
     -- handle as OpenMW's (read '*a' / '*l' / '*n' / a count, lines, seek, close). MSS reads
     -- OpenMW's music script this way. Any other file: nil and why, as OpenMW for a missing one.
-    open = function(path) local t = sources[string.lower(string.gsub(tostring(path), '\\', '/'))]
-      if not t then return nil, 'files other than scripts are not read in the preview: ' .. tostring(path) end
+    -- Any other text file of the data folders, asked of the program (`luafiles`, Static 2026-11-23).
+    open = function(path) local p = string.lower(string.gsub(tostring(path), '\\', '/'))
+      local t = sources[p] or hostAsk('@file', p)
+      if not t then return nil, 'Can not open file ' .. tostring(path) end
       return vfsFile(t) end,
-    lines = function(path) local t = sources[string.lower(string.gsub(tostring(path), '\\', '/'))]
+    lines = function(path) local p = string.lower(string.gsub(tostring(path), '\\', '/'))
+      local t = sources[p] or hostAsk('@file', p)
       if not t then error('Can not open file ' .. tostring(path), 2) end
       return vfsFile(t):lines() end,
   }
 end
 packages['openmw.debug'] = function() return { isAIEnabled = function() return true end, isCollisionEnabled = function() return true end, isGodMode = function() return false end, toggleAI = function() end, RENDER_MODE = {} } end
-packages['openmw.markup'] = function() return { decodeYaml = function() return {} end, loadYaml = function() return {} end } end
+-- YAML read by the program (`luafiles`, serde-saphyr), as OpenMW's markup gives it: a table, or
+-- an error for a file that is not there or not YAML.
+packages['openmw.markup'] = function() return {
+  decodeYaml = function(text)
+    local v = hostAsk('@yamltext', tostring(text or ''), true)
+    if v == nil and type(__wg_record) == 'function' then error('the text is not YAML', 2) end
+    return v or {}
+  end,
+  loadYaml = function(path)
+    local v = hostAsk('@yaml', string.lower(string.gsub(tostring(path), '\\', '/')))
+    if v == nil and type(__wg_record) == 'function' then error('Can not open file ' .. tostring(path), 2) end
+    return v or {}
+  end,
+} end
 packages['openmw.world'] = function(inst)
   if inst.ctx ~= 'global' then error('openmw.world is only for global scripts', 3) end
   local function actors() local l = {} for k, d in pairs(S.objects) do if (d.tag == 'NPC_' or d.tag == 'CREA') and not d.gone and d.enabled ~= false then l[#l + 1] = handle(k) end end l[#l + 1] = handle('player') return l end
@@ -2170,6 +2229,7 @@ local mwse_on = {}          -- the mods that started (instances, ctx 'mwse')
 local mwse_ev = {}          -- event name -> { {fn, inst, priority, filter} }
 local mwse_timers = {}
 local mwse_config = {}      -- mwse.saveConfig, by name, as JSON (this run only)
+local mwse_jsonfiles = {}   -- json.savefile, by name, as JSON (this run only)
 local mwse_cell             -- the cell the last cellChanged was for (its id)
 local mwse_num, mwse_n = {}, 0
 local function mwse_stub(name)
@@ -2531,9 +2591,22 @@ local function mwse_env(inst, root)
     getinfo = function() return { source = '@' .. inst.path, short_src = inst.path, currentline = 0, what = 'Lua' } end,
   }
   -- No files are read or written in the preview: `io.open` answers nil, as for a missing file.
+  -- Reading a text file of the data folders (`luafiles`); nothing is written.
+  local function readable(f)
+    local t = hostAsk('@file', tostring(f or ''))
+    return type(t) == 'string' and t or nil
+  end
   env.io = {
-    open = function(f) once('mwse:io', 'skip', 'io.open is not run in the preview (no files are read)') return nil, tostring(f) .. ': not read in the preview' end,
-    lines = function() once('mwse:io', 'skip', 'io.open is not run in the preview (no files are read)') return function() return nil end end,
+    open = function(f, mode)
+      if mode and tostring(mode):find('[wa+]') then
+        once('mwse:io.write', 'skip', 'io.open for writing is not run in the preview (no files are written)')
+        return nil, tostring(f) .. ': not written in the preview'
+      end
+      local t = readable(f)
+      if not t then return nil, tostring(f) .. ': No such file or directory' end
+      return vfsFile(t)
+    end,
+    lines = function(f) local t = readable(f) if not t then error(tostring(f) .. ': No such file or directory', 2) end return vfsFile(t):lines() end,
   }
   env.os.remove = function() return nil, 'not in the preview' end
   env.os.rename = function() return nil, 'not in the preview' end
@@ -2541,12 +2614,18 @@ local function mwse_env(inst, root)
   env.mwse = mwse_partial('mwse', {
     version = 21000000, buildDate = 20260101,
     log = function(fmt, ...) local ok, s = pcall(string.format, tostring(fmt), ...) log('print', inst.path, ok and s or tostring(fmt)) end,
+    -- What was saved this run, else the mod's file (Data Files/MWSE/config/<name>.json, `luafiles`),
+    -- with the defaults filling what it lacks, as MWSE's.
     loadConfig = function(name, defaults)
       local saved = mwse_config[tostring(name)]
       local t = saved and json.decode(saved) or nil
+      if t == nil then
+        local text = hostAsk('@file', 'mwse/config/' .. string.lower(tostring(name)) .. '.json')
+        if type(text) == 'string' then local ok, v = pcall(json.decode, text) if ok and type(v) == 'table' then t = v end end
+      end
       if type(defaults) == 'table' then
         t = t or {}
-        for k, v in pairs(defaults) do if t[k] == nil then t[k] = mwse_copy(v) end end
+        mwse_copymissing(t, defaults)
       end
       return t
     end,
@@ -2597,9 +2676,24 @@ local function mwse_env(inst, root)
     start = function(t) return mwse_timer_start(t, 2) end,
     delayOneFrame = function(cb, kind) return mwse_timer_start({ duration = 0, callback = cb, type = kind }, 2) end,
   }
+  -- `json.loadfile('config/x')`: Data Files/MWSE/config/x.json (what `savefile` kept this run first).
+  local jsonSaved = mwse_jsonfiles
   env.json = { encode = function(t) return json.encode(t) end, decode = function(s) return json.decode(s) end,
-    loadfile = function(n) once('mwse:json.loadfile', 'skip', 'json.loadfile is not run in the preview (no files are read)') return nil end,
-    savefile = function(n) once('mwse:json.savefile', 'skip', 'json.savefile is not run in the preview (no files are written)') end }
+    loadfile = function(n)
+      local k = string.lower(string.gsub(tostring(n), '\\', '/'))
+      if jsonSaved[k] then return json.decode(jsonSaved[k]) end
+      local text = hostAsk('@file', 'mwse/' .. k .. '.json')
+      if type(text) ~= 'string' then return nil end
+      local ok, v = pcall(json.decode, text)
+      return ok and v or nil
+    end,
+    savefile = function(n, t) jsonSaved[string.lower(string.gsub(tostring(n), '\\', '/'))] = json.encode(t) return true end }
+  -- MWSE's TOML (`luafiles`, Gardenfell's reader): a file of the data folders, or text, as data.
+  env.toml = mwse_partial('toml', {
+    decode = function(text) return hostAsk('@tomltext', tostring(text or ''), true) end,
+    loadFile = function(path) return hostAsk('@toml', tostring(path or '')) end,
+    loadMetadata = function(mod) return hostAsk('@toml', tostring(mod or '') .. '-metadata.toml') end,
+  })
   env.tes3 = mwse_partial('tes3', {
     player = mwse_ref('player'),
     mobilePlayer = tes3_mobilePlayer,
@@ -2796,6 +2890,17 @@ function __wg_start(arg)
   S.apiRevision = a.apiRevision
   S.gmst = a.gmst or {}
   S.gmstText = a.gmstText or {}
+  -- The settings the player saved in OpenMW (`luafiles::storage_json`), before any script: the
+  -- settings scripts only put a default where there is no value.
+  local saved = a.storage or {}
+  for _, side in ipairs({ { 'player', 'p:' }, { 'global', 'g:' } }) do
+    for name, values in pairs(saved[side[1]] or {}) do
+      if type(values) == 'table' then
+        local sec = section(side[2] .. name)
+        for k, v in pairs(values) do sec:set(k, revive(v)) end
+      end
+    end
+  end
   if a.state then __wg_merge(a.state) end
   -- The mods' MENU scripts first, as OpenMW runs them before a game: once, for the settings
   -- groups they register (their defaults are what the player and global scripts then read),

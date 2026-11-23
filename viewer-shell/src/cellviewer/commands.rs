@@ -3835,11 +3835,17 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let mut run = lua_worker(jit.as_deref())?;
     /* Any record of the load order the scripts ask for by id (`luarec`, Static 2026-11-23: "look
        up any record from the load order on demand, not just placed ones"). */
-    if let Some(w) = state.app().world.clone() {
-        let mut recs = viewcore::luarec::Records::of_world(w);
+    /* And the files a script reads (`luafiles`, Static 2026-11-23): a text file of the data
+       folders, YAML and TOML as data (kinds that begin with `@`). */
+    {
+        let mut recs = state.app().world.clone().map(viewcore::luarec::Records::of_world);
+        let files = vfs.clone();
         run.records = Some(Box::new(move |kinds: &str, id: &str| {
+            if kinds.starts_with('@') {
+                return viewcore::luafiles::answer(&files, kinds, id);
+            }
             let kinds: Vec<&str> = kinds.split(',').map(str::trim).filter(|k| !k.is_empty()).collect();
-            recs.lookup(&kinds, id)
+            recs.as_mut()?.lookup(&kinds, id)
         }));
     }
     let content = viewcore::luascan::content(order.as_deref());
@@ -3847,6 +3853,16 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let gmst: Vec<(String, f32)> = state.app().world.as_ref().map(|w| w.gmst.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();
     let gmst_text: Vec<(String, String)> = state.app().world.as_ref().map(|w| w.gmst_text.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
     let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content, &off.unwrap_or_default(), &gmst, &gmst_text);
+    /* The settings the player saved in OpenMW (`player_storage.bin`, `global_storage.bin` beside
+       openmw.cfg): in the storage sections before any script runs (`luafiles::storage_json`). */
+    let start = {
+        let dir = cfg.and_then(|c| c.parent());
+        let read = |n: &str| dir.and_then(|d| std::fs::read(d.join(n)).ok()).and_then(|b| viewcore::luafiles::storage_json(&b));
+        match (read("player_storage.bin"), read("global_storage.bin")) {
+            (None, None) => start,
+            (p, g) => format!("{{\"storage\":{},{}", serde_json::json!({"player": p, "global": g}), &start[1..]),
+        }
+    };
     let answer = run.call("__wg_start", &start, LUA_START_LIMIT)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);

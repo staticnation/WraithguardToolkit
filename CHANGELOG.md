@@ -137,6 +137,22 @@
 
 ### Fixed
 
+- **Lua scripts read their mods' files and the settings the player saved** (`viewcore::luafiles`,
+  `luarun.lua` `hostAsk`). Static: "do settings files like tomls reach the lua scripts?" - none did.
+  Now, on the record lookup's channel (the worker asks the program mid-call):
+  - OpenMW's `vfs.open`, `vfs.lines` and `vfs.fileExists` read any text file of the data folders (at
+    most 8 MB, text only), `vfs.pathsWithPrefix` lists them, and `markup.loadYaml`/`decodeYaml`
+    read YAML (serde-saphyr, as ordercore's plugin-order.yml) - S3maphore's playlists, Variation
+    Framework, Static Switching, Bullseye, Protected Beasts.
+  - MWSE's `mwse.loadConfig` reads the mod's `MWSE/config/<name>.json` (the defaults fill what it
+    lacks), `json.loadfile` its JSON, `toml.loadFile`/`decode`/`loadMetadata` TOML (Gardenfell's
+    reader), and `io.open` reads a data file (writing is still refused).
+  - The settings saved in OpenMW (`player_storage.bin` and `global_storage.bin` beside openmw.cfg)
+    are read at the start and put in the storage sections before any script runs, so OpenMW's
+    settings scripts keep them and the mods see the player's choices, not their defaults. The
+    file is read from its layout as OpenMW writes it (none of OpenMW's code).
+  Tests: `the_player_s_saved_settings_are_read`, `yaml_and_toml_are_given_as_data`,
+  `files_and_saved_settings_reach_the_scripts`.
 - **A Lua mod's UI nested deep is drawn whole** (`luarun.lua` `json.encode`). The encoder wrote
   null for anything more than twelve levels down, as a guard against cycles; each UI level is two,
   so an element five levels into a layout lost its props - the Horizontal Compass's letters (an

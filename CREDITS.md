@@ -527,7 +527,8 @@ plus their own dependencies. Each is used unmodified, from crates.io.
   Apache-2.0 or BSL-1.0, the shortest float spelling, as tes3conv's JSON writes it),
   **[toml](https://github.com/toml-rs/toml)** and
   **[serde-saphyr](https://github.com/bourumir-wyngs/serde-saphyr)** (the
-  `.mergedlands.toml` and `momw-customizations.toml`; `plugin-order.yml`).
+  `.mergedlands.toml` and `momw-customizations.toml`; `plugin-order.yml`, and the YAML a
+  Preview Lua mod reads, `viewcore/src/luafiles.rs`).
 - **[ureq](https://github.com/algesten/ureq)** - downloading rule files and
   `plugin-order.yml`.
 - **regex**, **base64**, **memmap2**, **indexmap**, **sha2**, **anyhow**,
@@ -552,6 +553,10 @@ plus their own dependencies. Each is used unmodified, from crates.io.
 - **[clap](https://github.com/clap-rs/clap)** and
   **[chrono](https://github.com/chronotope/chrono)** - the `wraithguard` command line's
   arguments and its clock (`viewer-shell/cli`).
+
+**OpenMW's Lua storage files are read, not OpenMW's code.** `player_storage.bin` and
+`global_storage.bin` (the settings OpenMW keeps for Lua mods) are read by
+`viewer-shell/viewcore/src/luafiles.rs` from their byte layout; nothing of OpenMW's source is in it.
 
 **OpenMW's navmesh.db is read, not OpenMW's code.** OpenMW (GPLv3) writes the file;
 `viewer-shell/viewcore/src/navmesh.rs` reads it from the file's layout (the SQLite

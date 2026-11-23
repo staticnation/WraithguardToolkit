@@ -364,6 +364,59 @@ mod tests {
         assert!(p.alive());
     }
 
+    /// The files a script reads and the settings the player saved (`luafiles`, Static
+    /// 2026-11-23): a saved setting wins over the group's default; a text file, a listing and
+    /// YAML for OpenMW's scripts; an MWSE mod's config, a JSON file, TOML and `io.open`.
+    #[test]
+    fn files_and_saved_settings_reach_the_scripts() {
+        let mut p = worker(Duration::from_secs(30)).unwrap();
+        p.records = Some(Box::new(|kind: &str, arg: &str| {
+            let text = |a: &str| match a {
+                "scripts/m/data.txt" => Some("first\nsecond"),
+                "scripts/m/list.yaml" => Some("tracks:\n  - a.mp3\n  - b.mp3\n"),
+                "mwse/config/wgmod.json" => Some(r#"{"volume": 7}"#),
+                "mwse/config/extra.json" => Some(r#"{"n": 3}"#),
+                "mwse/mods/wg/meta.toml" | "wg-metadata.toml" => Some("[package]\nname = \"WG\"\n"),
+                _ => None,
+            };
+            let v = match kind {
+                "@file" => serde_json::json!(text(&crate::luafiles::vfs_path(arg))?),
+                "@list" => serde_json::json!(["scripts/m/data.txt", "scripts/m/list.yaml"]),
+                "@yaml" => crate::luafiles::yaml_json(text(arg)?)?,
+                "@toml" => crate::luafiles::toml_json(text(&crate::luafiles::vfs_path(arg))?)?,
+                _ => return None,
+            };
+            Some(v.to_string())
+        }));
+        let omw = "local storage = require('openmw.storage') local vfs = require('openmw.vfs') local markup = require('openmw.markup')\n\
+            local s = storage.playerSection('SettingsWg')\n\
+            if s:get('style') == nil then s:set('style', 'default') end\n\
+            local f = vfs.open('scripts\\\\m\\\\data.txt') local first = f:read('*l')\n\
+            local n = 0 for _ in vfs.pathsWithPrefix('scripts/m/') do n = n + 1 end\n\
+            local y = markup.loadYaml('scripts/m/list.yaml')\n\
+            print('omw', s:get('style'), s:get('pos').x, first, n, y.tracks[2], vfs.fileExists('scripts/m/nope.txt'))\n\
+            return {}";
+        let mwse = "local c = mwse.loadConfig('wgmod', { volume = 1, mute = false })\n\
+            local e = json.loadfile('config/extra')\n\
+            local t = toml.loadMetadata('wg')\n\
+            local f = io.open('Data Files\\\\MWSE\\\\config\\\\wgmod.json')\n\
+            mwse.log('mwse %d %s %d %s %s %s', c.volume, tostring(c.mute), e.n, t.package.name, f and 'open' or 'nil', tostring(io.open('x.txt', 'w')))";
+        let esc = |t: &str| {
+            let mut e = String::from("\"");
+            crate::json::escape_into(t, &mut e);
+            e.push('"');
+            e
+        };
+        let start = format!(
+            r#"{{"storage":{{"player":{{"SettingsWg":{{"style":"mine","pos":{{"$v2":[0.25,0.5]}}}}}}}},"scripts":[{{"path":"scripts/t/omw.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/omw.lua":{},"mwse/mods/wg/main.lua":{}}},"mwse":["mwse/mods/wg/main.lua"],"files":[],"weathers":["Clear"]}}"#,
+            esc(omw),
+            esc(mwse)
+        );
+        let a = p.call("__wg_start", &start, Duration::from_secs(30)).unwrap();
+        assert!(a.contains(r#""text":"omw mine 0.25 first 2 b.mp3 false""#), "{a}");
+        assert!(a.contains(r#""text":"mwse 7 false 3 WG open nil""#), "{a}");
+    }
+
     /// The rays are the worker's own: the scene's collision is sent to it (`send_col`) and a
     /// script's `nearby.castRay` meets it with no round trip; the land as well.
     #[test]

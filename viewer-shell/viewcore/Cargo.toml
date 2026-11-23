@@ -56,6 +56,12 @@ rusqlite = { version = "0.43", features = ["bundled"] }
 # GStreamer plugins. MPL-2.0, used unmodified (CREDITS.md).
 symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm", "adpcm", "mp3", "ogg", "vorbis", "flac"] }
 
+# Wraithguard: the YAML a Lua mod reads (`openmw.markup` loadYaml/decodeYaml: S3maphore's
+# playlists, Variation Framework, Bullseye; src/luafiles.rs) - the same parser and features
+# ordercore reads plugin-order.yml with (CREDITS.md).
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
+
+
 # Clippy (tools/build_and_check_rust.ps1, CI): everything on except what is a style call
 # this code base has made on purpose.
 [lints.clippy]
