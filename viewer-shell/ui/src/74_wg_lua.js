@@ -21,10 +21,13 @@ const WgLua={
   sent:new Map(),        // object key -> what was last sent of it (a signature)
   _sentG:new Map(), _sentA:new Map(), _sentL:new Map(), _sentJ:new Map(), _sentP:'',
   _dt:0, _acts:[], _all:true,
-  /* Which scripts are not run (Static: "give ability to filter/turn on/off lua scripts that
-     run (eg selective running)"): registered scripts' paths, lower case, and `@builtins`
-     for OpenMW's own (viewcore luarun `OFF_BUILTINS`). Kept across sessions. */
-  off:(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('wgLuaOff')||'[]')); }catch(_){ return new Set(); } })(),
+  /* Which scripts run (Static: "give ability to filter/turn on/off lua scripts that run (eg
+     selective running)"; 2026-11-23: "can we start with all LUA mods turned off by default"):
+     the ones turned on - registered scripts' paths, lower case, `@builtins` for OpenMW's own
+     (viewcore luarun `OFF_BUILTINS`) and `@mwse` for the MWSE mods. Nothing runs until it is
+     turned on in Which scripts run. Kept across sessions (`wgLuaOn`; the old `wgLuaOff`,
+     where everything ran unless turned off, is not carried over). */
+  on:(()=>{ try{ return new Set(JSON.parse(localStorage.getItem('wgLuaOn')||'[]')); }catch(_){ return new Set(); } })(),
   _list:null,
 
   say(path, kind, text){ WgScripts.say(path? String(path).replace(/^scripts\//i, '') : 'lua', kind==='print'? 'do' : kind, text); },
@@ -43,7 +46,9 @@ const WgLua={
     }
     let got;
     let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
-    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null, off:[...this.off]}); }
+    // The engine is told what not to run: everything not turned on.
+    const off=['@builtins', '@mwse', ...(await this.scriptList()).map(r=>this.key(r.path))].filter(k=>!this.on.has(k));
+    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null, off}); }
     catch(e){ this.say('', 'error', 'OpenMW Lua did not start: '+String(e && e.message || e)); return; }
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
     if(!got.answer){ if(this.note) this.say('', 'skip', this.note); return; }
@@ -51,7 +56,7 @@ const WgLua={
     this.sent.clear(); this._sentG.clear(); this._sentA.clear(); this._sentL.clear(); this._sentJ.clear(); this._sentP=''; this._sentAn='';
     // OpenMW's playlists choose the music while its built-ins run.
     if(this.resources && typeof WgSound==='object') WgSound.place.scriptMusic=true;
-    this.say('', 'do', 'OpenMW Lua on '+this.backend+(this.note? ' - '+this.note : '')+(this.off.size? ' ('+this.off.size+' turned off in Which scripts run)' : ''));
+    this.say('', 'do', 'OpenMW Lua on '+this.backend+(this.note? ' - '+this.note : '')+(off.length? ' ('+off.length+' off - Lua mods start turned off; turn them on in Which scripts run)' : ''));
     this.listenKeys();
     this.apply(got.answer);
     await this.gather();
@@ -105,23 +110,26 @@ const WgLua={
 
   /* ---- which scripts run ------------------------------------------------------------- */
 
-  /** The load order's registered scripts, `[{path, flags}]` (the engine's `lua_scene`). */
+  /** The load order's registered scripts, `[{path, flags, files}]` (the engine's `lua_scene`). */
   async scriptList(){
     if(this._list) return this._list;
     try{
       const tb=unpackTables(await Engine.bytes('lua_scene',{ids:[]}));
-      const rows=(tb.scripts||[]).map(([p])=>({path:String(p), flags:[]}));
+      const rows=(tb.scripts||[]).map(([p])=>({path:String(p), flags:[], files:[]}));
       for(const [i, f] of tb.script_flags||[]) if(rows[i]) rows[i].flags.push(String(f));
+      // The content files that register it (`.omwscripts`, `.omwaddon`): the by-file mode.
+      for(const [i, f] of tb.script_files||[]) if(rows[i]) rows[i].files.push(String(f));
       this._list=rows.filter(r=>!r.flags.length || r.flags.some(f=>f!=='MENU' && f!=='LOAD'));
       this._note=(tb.head && tb.head[0] && tb.head[0][0]) || '';
     }catch(_){ this._list=[]; }
     return this._list;
   },
-  isOff(path){ return this.off.has(String(path).replace(/\\/g, '/').toLowerCase()); },
+  key(path){ return String(path).replace(/\\/g, '/').toLowerCase(); },
+  isOff(path){ return !this.on.has(this.key(path)); },
   /** Turn scripts on or off (`paths`, or `@builtins`); a running Lua starts again without them. */
   setOff(paths, off){
-    for(const p of [].concat(paths)){ const k=String(p).replace(/\\/g, '/').toLowerCase(); if(off) this.off.add(k); else this.off.delete(k); }
-    try{ localStorage.setItem('wgLuaOff', JSON.stringify([...this.off])); }catch(_){ }
+    for(const p of [].concat(paths)){ const k=this.key(p); if(off) this.on.delete(k); else this.on.add(k); }
+    try{ localStorage.setItem('wgLuaOn', JSON.stringify([...this.on])); }catch(_){ }
     if(this.running){
       clearTimeout(this._restartT);
       this._restartT=setTimeout(()=>{ if(this.running) this.start().then(()=>{ if(typeof WgScripts==='object') WgScripts.drawLive(); }); }, 400);
@@ -272,6 +280,8 @@ const WgLua={
       if(e.pos) ch.pos=e.pos;
       if(e.rz!=null){ const r=WgScripts.rotOf(t); r[2]=e.rz; ch.rot=r; }
       if(e.scale!=null) ch.scale=e.scale;
+      // An actor a script moves fights its own AI's walk: who did it is said, once a script and actor.
+      if(e.pos && e.by && WgScripts.actorOf(t, true)){ const k='mv|'+e.by+'|'+t.key; if(!this._movedSaid) this._movedSaid=new Set(); if(!this._movedSaid.has(k)){ this._movedSaid.add(k); this.say(e.by, 'do', 'moved actor '+(t.id||t.key)); } }
       WgScripts.place(t, ch);
     },
     create(e){

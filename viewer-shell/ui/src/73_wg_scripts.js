@@ -1482,14 +1482,27 @@ const WgScripts={
     const row=(kind, key, label, on, sub)=>'<label class="wgWhich" style="display:flex;gap:6px;align-items:center;font-size:12px"><input type="checkbox" data-kind="'+kind+'" data-key="'+escHtml(key)+'"'+(on? ' checked' : '')+'>'+
       '<span style="font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(key)+'">'+escHtml(label)+'</span>'+(sub? '<span class="hint">'+escHtml(sub)+'</span>' : '')+'</label>';
     let h='<div style="display:flex;gap:4px;margin-bottom:4px"><input id="wgWhichQ" class="inp" placeholder="Filter scripts" style="flex:1" value="'+escHtml(this._whichQ)+'">'+
-      '<button class="btn sm" id="wgWhichAll" title="Run every script the filter shows">All</button><button class="btn sm" id="wgWhichNone" title="Run none of the scripts the filter shows">None</button></div>';
+      '<button class="btn sm" id="wgWhichAll" title="Run every script the filter shows">All</button><button class="btn sm" id="wgWhichNone" title="Run none of the scripts the filter shows">None</button>'+
+      '<button class="btn sm'+(this.whichByFile()? ' pri' : '')+'" id="wgWhichByFile" title="Turn Lua mods on and off by the .omwscripts (or .omwaddon) file that registers them, or one script at a time">'+(this.whichByFile()? 'By file' : 'By script')+'</button></div>';
     const luaRows=lua.filter(r=>show(r.path));
     const bi=typeof WgLua==='object' && !WgLua.isOff('@builtins');
     h+='<div class="hint">OpenMW Lua</div>';
     if(show('openmw built-ins @builtins')) h+=row('lua', '@builtins', 'OpenMW\'s built-ins', bi, 'I.AI, activation, music, combat');
     // MWSE mods (MWSE/mods/**/main.lua), all at once: their events, timers and core tes3 calls run on the scene.
     if(show('mwse mods @mwse')) h+=row('lua', '@mwse', 'MWSE mods', typeof WgLua==='object' && !WgLua.isOff('@mwse'), 'main.lua: events, timers, core tes3');
-    h+=luaRows.map(r=>row('lua', r.path, r.path.replace(/^scripts\//i, ''), !WgLua.isOff(r.path), r.flags.join(' '))).join('');
+    /* By file (Static 2026-11-23: "can openmw lua mods be selected by its omwscripts file not the
+       individual lua files as an alternative mode?"): one switch a content file that registers
+       scripts, turning all of them on or off together; part-on shows as neither. */
+    const byFile=this.whichByFile(), files=new Map();
+    if(byFile){
+      for(const r of lua) for(const f of (r.files&&r.files.length? r.files : ['(registered elsewhere)'])){ if(!files.has(f)) files.set(f, []); files.get(f).push(r.path); }
+      this._whichFiles=files;
+      h+=[...files.entries()].filter(([f, ps])=>show(f) || ps.some(show)).map(([f, ps])=>{
+        const on=ps.filter(p=>!WgLua.isOff(p)).length;
+        return row('luafile', f, f, on===ps.length, ps.length+' script'+(ps.length===1? '' : 's')+(on && on<ps.length? ', '+on+' on' : ''));
+      }).join('');
+    }
+    else h+=luaRows.map(r=>row('lua', r.path, r.path.replace(/^scripts\//i, ''), !WgLua.isOff(r.path), r.flags.join(' '))).join('');
     if(!lua.length) h+='<div class="hint">'+escHtml((typeof WgLua==='object' && WgLua._note) || 'No registered Lua scripts.')+'</div>';
     h+='<div class="hint" style="margin-top:4px">MWScript (this scene)</div>';
     const mwRows=mw.filter(show);
@@ -1497,21 +1510,29 @@ const WgScripts={
     box.innerHTML=h;
     const qi=box.querySelector('#wgWhichQ');
     qi.oninput=()=>{ this._whichQ=qi.value; clearTimeout(this._whichT); this._whichT=setTimeout(()=>this.drawWhich(true).then(()=>{ const n=box.querySelector('#wgWhichQ'); if(n){ n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }), 150); };
+    // A file part-on is shown as neither.
+    if(byFile) box.querySelectorAll('input[data-kind=luafile]').forEach(cb=>{ const ps=files.get(cb.dataset.key)||[]; const on=ps.filter(p=>!WgLua.isOff(p)).length; cb.indeterminate=on>0 && on<ps.length; });
     const set=(kind, keys, on)=>{
       if(!keys.length) return;
+      // A file stands for the scripts it registers.
+      if(kind==='luafile'){ const ps=[].concat(...keys.map(k=>files.get(k)||[])); if(ps.length) WgLua.setOff(ps, !on); this.say('', 'do', (on? 'turned on ' : 'turned off ')+(keys.length===1? keys[0] : keys.length+' files')+' ('+ps.length+' script'+(ps.length===1? '' : 's')+')'+(WgLua.running? ' (the Lua starts again)' : '')); return; }
       if(kind==='lua') WgLua.setOff(keys, !on);
       else{ for(const k of keys){ if(on) this.mwOff.delete(k); else this.mwOff.add(k); } try{ localStorage.setItem('wgMwOff', JSON.stringify([...this.mwOff])); }catch(_){ } }
       this.say('', 'do', (on? 'turned on ' : 'turned off ')+(keys.length===1? keys[0].replace('@builtins', 'OpenMW\'s built-ins') : keys.length+' scripts')+(kind==='lua' && WgLua.running? ' (the Lua starts again)' : ''));
     };
-    box.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.onchange=()=>set(cb.dataset.kind, [cb.dataset.key], cb.checked));
+    box.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.onchange=()=>{ set(cb.dataset.kind, [cb.dataset.key], cb.checked); if(cb.dataset.kind==='luafile') this.drawWhich(true); });
     const all=on=>{
       const shownLua=[...box.querySelectorAll('input[data-kind=lua]')].map(c=>c.dataset.key);
+      const shownFiles=[...box.querySelectorAll('input[data-kind=luafile]')].map(c=>c.dataset.key);
       const shownMw=[...box.querySelectorAll('input[data-kind=mw]')].map(c=>c.dataset.key);
-      set('lua', shownLua, on); set('mw', shownMw, on); this.drawWhich(true);
+      set('lua', shownLua, on); set('luafile', shownFiles, on); set('mw', shownMw, on); this.drawWhich(true);
     };
     box.querySelector('#wgWhichAll').onclick=()=>all(true);
     box.querySelector('#wgWhichNone').onclick=()=>all(false);
+    box.querySelector('#wgWhichByFile').onclick=()=>{ try{ localStorage.setItem('wgWhichByFile', this.whichByFile()? '0' : '1'); }catch(_){ } this.drawWhich(true); };
   },
+  /** Whether Which scripts run lists the Lua mods by the files that register them (kept). */
+  whichByFile(){ try{ return localStorage.getItem('wgWhichByFile')==='1'; }catch(_){ return false; } },
   /** The game state drawn again - gathered up, at most every 400 ms, and held while the
    *  pointer is over it (Static, 2026-11-19: "part above journal below globals wont scroll"):
    *  a script that does something every frame redrew it every frame, and a list rebuilt under

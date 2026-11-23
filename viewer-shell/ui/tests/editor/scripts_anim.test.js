@@ -44,7 +44,7 @@ module.exports = async (t) => {
         if (c === 'lua_scene') {
           const T = { strider: 'CREA', guard_b: 'NPC_', banner: 'ACTI' };
           return wgtb([['head', 's', [['']]], ['scripts', 's', [['scripts/mod/a.lua'], ['scripts/mod/b.lua'], ['scripts/mod/menu.lua']]],
-            ['script_flags', 'us', [[0, 'GLOBAL'], [1, 'NPC'], [2, 'MENU']]], ['types', 'ss', (a.ids || []).filter(id => T[id]).map(id => [id, T[id]])]]);
+            ['script_flags', 'us', [[0, 'GLOBAL'], [1, 'NPC'], [2, 'MENU']]], ['script_files', 'us', [[0, 'mod.omwscripts'], [1, 'mod.omwscripts'], [1, 'other.omwaddon'], [2, 'mod.omwscripts']]], ['types', 'ss', (a.ids || []).filter(id => T[id]).map(id => [id, T[id]])]]);
         }
         throw new Error('no ' + c);
       },
@@ -128,13 +128,17 @@ module.exports = async (t) => {
   // Which scripts run.
   const list = await L.scriptList();
   t.ok(list.length === 2 && list[1].path === 'scripts/mod/b.lua' && list[1].flags[0] === 'NPC', 'the registered scripts, not the menu\'s ' + JSON.stringify(list));
+  t.ok(JSON.stringify(list.map(r => r.files)) === '[["mod.omwscripts"],["mod.omwscripts","other.omwaddon"]]', 'each with the files that register it (the by-file mode) ' + JSON.stringify(list));
+  // Lua mods start turned off (Static 2026-11-23): nothing runs until it is turned on.
+  t.ok(L.isOff('scripts/mod/b.lua') && L.isOff('@builtins') && L.isOff('@mwse'), 'every Lua script starts turned off');
   const before = starts.length;
-  L.setOff(['Scripts\\Mod\\B.lua', '@builtins'], true);
-  t.ok(L.isOff('scripts/mod/b.lua') && JSON.parse(store.get('wgLuaOff')).includes('scripts/mod/b.lua'), 'kept, in any spelling');
+  L.setOff(['Scripts\\Mod\\B.lua', '@builtins'], false);
+  t.ok(!L.isOff('scripts/mod/b.lua') && JSON.parse(store.get('wgLuaOn')).includes('scripts/mod/b.lua'), 'turned on, kept, in any spelling');
   await tick();
-  t.ok(starts.length === before + 1 && starts[starts.length - 1].off.includes('scripts/mod/b.lua') && starts[starts.length - 1].off.includes('@builtins'), 'the Lua starts again without them ' + JSON.stringify(starts[starts.length - 1].off));
-  L.setOff('scripts/mod/b.lua', false);
-  t.ok(!L.isOff('scripts/mod/b.lua') && L.isOff('@builtins'), 'turned back on');
+  const sent = starts[starts.length - 1].off;
+  t.ok(starts.length === before + 1 && !sent.includes('scripts/mod/b.lua') && !sent.includes('@builtins') && sent.includes('@mwse') && sent.includes(list[0].path.toLowerCase()), 'the Lua starts again with only those ' + JSON.stringify(sent));
+  L.setOff('scripts/mod/b.lua', true);
+  t.ok(L.isOff('scripts/mod/b.lua') && !L.isOff('@builtins'), 'turned back off');
 
   // An MWScript turned off is not run.
   const g = () => S.state.globals.get('townlit').v;

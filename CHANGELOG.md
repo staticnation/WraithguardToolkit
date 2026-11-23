@@ -95,6 +95,18 @@
   checkable with `gh attestation verify`. The Rust toolchain action is pinned to a commit. (In
   `workflows/` beside the repo, to be copied into `.github/workflows`.)
 
+### Changed
+
+- **Lua mods start turned off** (`74_wg_lua.js`, Static 2026-11-23). The Preview runs no Lua script - a
+  load order's OpenMW scripts, OpenMW's built-ins or MWSE mods - until it is turned on in the Scripts
+  panel's Which scripts run; what is turned on is kept (`wgLuaOn`). It ran everything unless turned off,
+  so one mod fighting the AI or the scene was in every Preview. The old list of what was turned off is
+  not carried over. Test: `scripts_anim.test.js`.
+- **Lua mods can be turned on and off by their file** (`73_wg_scripts.js`, `luascan::registered_by_file`,
+  `lua_scene`'s `script_files`). Which scripts run has a **By script / By file** switch (kept): by file,
+  each `.omwscripts` (or `.omwaddon`) that registers scripts is one switch for all of them, shown as
+  neither when only some are on. Test: `scripts_anim.test.js`, `registered_scripts_and_their_source`.
+
 ### Fixed
 
 - **NPCs no longer vanish for a moment when they set off or stop** (`78_wg_animblend.js`, `10_preview.js`

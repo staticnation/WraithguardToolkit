@@ -730,7 +730,8 @@ function Obj:teleport(cell, pos, opt)
     d.loose = nil
     emit({ k = 'create', key = k, id = d.id, cell = ext and '' or name, pos = d.pos, rz = rz or 0, count = d.count })
   else
-    emit({ k = 'place', key = k, pos = d.pos, rz = rz })
+    -- `by`: the script, so the page can say who moved an actor (its AI walks it too).
+    emit({ k = 'place', key = k, pos = d.pos, rz = rz, by = current and current.path or nil })
   end
 end
 function Obj:setScale(s) needGlobal('setScale') local k = rawget(self, '__key') local d = obj_of(k) if d then d.scale = s end emit({ k = 'place', key = k, scale = s }) end
@@ -2325,7 +2326,7 @@ local function mwse_env(inst, root)
       if not d or not p then return false end
       local x, y, z = p.x or p[1], p.y or p[2], p.z or p[3]
       d.pos = { x, y, z }
-      emit({ k = 'place', key = k, pos = d.pos })
+      emit({ k = 'place', key = k, pos = d.pos, by = current and current.path or nil })
       return true
     end,
     setEnabled = function(t)

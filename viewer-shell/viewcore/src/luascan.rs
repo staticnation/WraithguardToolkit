@@ -270,13 +270,20 @@ pub fn is_openmw_cfg(p: &Path) -> bool {
 /// joined, as the scan has them. Nothing is read or checked; `None` for a setup that is not
 /// OpenMW's.
 pub fn registered(vfs: &Vfs, order_file: Option<&Path>) -> Result<Option<Vec<(String, Vec<String>)>>, String> {
+    Ok(registered_by_file(vfs, order_file)?.map(|v| v.into_iter().map(|(p, f, _)| (p, f)).collect()))
+}
+
+/// [`registered`], with each script's registering content files (`.omwscripts`, `.omwaddon`,
+/// `.omwgame`) as the load order names them, in load order: the Scripts panel's by-file mode
+/// turns a mod's scripts on and off together (Static 2026-11-23).
+pub fn registered_by_file(vfs: &Vfs, order_file: Option<&Path>) -> Result<Option<Vec<(String, Vec<String>, Vec<String>)>>, String> {
     use luacore::omwscripts::{normalize_vfs_path, parse_omwscripts};
     let Some(cfg) = order_file.filter(|p| is_openmw_cfg(p)) else { return Ok(None) };
     let content = ordercore::cfg::read(cfg, &ordercore::cfg::Tokens::for_cfg(cfg))
         .map_err(|e| format!("{}: {e}", cfg.display()))?
         .content;
     let mut files = VfsScripts::new(vfs);
-    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    let mut out: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
     for name in &content {
         let low = name.to_lowercase();
@@ -301,10 +308,13 @@ pub fn registered(vfs: &Vfs, order_file: Option<&Path>) -> Result<Option<Vec<(St
                             out[i].1.push(f);
                         }
                     }
+                    if !out[i].2.contains(name) {
+                        out[i].2.push(name.clone());
+                    }
                 }
                 None => {
                     at.insert(key, out.len());
-                    out.push((e.path, e.flags));
+                    out.push((e.path, e.flags, vec![name.clone()]));
                 }
             }
         }
@@ -373,6 +383,9 @@ mod tests {
         std::fs::write(&cfg, "content=m.omwscripts\n").unwrap();
         let vfs = Vfs::with_roots(&[("d".into(), root.join("d"))]);
         let got = registered(&vfs, Some(&cfg)).unwrap().unwrap();
+        // By file: each script's registering content file, for the panel's by-file mode.
+        let by = registered_by_file(&vfs, Some(&cfg)).unwrap().unwrap();
+        assert!(by.iter().all(|(_, _, f)| f == &vec!["m.omwscripts".to_string()]), "{by:?}");
         let src = source(&vfs, "scripts/g.lua");
         std::fs::remove_dir_all(&root).ok();
         assert_eq!(got, vec![("scripts/g.lua".to_string(), vec!["GLOBAL".to_string()]), ("scripts/a.lua".to_string(), vec!["NPC".into(), "CREATURE".into(), "PLAYER".into()])]);

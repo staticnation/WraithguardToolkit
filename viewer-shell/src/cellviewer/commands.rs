@@ -3735,7 +3735,8 @@ fn anim_blend_config(models: Vec<String>, state: State) -> Result<String, String
 /// `types: {id: tag}`, which decides the scripts an object gets (`NPC`, `LIGHT`, ...).
 /* Wraithguard: as bytes (`WGTB`, Static 2026-11-17: JSON only where it is needed; a type per
    object of the scene): `head` `s` (a note: why there are no scripts), `scripts` `s` (each
-   registered script's path), `script_flags` `us` (its row, a flag), `types` `ss` (an id asked,
+   registered script's path), `script_flags` `us` (its row, a flag), `script_files` `us` (its
+   row, a content file that registers it), `types` `ss` (an id asked,
    lower case; its record type). Read by 74_wg_lua.js. */
 #[tauri::command(async)]
 fn lua_scene(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, String> {
@@ -3743,7 +3744,7 @@ fn lua_scene(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, Str
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone(), app.world.clone())
     };
-    let reg = viewcore::luascan::registered(&vfs, order.as_deref())?;
+    let reg = viewcore::luascan::registered_by_file(&vfs, order.as_deref())?;
     let note = if reg.is_none() { "Not an OpenMW setup: Morrowind.ini load orders have no Lua scripts." } else { "" };
     let scripts = reg.unwrap_or_default();
     let mut types: Vec<(String, String)> = Vec::new();
@@ -3762,13 +3763,20 @@ fn lua_scene(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, Str
     tb.table("head", "s", 1);
     tb.s(note);
     tb.table("scripts", "s", scripts.len());
-    for (path, _) in &scripts {
+    for (path, _, _) in &scripts {
         tb.s(path);
     }
-    tb.table("script_flags", "us", scripts.iter().map(|(_, f)| f.len()).sum());
-    for (row, (_, flags)) in scripts.iter().enumerate() {
+    tb.table("script_flags", "us", scripts.iter().map(|(_, f, _)| f.len()).sum());
+    for (row, (_, flags, _)) in scripts.iter().enumerate() {
         for f in flags {
             tb.u(row as u64).s(f);
+        }
+    }
+    // The content files that register each script (`.omwscripts`, `.omwaddon`): the panel's by-file mode.
+    tb.table("script_files", "us", scripts.iter().map(|(_, _, n)| n.len()).sum());
+    for (row, (_, _, names)) in scripts.iter().enumerate() {
+        for n in names {
+            tb.u(row as u64).s(n);
         }
     }
     tb.table("types", "ss", types.len());
