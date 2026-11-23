@@ -32,9 +32,9 @@ static GRID_AT_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((-?\d+)\s*
 
 /// The folder the test plugin is written to (made when missing).
 pub fn scratch_dir() -> PathBuf {
-    let path = std::env::temp_dir().join("wraithguard-test");
-    let _ = std::fs::create_dir_all(&path);
-    path
+    // Not a fixed name in the shared temp directory: this folder is handed to OpenMW as a data
+    // folder, so one another user made and filled would be loaded (security audit 2026-11-20, F3).
+    ordercore::privdir::private_dir("wraithguard-test")
 }
 
 /// What is kept for testing, from `file`: `{exe?, setups: {name: setup}, use}` (anything

@@ -296,7 +296,13 @@ pub(super) fn tools_tes3cmd(
         if !exe.is_empty() && !std::path::Path::new(&exe).is_file() {
             return Err(format!("'{exe}' does not exist."));
         }
-        let dirs: Vec<PathBuf> = std::path::Path::new(&cfg).parent().map(|p| vec![p.to_path_buf()]).unwrap_or_default();
+        // Only a tes3cmd is run from a path the page names (security audit 2026-11-20, F5).
+        if !exe.is_empty() && !toolscore::tes3cmd::looks_like_tes3cmd(&exe) {
+            return Err(format!("'{exe}' is not a tes3cmd: its file name should start with tes3cmd."));
+        }
+        // Not the folder holding openmw.cfg (F8): a file put there by anyone who can write to it
+        // would run. One on PATH, `$MLOX_TES3CMD`, or the path given, as the user set them.
+        let dirs: Vec<PathBuf> = Vec::new();
         match toolscore::tes3cmd::find(Some(&exe), &dirs) {
             Some(p) => toolscore::tes3cmd::Engine::External(toolscore::tes3cmd::invocation(&p)?),
             // Perl code with no external tes3cmd: the built-in one says it needs Perl.
@@ -308,7 +314,7 @@ pub(super) fn tools_tes3cmd(
     } else {
         toolscore::tes3cmd::Engine::Builtin
     };
-    let staging = std::env::temp_dir().join("wraithguard_tes3cmd_staging");
+    let staging = viewcore::ordercore::privdir::private_dir("wraithguard_tes3cmd_staging");
     let r = toolscore::tes3cmd::run(&engine, &cmd, &extra, &files, &find, &staging, &setup.plugins());
     let held: Vec<HeldFile> = r
         .files

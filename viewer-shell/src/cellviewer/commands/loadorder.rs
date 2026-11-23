@@ -213,11 +213,16 @@ pub(super) struct Net;
 impl viewcore::ordercore::updates::Transport for Net {
     fn get(&self, url: &str, timeout_secs: u64, max_bytes: usize) -> Result<Vec<u8>, String> {
         use std::io::Read;
+        // https only, and a redirect is held to it too (security audit 2026-11-20, F4): a rules
+        // source (`MLOX_RULES_URL_TEMPLATE`, `MOMW_API_HOST`) that is plain http, or an https one that
+        // redirects to http, is refused rather than read over a network anyone on the path can change.
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(std::time::Duration::from_secs(timeout_secs)))
+            .https_only(true)
+            .max_redirects(5)
             .build()
             .into();
-        let mut resp = agent.get(url).call().map_err(|e| e.to_string())?;
+        let mut resp = agent.get(url).call().map_err(|e| format!("{e} (downloads are https only)"))?;
         let mut out = Vec::new();
         resp.body_mut()
             .as_reader()

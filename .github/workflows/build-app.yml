@@ -27,6 +27,10 @@ on:
         description: "WebView2 Fixed Version runtime .cab URL (x64) for the bundled-WebView2 Windows build; empty = the WEBVIEW2_FIXED_URL variable"
         required: false
         default: ""
+      webview2_sha256:
+        description: "SHA-256 of that .cab, which the build must match; empty = the WEBVIEW2_FIXED_SHA256 variable (unset: the build warns and prints the hash)"
+        required: false
+        default: ""
   push:
     tags: ["v*"]
     branches: ["build/**"]
@@ -87,9 +91,9 @@ jobs:
         shell: bash
         run: |
           cp wraithguard_toolkit_icon.ico viewer-shell/icons/wraithguard_toolkit_icon.ico
-          cargo build --release --manifest-path viewer-shell/Cargo.toml
-          cargo build --release --manifest-path viewer-shell/cli/Cargo.toml
-          cargo test --release --manifest-path viewer-shell/cli/Cargo.toml
+          cargo build --release --locked --manifest-path viewer-shell/Cargo.toml
+          cargo build --release --locked --manifest-path viewer-shell/cli/Cargo.toml
+          cargo test --release --locked --manifest-path viewer-shell/cli/Cargo.toml
 
       - name: Package
         shell: bash
@@ -123,9 +127,12 @@ jobs:
           test -f "$f"
           # The jobs of a matrix run at once: if the release does not exist yet they all try to create
           # it, and the ones that lose the race upload to the one that won.
-          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber \
-            || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes \
-            || gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          # The SHA-256 sum beside it (`shasum` is on all three runners), so a download can be
+          # checked against a file the release carries (security audit 2026-11-20, F9).
+          shasum -a 256 "$f" > "$f.sha256"
+          gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber \
+            || gh release create "${GITHUB_REF_NAME}" "$f" "$f.sha256" --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber
 
   linux-appimage:
     # Linux and the Steam Deck: one AppImage (Tauri's bundler), WebKitGTK and GStreamer inside,
@@ -193,9 +200,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           f=Wraithguard_Toolkit-x86_64.AppImage
-          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber \
-            || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes \
-            || gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          # The SHA-256 sum beside it (`shasum` is on all three runners), so a download can be
+          # checked against a file the release carries (security audit 2026-11-20, F9).
+          shasum -a 256 "$f" > "$f.sha256"
+          gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber \
+            || gh release create "${GITHUB_REF_NAME}" "$f" "$f.sha256" --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber
 
   windows-webview2:
     # The Windows package again with the WebView2 Fixed Version runtime beside the program.
@@ -205,6 +215,7 @@ jobs:
     runs-on: windows-latest
     env:
       WEBVIEW2_URL: ${{ inputs.webview2_url != '' && inputs.webview2_url || vars.WEBVIEW2_FIXED_URL }}
+      WEBVIEW2_SHA256: ${{ inputs.webview2_sha256 != '' && inputs.webview2_sha256 || vars.WEBVIEW2_FIXED_SHA256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -226,8 +237,8 @@ jobs:
         shell: bash
         run: |
           cp wraithguard_toolkit_icon.ico viewer-shell/icons/wraithguard_toolkit_icon.ico
-          cargo build --release --manifest-path viewer-shell/Cargo.toml
-          cargo build --release --manifest-path viewer-shell/cli/Cargo.toml
+          cargo build --release --locked --manifest-path viewer-shell/Cargo.toml
+          cargo build --release --locked --manifest-path viewer-shell/cli/Cargo.toml
 
       - name: Package with the WebView2 runtime
         # The .cab holds one folder, Microsoft.WebView2.FixedVersionRuntime.<ver>.x64, which
@@ -238,7 +249,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$out/webview2" | Out-Null
           Copy-Item viewer-shell/target/release/wraithguard-toolkit.exe, viewer-shell/target/release/wraithguard.exe $out
           foreach ($f in "QUICKSTART.md","README.md","MLOX_RULES.md","CHANGELOG.md","CREDITS.md") { if (Test-Path $f) { Copy-Item $f $out } }
+          if (-not $env:WEBVIEW2_URL.StartsWith("https://")) { throw "the WebView2 runtime URL must be https" }
           Invoke-WebRequest -Uri $env:WEBVIEW2_URL -OutFile webview2.cab
+          # Pin it: the repository variable WEBVIEW2_FIXED_SHA256 (or the manual run's input) is the
+          # SHA-256 of the .cab this build may bundle. The hash is always printed, to pin it from.
+          $got = (Get-FileHash webview2.cab -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "WebView2 .cab sha256: $got"
+          if ($env:WEBVIEW2_SHA256) {
+            if ($got -ne $env:WEBVIEW2_SHA256.Trim().ToLowerInvariant()) { throw "the WebView2 .cab does not match WEBVIEW2_FIXED_SHA256 ($got)" }
+          } else {
+            Write-Warning "WEBVIEW2_FIXED_SHA256 is not set: the bundled runtime is not pinned"
+          }
           expand.exe webview2.cab -F:* "$out/webview2" | Out-Null
           $exe = Get-ChildItem -Path "$out/webview2" -Recurse -Filter msedgewebview2.exe | Select-Object -First 1
           if (-not $exe) { throw "no msedgewebview2.exe in the downloaded runtime" }
@@ -260,6 +281,9 @@ jobs:
           f=wraithguard-windows-x86_64-webview2.zip
           # The jobs of a matrix run at once: if the release does not exist yet they all try to create
           # it, and the ones that lose the race upload to the one that won.
-          gh release upload "${GITHUB_REF_NAME}" "$f" --clobber \
-            || gh release create "${GITHUB_REF_NAME}" "$f" --generate-notes \
-            || gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          # The SHA-256 sum beside it (`shasum` is on all three runners), so a download can be
+          # checked against a file the release carries (security audit 2026-11-20, F9).
+          shasum -a 256 "$f" > "$f.sha256"
+          gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber \
+            || gh release create "${GITHUB_REF_NAME}" "$f" "$f.sha256" --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber

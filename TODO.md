@@ -7,6 +7,28 @@ Code and decisions only: what is waiting to be tried on Static's setup is not ke
 for `CHANGELOG.md`; a decision stays as one line where open work depends on it. Design notes that still guide open work:
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
+## Security audit (2026-11-20)
+
+Done in 5.0.6: F1, F2 (Lua 5.4 tested; LuaJIT not run), F3, F4, F6, F9 (the checksums and `--locked` untested until a tag),
+and parts of F5 and F8 (see `CHANGELOG.md`). Left:
+
+- **F5, the IPC trust boundary:** a path or program given by the page is still taken as it is, apart from
+  tes3cmd. A write target should be one that came from a dialog this session or the saved settings, which
+  needs the dialogs' answers kept on the Rust side (they are made from the page); consider
+  `withGlobalTauri: false`.
+- **F7, memory-mapped plugins** (`editcore/src/uses.rs`, `session.rs`): not changed. Reading them in whole
+  costs the memory the maps save (the load order is hundreds of MB); the fix is to hold writers off while a
+  map is alive, or to map only with no write job running.
+- **F8, the rest:** executable paths in the settings file are trusted, and the file-manager helpers are
+  started by bare name.
+- **F9, the rest:** no build attestation (`actions/attest-build-provenance` needs its commit pinned and the
+  `id-token` and `attestations` permissions), no signing, and `dtolnay/rust-toolchain` is a commit of
+  `stable`, not a version. The WebView2 pin does nothing until `WEBVIEW2_FIXED_SHA256` is set.
+- **F6:** a lint rule (`eslint-plugin-no-unsanitized`, or an escaping tagged template) for the 296 `innerHTML`
+  sinks, and a UI test that loads plugins and records named with markup.
+- **F4:** the rule files come from a branch (`main`) of a third-party repository; pinning a commit is not done.
+- Run `cargo audit`, `cargo deny check` and `osv-scanner` (the audit could not).
+
 ## Tools page
 
 - Merge Lands speed. Benchmark, from `viewer-shell` (prints each step's time, the peak memory and

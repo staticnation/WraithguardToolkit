@@ -23,6 +23,14 @@ pub const NEVER_CLEAN: [&str; 3] = ["morrowind.esm", "tribunal.esm", "bloodmoon.
 /// A plugin's file by name (`PluginFileIndex.find`).
 pub type Find<'a> = dyn Fn(&str) -> Option<PathBuf> + 'a;
 
+/// Whether a path the page names is a tes3cmd to run: its file name starts with `tes3cmd` (security
+/// audit 2026-11-20, F5), so a command from the page cannot make this run any program at all. A
+/// tes3cmd renamed past that is chosen by `$MLOX_TES3CMD`, which only the user's own environment sets.
+pub fn looks_like_tes3cmd(path: &str) -> bool {
+    // Either separator, on any system: a Windows path is one string on Linux.
+    path.rsplit(['/', '\\']).next().is_some_and(|n| n.to_ascii_lowercase().starts_with("tes3cmd"))
+}
+
 /// tes3cmd's file (`find_tes3cmd`): `explicit`, `$MLOX_TES3CMD`, `PATH`, then `dirs`; the
 /// compiled build first.
 pub fn find(explicit: Option<&str>, dirs: &[PathBuf]) -> Option<PathBuf> {
@@ -616,6 +624,15 @@ pub fn run(engine: &Engine, cmd: &str, extra: &[String], files: &[PathBuf], find
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_tes3cmd_by_name_is_run_from_the_page() {
+        for ok in ["tes3cmd", "C:\\tools\\tes3cmd.exe", "/opt/TES3CMD-0.40/tes3cmd.pl", "tes3cmd.bat"] {
+            assert!(super::looks_like_tes3cmd(ok), "{ok}");
+        }
+        for bad in ["", "/bin/sh", "C:\\Windows\\System32\\cmd.exe", "/tmp/notes/tes3cmd/run", "perl"] {
+            assert!(!super::looks_like_tes3cmd(bad), "{bad}");
+        }
+    }
     use super::*;
 
     #[test]

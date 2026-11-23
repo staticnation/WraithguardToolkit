@@ -1,6 +1,39 @@
 # Changelog
 
 
+## 5.0.6
+
+### Security (the audit of 2026-11-20)
+
+- **A BSA entry can no longer write outside the output folder** (F1, `conflictcore::pathsafe`). Mesh
+  optimizer and Check meshes took an archive's entry name when it began `meshes/` and ended `.nif`, so
+  `meshes\..\..\x.nif` was joined onto the output folder with its `..`. Names now go through one helper
+  that takes plain parts only (no `..`, drive, `:`, control or Windows-reserved characters); such an
+  entry is not offered, and says so, and the two writers refuse a name that would leave the folder.
+  The regression test builds the audit's archive.
+- **Mod Lua scripts have a time and a memory limit** (F2, `luarun.lua`). Each call into a script gets
+  half a second and 256 MB over what is in use; a count hook (`debug.sethook`, on LuaJIT and Lua 5.4)
+  stops one that loops or fills memory, names it, and it does not run again; the scripts after it still
+  do. A script cannot catch the stop with `pcall`, `xpcall` or a coroutine. Each script has its own copy
+  of `string`, `math`, `bit` and `coroutine`, `getmetatable('')` answers a table of its own copy, and
+  `string.rep` refuses a result over 16 MB. Lua 5.4's state now has the debug library (the sandbox's
+  allow-list still leaves it out; a test asserts `io`, `debug`, `load`, `os.execute` and the rest are nil).
+  Not run here: the install's own LuaJIT (the tests are Lua 5.4's; the prelude is the same Lua on both).
+- **Scratch folders in the shared temp directory are the user's own** (F3, `ordercore::privdir`): the
+  tes3cmd staging folder and the Test in OpenMW folder (which OpenMW takes as a data folder) are made
+  `0700`, and a folder of that name that is a link, someone else's, or open to others is walked away
+  from, to a new one.
+- **`escHtml` escapes the single quote** (F6), and a numeric value put in an attribute on the Scripts
+  and Land pages is passed through `Number()`.
+- **Downloads are https only, and a redirect cannot leave it** (F4); a rules source that is plain http is
+  refused with that said.
+- **Only a tes3cmd is run from a path the page names** (F5, its file name starts with `tes3cmd`), and
+  the folder holding `openmw.cfg` is no longer searched for one (F8): the path given, `$MLOX_TES3CMD` or
+  `PATH`.
+- **The release build is `--locked`, each package has its SHA-256 beside it, and the bundled WebView2 is
+  pinned** (F9): the `.cab` must match `WEBVIEW2_FIXED_SHA256` (a variable, or the manual run's input)
+  when it is set, is https only, and its hash is always printed to pin from.
+
 ## 5.0.5
 
 ### Changed

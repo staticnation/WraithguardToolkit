@@ -1553,7 +1553,7 @@ const WgScripts={
       const f=(box.querySelector('#wgScrGF').value||'').toLowerCase();
       const list=[...S.globals.entries()].filter(([k])=>!f || k.includes(f)).sort((a,b)=>a[0]<b[0]?-1:1).slice(0, 200);
       const g=box.querySelector('#wgScrGlobals');
-      g.innerHTML=list.map(([k,v])=>'<div class="orirow"><span class="k" title="'+(v.kind==='f'? 'float' : v.kind==='l'? 'long' : 'short')+'">'+escHtml(v.name)+'</span><span class="v"><input class="fld" type="number" step="any" data-g="'+escHtml(k)+'" value="'+v.v+'" style="width:90px"></span></div>').join('')||'<div class="hint">No global matches.</div>';
+      g.innerHTML=list.map(([k,v])=>'<div class="orirow"><span class="k" title="'+(v.kind==='f'? 'float' : v.kind==='l'? 'long' : 'short')+'">'+escHtml(v.name)+'</span><span class="v"><input class="fld" type="number" step="any" data-g="'+escHtml(k)+'" value="'+Number(v.v)+'" style="width:90px"></span></div>').join('')||'<div class="hint">No global matches.</div>';
       g.querySelectorAll('[data-g]').forEach(i=>i.onchange=()=>{ const v=S.globals.get(i.dataset.g); if(v) v.v=v.kind==='f'? +i.value||0 : Math.trunc(+i.value||0); });
     };
     box.querySelector('#wgScrGF').value=keepF;

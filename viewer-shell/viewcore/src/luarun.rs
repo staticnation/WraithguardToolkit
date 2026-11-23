@@ -490,7 +490,11 @@ impl Runner {
                 Err(e) => why = format!(" - the install's LuaJIT did not open: {e}"),
             }
         }
-        let lua = mlua::Lua::new();
+        // The prelude's count hook (limits on mod scripts) is `debug.sethook`, so this state has the
+        // debug library; the scripts' sandbox is made of an allow-list that leaves it out.
+        // SAFETY: `debug` is the standard library mlua keeps out of `Lua::new` only because it can be
+        // misused; nothing here calls into it except the prelude's `sethook`.
+        let lua = unsafe { mlua::Lua::unsafe_new_with(mlua::StdLib::ALL, mlua::LuaOptions::default()) };
         let rayf = lua
             .create_function(|lua, (x1, y1, z1, x2, y2, z2, ig, mask): (f64, f64, f64, f64, f64, f64, Option<String>, Option<f64>)| {
                 let mut out = mlua::MultiValue::new();
@@ -1289,4 +1293,91 @@ mod tests {
         assert!(!got.contains("\"kind\":\"error\""), "{got}");
         assert!(got.contains(r#""text":"Mod window""#) && got.contains("menu_thin_border"), "{got}");
     }
+
+    /// Global scripts `(path, text)` started on Lua 5.4 under a small budget; the runner and the
+    /// start's answer, and how long the start took.
+    fn started(sources: &[(&str, &str)], seconds: f64, kb: u64) -> (Runner, String, std::time::Duration) {
+        let (mut list, mut src) = (String::new(), String::new());
+        for (i, (path, text)) in sources.iter().enumerate() {
+            if i > 0 {
+                list.push(',');
+                src.push(',');
+            }
+            list.push_str(&format!(r#"{{"path":"{path}","flags":["GLOBAL"]}}"#));
+            let mut esc = String::from("\"");
+            crate::json::escape_into(text, &mut esc);
+            esc.push('"');
+            src.push_str(&format!(r#""{path}":{esc}"#));
+        }
+        let start = format!(r#"{{"scripts":[{list}],"sources":{{{src}}},"files":[],"weathers":["Clear"]}}"#);
+        let mut r = Runner::new(None, true).unwrap();
+        r.call("__wg_set_limits", &format!("{seconds},{kb}")).unwrap();
+        let t = std::time::Instant::now();
+        let a = r.call("__wg_start", &start).unwrap();
+        (r, a, t.elapsed())
+    }
+
+    /// Security audit F2: what a mod's script can reach. No file, process, debug, loader or FFI
+    /// access, and no way to the host's string table through `getmetatable`.
+    #[test]
+    fn a_mod_script_has_no_way_out_of_the_sandbox() {
+        let script = "print(type(io), type(os.execute), type(os.remove), type(debug), type(load), type(loadstring), type(dofile), type(loadfile), type(package), type(ffi), type(getfenv), type(setfenv), type(collectgarbage))";
+        let (_r, a, _) = started(&[("scripts/t/s.lua", script)], 0.5, 262_144);
+        assert!(a.contains(r#""text":"nil nil nil nil nil nil nil nil nil nil nil nil nil""#), "{a}");
+    }
+
+    /// One script cannot change the libraries another uses, by the copy or through the string metatable.
+    #[test]
+    fn one_script_cannot_change_the_libraries_of_another() {
+        let evil = "string.format = nil math.floor = nil getmetatable('').__index.upper = nil string.upper = nil table.insert = nil";
+        let fine = "print(string.format('%d', 5), math.floor(2.5), ('x'):upper(), pcall(function() return 1 end))";
+        let (_r, a, _) = started(&[("scripts/t/a.lua", evil), ("scripts/t/b.lua", fine)], 0.5, 262_144);
+        assert!(a.contains(r#""text":"5 2 X true 1""#), "{a}");
+    }
+
+    /// An endless loop is stopped and named, in time, and the scripts after it still run.
+    #[test]
+    fn an_endless_loop_is_stopped_and_the_rest_still_run() {
+        let (mut r, a, took) = started(&[("scripts/t/loop.lua", "while true do end"), ("scripts/t/after.lua", "print('after')")], 0.2, 262_144);
+        assert!(a.contains("ran too long") && a.contains(r#""text":"after""#), "{a}");
+        assert!(took < std::time::Duration::from_secs(5), "{took:?}");
+        // And a handler's loop: once, then that script is dead and does not cost a frame again.
+        let h = "return { engineHandlers = { onUpdate = function() while true do end end } }";
+        let (mut r2, _, _) = started(&[("scripts/t/h.lua", h), ("scripts/t/c.lua", "local n = 0 return { engineHandlers = { onUpdate = function() n = n + 1 print('tick', n) end } }")], 0.2, 262_144);
+        let t = std::time::Instant::now();
+        let f1 = r2.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        let f2 = r2.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
+        assert!(f1.contains("ran too long") && f1.contains(r#""text":"tick 1""#), "{f1}");
+        assert!(f2.contains(r#""text":"tick 2""#) && !f2.contains("ran too long"), "{f2}");
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+        let _ = &mut r;
+    }
+
+    /// The guard is not the script's to catch: not by `pcall`, `xpcall`, a coroutine or a wrapped one.
+    #[test]
+    fn a_script_cannot_catch_the_stop() {
+        for body in [
+            "while true do pcall(function() while true do end end) end",
+            "while true do xpcall(function() while true do end end, function() end) end",
+            "local co = coroutine.create(function() while true do end end) while true do coroutine.resume(co) end",
+            "local f = coroutine.wrap(function() while true do end end) while true do pcall(f) end",
+        ] {
+            let (_r, a, took) = started(&[("scripts/t/x.lua", body), ("scripts/t/after.lua", "print('after')")], 0.2, 262_144);
+            assert!(a.contains("ran too long") && a.contains(r#""text":"after""#), "{body}: {a}");
+            assert!(took < std::time::Duration::from_secs(5), "{body}: {took:?}");
+        }
+    }
+
+    /// Memory: a script that keeps growing is stopped at the allowance, and one string.rep cannot
+    /// ask for gigabytes in a single call.
+    #[test]
+    fn a_script_that_fills_memory_is_stopped() {
+        let grow = "local t = {} local s = string.rep('x', 1000000) while true do t[#t + 1] = s .. #t end";
+        let (_r, a, took) = started(&[("scripts/t/m.lua", grow), ("scripts/t/after.lua", "print('after')")], 5.0, 20_480);
+        assert!(a.contains("too much memory") && a.contains(r#""text":"after""#), "{a}");
+        assert!(took < std::time::Duration::from_secs(5), "{took:?}");
+        let (_r, b, _) = started(&[("scripts/t/r.lua", "print(pcall(string.rep, 'x', 1e9))"), ("scripts/t/r2.lua", "print(pcall(function() return ('ab'):rep(1e8) end))")], 0.5, 262_144);
+        assert!(b.matches("over 16 MB").count() == 2, "{b}");
+    }
 }
+

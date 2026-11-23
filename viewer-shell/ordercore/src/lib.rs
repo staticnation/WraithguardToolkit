@@ -47,6 +47,7 @@ pub mod plan;
 pub mod predicates;
 pub mod install;
 pub mod plain;
+pub mod privdir;
 pub mod pyre;
 pub mod records;
 pub mod refs;

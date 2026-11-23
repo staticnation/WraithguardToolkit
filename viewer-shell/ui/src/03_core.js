@@ -302,8 +302,10 @@ function toast(msg,kind,ms,opts){
 }
 
 
+/* Escapes the single quote too (security audit 2026-11-20, F6): a value put in a single-quoted
+   attribute would otherwise end it. `loEsc` (the Load order page) always did. */
 function escHtml(s){ return String(s==null?'':s)
-  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 
 

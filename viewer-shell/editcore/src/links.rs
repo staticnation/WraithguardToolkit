@@ -218,7 +218,7 @@ impl Links {
             builds: crate::buildjob::Builds::new(),
             folders: Vec::new(),
             test_settings: None,
-            scratch: std::env::temp_dir().join("wraithguard-test"),
+            scratch: ordercore::privdir::private_dir("wraithguard-test"),
             use_index: None,
             indexing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             verify_warm: Mutex::new(()),

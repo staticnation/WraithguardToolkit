@@ -18,6 +18,48 @@ local unpack = unpack or table.unpack
 local floor, huge = math.floor, math.huge
 local atan2 = math.atan2 or math.atan
 
+------------------------------------------------------------------------ limits on mod scripts
+-- Security audit 2026-11-20, F2: a mod's script is somebody else's code. One that loops for ever, or
+-- fills memory, must stop and be named, not freeze the Preview. Each call into a script (`call`
+-- below) has a time budget and a memory allowance; a count hook (`debug.sethook`, the one thing
+-- here that can interrupt Lua code, on LuaJIT and on Lua 5.4 alike) checks them every few
+-- thousand instructions and raises TIMEOUT. A script that is stopped is dead (no more of its
+-- handlers run), and the guard cannot be caught by the script's own `pcall`, `xpcall` or
+-- coroutines: the sandbox's versions of those raise it again (see `sandbox`).
+local LIMITS = { seconds = 0.5, memory_kb = 256 * 1024, every = 20000 }
+local TIMEOUT = 'stopped: the script ran too long or used too much memory'
+local deadline, memory_top, timedOut = math.huge, math.huge, false
+local dbg = G.debug
+local clock, gcount = os.clock, collectgarbage
+local function tick()
+  if timedOut then error(TIMEOUT, 0) end
+  if clock() > deadline or gcount('count') > memory_top then
+    timedOut = true
+    error(TIMEOUT, 0)
+  end
+end
+local function arm(thread)
+  if not (dbg and dbg.sethook) then return end
+  if thread then dbg.sethook(thread, tick, '', LIMITS.every) else dbg.sethook(tick, '', LIMITS.every) end
+end
+arm()
+-- The tests (and a slow machine) change them: seconds and kilobytes over what is in use when a call starts.
+function __wg_set_limits(arg)
+  local seconds, kb = tostring(arg):match('^([%d%.]+),(%d+)$')
+  LIMITS.seconds, LIMITS.memory_kb = tonumber(seconds) or LIMITS.seconds, tonumber(kb) or LIMITS.memory_kb
+  return ''
+end
+-- string.rep is how one line of Lua asks for gigabytes at once, before any hook can look.
+do
+  local rep, MAX = string.rep, 16 * 1024 * 1024
+  string.rep = function(str, n, sep)
+    str, n = tostring(str), tonumber(n) or 0
+    if n > 0 and (#str + #(sep or '')) * n > MAX then error('string.rep: the result would be over 16 MB', 2) end
+    return rep(str, n, sep)
+  end
+end
+local function pack(...) return { n = select('#', ...), ... } end
+
 ------------------------------------------------------------------------------- JSON
 local json = {}
 do
@@ -603,8 +645,17 @@ local function call(inst, fn, ...)
   if type(fn) ~= 'function' then return true end
   local was = current
   current = inst
+  -- This call's budget (a call inside a call keeps the outer one's when it ends).
+  local d0, m0 = deadline, memory_top
+  deadline, memory_top, timedOut = clock() + LIMITS.seconds, gcount('count') + LIMITS.memory_kb, false
   local res = { pcall(fn, ...) }
+  local stopped = timedOut
+  deadline, memory_top, timedOut = d0, m0, false
   current = was
+  if stopped then
+    inst.dead = true
+    res = { false, TIMEOUT }
+  end
   if not res[1] then
     -- Once each: a handler that fails every frame is named once, not thirty times a second.
     local msg = tostring(res[2])
@@ -1400,6 +1451,34 @@ local function sandbox(inst)
   local env = {}
   for _, n in ipairs(BASE) do env[n] = G[n] end
   env.unpack = unpack
+  -- The libraries are the script's own copies, as `table` is below: what one script does to
+  -- `string.format` stays its own (the real tables are the host's, and the scripts' only way to
+  -- them, `getmetatable('')`, is answered with a table of the copy).
+  local function copy(t) local c = {} for k, v in pairs(t) do c[k] = v end return c end
+  env.string, env.math = copy(string), copy(math)
+  if bit then env.bit = copy(bit) end
+  local stringMeta = { __index = env.string }
+  env.getmetatable = function(x) if type(x) == 'string' then return stringMeta end return getmetatable(x) end
+  -- The guard's error is not the script's to catch: once it has been raised, every pcall,
+  -- xpcall and coroutine resume raises it again on the way out, so no loop can swallow it.
+  local rawpcall, rawxpcall = G.pcall, G.xpcall
+  env.pcall = function(f, ...) local r = pack(rawpcall(f, ...)) if timedOut then error(TIMEOUT, 0) end return unpack(r, 1, r.n) end
+  env.xpcall = function(f, h, ...) local r = pack(rawxpcall(f, h, ...)) if timedOut then error(TIMEOUT, 0) end return unpack(r, 1, r.n) end
+  do
+    local co, create, resume = copy(coroutine), coroutine.create, coroutine.resume
+    co.create = function(f) local c = create(f) arm(c) return c end
+    co.resume = function(c, ...) local r = pack(resume(c, ...)) if timedOut then error(TIMEOUT, 0) end return unpack(r, 1, r.n) end
+    co.wrap = function(f)
+      local c = co.create(f)
+      return function(...)
+        local r = pack(resume(c, ...))
+        if timedOut then error(TIMEOUT, 0) end
+        if not r[1] then error(r[2], 0) end
+        return unpack(r, 2, r.n)
+      end
+    end
+    env.coroutine = co
+  end
   -- Lua 5.2's table.unpack and table.pack, as OpenMW's LuaJIT has them (fresh-loot calls
   -- table.unpack): the scripts' own table, so one script's change stays its own.
   local tbl = {} for k, v in pairs(table) do tbl[k] = v end

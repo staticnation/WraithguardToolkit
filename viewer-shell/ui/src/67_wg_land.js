@@ -286,7 +286,7 @@ const WgLand={
     const opt=(v, t, cur)=>'<option value="'+v+'"'+(String(cur)===String(v)?' selected':'')+'>'+escHtml(t)+'</option>';
     // A slider on the brush engine's settings (`b`): data-k names it, its value beside it.
     const rng=(k, label, min, max, step, tip)=>'<div class="row" data-row="'+k+'"><label title="'+escHtml(tip||'')+'">'+label+'</label><div class="ctl"><div class="rng">'+
-      '<input type="range" data-k="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+b[k]+'"><span class="val" data-v="'+k+'"></span></div></div></div>';
+      '<input type="range" data-k="'+k+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+Number(b[k])+'"><span class="val" data-v="'+k+'"></span></div></div></div>';
     const sel=(k, label, list, tip)=>'<div class="row" data-row="'+k+'"><label title="'+escHtml(tip||'')+'">'+label+'</label><div class="ctl"><select class="fld" data-s="'+k+'">'+list.map(([v,t])=>opt(v,t,b[k])).join('')+'</select></div></div>';
     d.innerHTML=
       '<div class="edHead"><b>Land</b><span style="flex:1"></span><button class="btn sm" id="wgLandDone" title="Back to the Cell Preview">Done</button></div>'+

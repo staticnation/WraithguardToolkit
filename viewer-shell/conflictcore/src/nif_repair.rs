@@ -213,7 +213,13 @@ pub fn write_one(c: &Candidate, out_dir: &Path, guesses: bool) -> Written {
         };
         return w;
     };
-    let dest = out_dir.join(&c.rel);
+    let dest = match crate::pathsafe::join_inside(out_dir, &c.rel) {
+        Ok(d) => d,
+        Err(e) => {
+            w.error = e;
+            return w;
+        }
+    };
     if let Some(parent) = dest.parent()
         && let Err(e) = std::fs::create_dir_all(parent)
     {
@@ -432,6 +438,34 @@ mod tests {
             assert_eq!(std::fs::read(out.join(&w.rel)).unwrap(), good, "{}", w.rel);
         }
         cache.close();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The audit's PoC (F1): an archive entry `meshes\..\..\escaped.nif`. It is not offered, says so,
+    /// and nothing is written outside the output folder - and a candidate that does carry such a name
+    /// (the writers do not trust their callers) is refused at the write.
+    #[test]
+    fn an_archive_entry_with_dot_dot_cannot_write_outside_the_output_folder() {
+        use crate::nif_batch::collect_all;
+        let root = tmp("traversal");
+        let a = root.join("a");
+        let good = std::fs::read(format!("{FIX}uvsets.nif")).unwrap();
+        let at = uv_word(&good).unwrap();
+        let mut bad = good.clone();
+        bad[at..at + 4].copy_from_slice(&0u32.to_le_bytes());
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::write(a.join("Evil.bsa"), archive(&[("meshes\\..\\..\\escaped.nif", &bad), ("meshes\\x\\fine.nif", &bad)])).unwrap();
+        let (cands, warnings) = collect_all(std::slice::from_ref(&a), &["Evil.bsa".to_string()]);
+        assert_eq!(cands.len(), 1, "only the honest entry is offered");
+        assert!(cands[0].rel.ends_with("fine.nif"));
+        assert!(warnings.iter().any(|w| w.contains("not a safe path") && w.contains("escaped.nif")), "{warnings:?}");
+        // Offered by hand all the same, the write refuses it.
+        let mut hostile = cands[0].clone();
+        hostile.rel = "meshes/../../escaped.nif".to_string();
+        let out = root.join("out").join("inner");
+        let w = write_one(&hostile, &out, false);
+        assert!(w.error.contains("not a safe relative path"), "{}", w.error);
+        assert!(!root.join("out").join("escaped.nif").exists() && !root.join("escaped.nif").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

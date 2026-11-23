@@ -36,6 +36,7 @@ pub mod nif_order;
 pub mod nif_repair;
 pub mod nifedit;
 pub mod patch;
+pub mod pathsafe;
 pub mod records;
 pub mod resources;
 pub mod summary;

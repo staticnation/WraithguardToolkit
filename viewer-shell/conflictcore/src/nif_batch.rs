@@ -203,6 +203,12 @@ pub fn collect_all(data: &[PathBuf], archives: &[String]) -> (Vec<Candidate>, Ve
             if !low.starts_with("meshes/") || !low.ends_with(".nif") || loose.contains(&low) {
                 continue;
             }
+            // An entry name is whatever its maker typed: one that could leave the output folder
+            // (a `..`, a drive, an alternate stream) is not offered, and is said.
+            if crate::pathsafe::safe_rel(&rel).is_none() {
+                warnings.push(format!("{name}: {entry:?} is not a safe path (a .., a drive or a character a file name cannot have), so it was left out"));
+                continue;
+            }
             let key = gardenfell_bytes::paths::norm(entry);
             let c = Candidate { rel, dir: dir.clone(), path: path.clone(), packed: Some(Packed { archive: bsa.clone(), key }) };
             packed.insert(low, c);
@@ -473,7 +479,13 @@ pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
         Err(_) => w.error = "the draw order pass panicked on this mesh".into(),
         Ok(Err(e)) => w.error = e,
         Ok(Ok((saved, _))) => {
-            let dest = out_dir.join(&c.rel);
+            let dest = match crate::pathsafe::join_inside(out_dir, &c.rel) {
+                Ok(d) => d,
+                Err(e) => {
+                    w.error = e;
+                    return w;
+                }
+            };
             if let Some(parent) = dest.parent()
                 && let Err(e) = std::fs::create_dir_all(parent)
             {
