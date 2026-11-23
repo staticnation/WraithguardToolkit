@@ -27,7 +27,9 @@ impl Typed for LeveledCreature {
                 b"NAME" => this.id = text(s),
                 b"DATA" => this.leveled_creature_flags = u32_of(rec, s)?,
                 b"NNAM" => this.chance_none = u8_of(rec, s)?,
-                b"INDX" => this.creatures.reserve(u32_of(rec, s)? as usize),
+                // INDX is the file's word: at most one entry a subrecord can follow (a crafted
+                // 0xFFFFFFFF asked for 137 GB, and a refused allocation aborts the process).
+                b"INDX" => this.creatures.reserve((u32_of(rec, s)? as usize).min(rec.subs.len())),
                 b"CNAM" => this.creatures.push((text(s), 0)),
                 b"INTV" => match this.creatures.last_mut() {
                     Some(creature) => creature.1 = u16_of(rec, s)?,

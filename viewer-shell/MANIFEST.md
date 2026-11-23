@@ -10,7 +10,7 @@ viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of th
 | Path | What | License |
 |---|---|---|
 | `src/main.rs` | Shell entry: the program on its own, URL mode, `--cell-viewer`, the mesh viewer; the Tauri context generated once | MIT |
-| `src/cellviewer/` | The window, its launch arguments, and `commands.rs` with `commands/` (the Conflicts, Tools, Load order, Merge Lands and Help pages' commands, a file each): every command the page calls (below) | MIT |
+| `src/cellviewer/` | The window, its launch arguments, and `commands.rs` with `commands/` (the Conflicts, Tools, Load order, Merge Lands and Help pages' commands, a file each): every command the page calls (below); `pick.rs`, the file dialogs and the write-permission box, opened from Rust | MIT |
 | `viewcore/` | The viewer engine: the install, the merged world, meshes, textures, sound | MIT |
 | `editcore/` | The Editor: plugins as records, the queue and journal, edits, search, the Use Report, dialogue, MWScript, Verify, the patch build, Test in OpenMW; Merge objects (TES3Merge's merge) | MIT |
 | `ordercore/` | The load order: openmw.cfg, mlox rules, the sort and export, MOMW lists, rule authoring, cells and references resolved as the game does | MIT |
@@ -26,10 +26,10 @@ viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of th
 | `ui/src/` | Page modules, concatenated in `ui/ORDER` order by `build.rs` | **GPL-2.0** silo (MGE XE shader ports) |
 | `ui/assets/` | Files shipped beside the page: MGE XE's wave volume, Mermaid | GPL-2.0 silo / MIT |
 | `ui/viewer_only.html` | What the viewer hides and adds over the page; the docks' styles | GPL-2.0 silo |
-| `ui/tests/` | `boot.js` (the page against `wg-view-serve`, cell and mesh mode) and `editor/` (the Editor's page tests) | MIT |
+| `ui/tests/` | `boot.js` (the page against `wg-view-serve`, cell and mesh mode), `editor/` (the Editor's page tests), and `html_sinks.js` (the innerHTML lint, with its baseline) | MIT |
 | `check/` | Compile check of `main.rs` against a stub Tauri | MIT |
 | `check-commands/` | Compiles `commands.rs` and `commands/` without Tauri; builds `wg-view-serve`, the headless engine the page tests drive | MIT |
-| `capabilities/cellviewer.json` | Window permissions | MIT |
+| `capabilities/cellviewer.json` | Window permissions (the page's dialogs: ask, confirm and message only) | MIT |
 
 The page is a separate frontend loaded into the webview, so the GPL-2.0 silo does not reach
 the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and `CREDITS.md`.
@@ -128,11 +128,12 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `78_wg_animblend.js` | 9 KB | Animation blending as OpenMW's: the load order's and each model's blending rules (`animation-config.yaml` / `.json`, OpenMW's defaults otherwise), its easings, and a live actor's new animation eased in from the pose it was in. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs`: 145)
+## Engine commands (`src/cellviewer/commands.rs`: 145, and `pick.rs`: 2)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
 
+- **path** (`pick.rs`): `path_pick`, `path_allow`
 - **connect**: `connect_stage`
 - **open**: `open_install`, `open_folder`
 - **startup**: `startup_install`
@@ -205,7 +206,10 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 61 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luarun.rs` | 1073 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins and the load order's scripts, luarun.lua's API. |
+| `luaproc.rs` | 267 | The Preview's Lua in a worker process (the program with `--lua-worker`), ended when a call runs past its time. |
+| `luarun.rs` | 1586 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins, the load order's scripts and MWSE mods' main.lua, luarun.lua's API. |
+| `lua_api/mwse.json` | - | MWSE's Lua API surface (names, documented types, events and `tes3`'s constants, from MWSE's autocomplete definitions; `tools/mwse_api_surface.py`), filled into MWSE mods' environment. |
+| `lua_api/openmw.json` | - | OpenMW's Lua API surface (names and documented types, from OpenMW's `files/lua_api`; `tools/lua_api_surface.py`), filled into the Preview's Lua. |
 | `luascan.rs` | 313 | The load order's Lua scripts checked through the overlay (luacore, Teal). |
 | `markers.rs` | 36 | The Construction Set markers the viewer carries itself. |
 | `mland.rs` | 434 | The merged-lands preview: one cell's landscape as Merge Lands would write it (landcore). |

@@ -1487,6 +1487,8 @@ const WgScripts={
     const bi=typeof WgLua==='object' && !WgLua.isOff('@builtins');
     h+='<div class="hint">OpenMW Lua</div>';
     if(show('openmw built-ins @builtins')) h+=row('lua', '@builtins', 'OpenMW\'s built-ins', bi, 'I.AI, activation, music, combat');
+    // MWSE mods (MWSE/mods/**/main.lua), all at once: their events, timers and core tes3 calls run on the scene.
+    if(show('mwse mods @mwse')) h+=row('lua', '@mwse', 'MWSE mods', typeof WgLua==='object' && !WgLua.isOff('@mwse'), 'main.lua: events, timers, core tes3');
     h+=luaRows.map(r=>row('lua', r.path, r.path.replace(/^scripts\//i, ''), !WgLua.isOff(r.path), r.flags.join(' '))).join('');
     if(!lua.length) h+='<div class="hint">'+escHtml((typeof WgLua==='object' && WgLua._note) || 'No registered Lua scripts.')+'</div>';
     h+='<div class="hint" style="margin-top:4px">MWScript (this scene)</div>';
@@ -1576,7 +1578,7 @@ const WgScripts={
       (bad.length? '<br>Not run: '+escHtml(bad.slice(0, 6).join(', ')) : '');
     if(typeof WgLua==='object'){
       const st=WgLua.status(), n=x=>x+' ';
-      box.innerHTML+='<br>'+(st? 'OpenMW Lua on '+escHtml(WgLua.backend.replace(/ - .*/, ''))+': '+n(st.global)+'global, '+n(st.player)+'player and '+st['local']+' object script'+(st['local']===1?'':'s')+(st.timers? ', '+st.timers+' timer'+(st.timers===1?'':'s')+' waiting' : '')+'.'+
+      box.innerHTML+='<br>'+(st? 'OpenMW Lua on '+escHtml(WgLua.backend.replace(/ - .*/, ''))+': '+n(st.global)+'global, '+n(st.player)+'player and '+st['local']+' object script'+(st['local']===1?'':'s')+(st.mwse? ', '+st.mwse+' MWSE mod'+(st.mwse===1?'':'s') : '')+(st.timers? ', '+st.timers+' timer'+(st.timers===1?'':'s')+' waiting' : '')+'.'+
         (st.failing && st.failing.length? ' Failing: '+escHtml([].concat(st.failing).slice(0, 6).join(', ')) : '')+(WgLua.note? ' '+escHtml(WgLua.note) : '') :
         'OpenMW Lua: '+escHtml(WgLua.note||(WgLua.running? 'starting…' : 'not running.')));
       let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }

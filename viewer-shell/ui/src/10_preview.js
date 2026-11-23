@@ -401,10 +401,32 @@ function animChainTS(nodes, secs, from, f){
  *  bone, then the skin-to-bone transform. */
 function skinBoneMats(skin, secs, from, f){
   return skin.bones.map((b,i)=>{
-    const c=animChainTS(b.chain,secs,from && from[i],f);
-    const p=mulTS(c.m,c.s,b.post,b.postS==null? 1 : +b.postS);
+    const p=boneFullTS(b, secs, from && from[i], f);
     return mulTS(p.m,p.s,b.trafo,b.trafoS==null? 1 : +b.trafoS);
   });
+}
+/** Wraithguard: a bone's chain and still tail at `secs` (its matrix before the skin-to-bone
+ *  transform), blended from `from`: the chain's own nodes when the old animation moved the
+ *  same nodes (an array, one a node), else the bone's whole transform (`{full}`). */
+function boneFullTS(b, secs, from, f){
+  const full=from && from.full;
+  const c=animChainTS(b.chain, secs, full? null : from, f);
+  const p=mulTS(c.m,c.s,b.post,b.postS==null? 1 : +b.postS);
+  return full? blendTS(full, p, f) : p;
+}
+/** Wraithguard: whether two chains are the same nodes - each link's still transform before it
+ *  (the path from the node before) alike. An animation's chain holds only the nodes it moves,
+ *  so an idle's and a walk's can be as long and still be other nodes. */
+function sameChain(a, b){
+  a=a||[]; b=b||[];
+  if(a.length!==b.length) return false;
+  const near=(x,y)=>{ if(!x || !y || x.length!==y.length) return x===y; for(let i=0;i<x.length;i++) if(Math.abs(x[i]-y[i])>1e-4) return false; return true; };
+  for(let i=0;i<a.length;i++){
+    const p=a[i], q=b[i];
+    if(!near(p.pre, q.pre)) return false;
+    if(Math.abs((p.preS==null? 1 : +p.preS)-(q.preS==null? 1 : +q.preS))>1e-4) return false;
+  }
+  return true;
 }
 
 /** The skin's vertices under `mats`, into `outP` (and `outN` when the skin has

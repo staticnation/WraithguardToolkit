@@ -49,6 +49,7 @@ pub mod links;
 pub mod mwscript;
 pub mod places;
 pub mod plugin;
+pub mod plugin_io;
 pub mod pyval;
 pub mod queue;
 pub mod rename;

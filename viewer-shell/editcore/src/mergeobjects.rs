@@ -653,7 +653,7 @@ pub fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(path, bytes)?;
+    crate::plugin_io::write_whole(path, bytes)?;
     if let Some(t) = kept {
         std::fs::File::options().write(true).open(path)?.set_modified(t)?;
     }

@@ -49,7 +49,7 @@ blending_rules:
 module.exports = async (t) => {
   const ctx = { console, Math, JSON, Map, Set, Promise, Object, Array, String, Number, Float32Array, Engine: { async call() { return { global: OPENMW_YAML, files: { 'r/guar.nif': '{"blending_rules":[{"from":"*","to":"runforward","easing":"cubicOut","duration":0.5}]}' } }; } } };
   vm.createContext(ctx);
-  vm.runInContext(['ctrlTime', 'keyAt', 'quatAt', 'quatMat3', 'mat3Quat', 'slerpQ', 'blendTS', 'animLinksAt', 'mul3x3', 'mulTS', 'animNodeAt', 'animChainTS', 'skinBoneMats'].map(pick).join('\n')
+  vm.runInContext(['ctrlTime', 'keyAt', 'quatAt', 'quatMat3', 'mat3Quat', 'slerpQ', 'blendTS', 'animLinksAt', 'mul3x3', 'mulTS', 'animNodeAt', 'animChainTS', 'skinBoneMats', 'boneFullTS', 'sameChain'].map(pick).join('\n')
     + '\n' + fs.readFileSync(path.join(SRC, '78_wg_animblend.js'), 'utf8').replace(/^const WgAnimBlend=/m, 'var WgAnimBlend='), ctx);
   const B = ctx.WgAnimBlend;
 
@@ -96,6 +96,22 @@ module.exports = async (t) => {
   const p = nS[0].part, f = B.factor(p._blend.B, 300.5);
   const mats = ctx.skinBoneMats(p.skin, 300.5, p._blend.skin, f);
   t.ok(Math.round(Math.atan2(mats[0].m[3], mats[0].m[0]) * 180 / Math.PI) === 30 && Math.round(Math.atan2(mats[1].m[3], mats[1].m[0]) * 180 / Math.PI) === 0, 'a skinned part\'s bones blend each from its own pose');
+
+  /* A bone whose chain is other nodes in the new animation, as long (an idle moves the spine,
+     the walk the thigh): blended as the bone's whole transform, never one node's pose put on
+     another node. The old chain: a spine node 50 up, turned 90°; the new: a thigh node with its
+     own 50 up as its still part. The bone starts where it was, and stays near it. */
+  const at50 = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 50];
+  const spine = Object.assign(node(90, 0, 1), { pre: at50 });
+  const thigh = node(0, 0, 1);
+  const oX = [{ part: { skin: { bones: [{ chain: [spine], post: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], trafo: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }] } } }];
+  const nX = [{ part: { skin: { bones: [{ chain: [thigh], post: at50, trafo: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }] } } }];
+  t.ok(!ctx.sameChain([spine], [thigh]), 'chains of other nodes are told apart');
+  B.begin(oX, nX, 'idle', 'walkforward@0', null, 400);
+  const px = nX[0].part, mx = s => ctx.skinBoneMats(px.skin, s, px._blend.skin, B.factor(px._blend.B, s) ?? 1)[0];
+  const s0 = mx(400), sH = mx(400.5);
+  t.ok(px._blend.skin[0].full && Math.round(Math.atan2(s0.m[3], s0.m[0]) * 180 / Math.PI) === 90 && Math.abs(s0.m[11] - 50) < 1e-6, 'the bone starts where the old animation had it ' + JSON.stringify(s0));
+  t.ok(Math.round(Math.atan2(sH.m[3], sH.m[0]) * 180 / Math.PI) === 45 && Math.abs(sH.m[11] - 50) < 1e-6, 'and turns toward the new pose in place, not flung ' + JSON.stringify(sH));
 
   // No rule, a nought duration, or a different skeleton: no blend.
   B._global = [B.rule('*', '*', 'linear', 0)];

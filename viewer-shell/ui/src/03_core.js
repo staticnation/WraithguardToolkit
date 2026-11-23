@@ -28,7 +28,7 @@ const Engine={
   /** A command returning JSON. Throws with the engine's own message on failure. */
   async call(cmd,args){
     if(!this.has()) throw new Error('the engine is not running');
-    const r=await window.__TAURI__.core.invoke(cmd,args||{});
+    const r=await this.inv(cmd,args||{});
     if(typeof r!=='string') return r;
     // Static, 2026-10-13: an answer that does not read as JSON is an error, said with the
     // command's name and the start of the answer - never handed on as a string for the
@@ -48,7 +48,7 @@ const Engine={
   /** A command returning raw bytes — meshes and textures, which never become JSON. */
   async bytes(cmd,args){
     if(!this.has()) throw new Error('the engine is not running');
-    const b=await window.__TAURI__.core.invoke(cmd,args||{});
+    const b=await this.inv(cmd,args||{});
     const ab = b instanceof ArrayBuffer ? b : new Uint8Array(b).buffer;
     // Round 16b: what crossed the boundary, for the report's load timings.
     this.stats.calls++; this.stats.bytes+=ab.byteLength;
@@ -64,7 +64,7 @@ const Engine={
     const h={};
     for(const [k,v] of Object.entries(headers||{})) h[k]=encodeURIComponent(String(v));
     const raw=body instanceof Uint8Array? body : new Uint8Array(body);
-    const r=await window.__TAURI__.core.invoke(cmd,raw,{headers:h});
+    const r=await this.inv(cmd,raw,{headers:h});
     this.stats.calls++; this.stats.sent+=raw.byteLength;
     if(r==null) return null;
     if(typeof r==='string') return r;
@@ -75,11 +75,29 @@ const Engine={
   /** Binary calls made, bytes received and bytes sent since start-up. */
   stats:{calls:0, bytes:0, sent:0},
 
-  /** Asks the OS for a path. Returns null when the person backs out. */
+  /** Security F5 (2026-11-23): every call goes through here. A write to a path the person
+      did not choose in a file dialog this run is refused (`WG_NOT_GRANTED:` and the path,
+      `commands::granted`); the program's own message box then asks them, naming the path,
+      and the call is made once more if they allow it. The box is the program's, not the
+      page's, so the page cannot answer it for them. */
+  async inv(cmd,args,opts){
+    const go=()=>window.__TAURI__.core.invoke(cmd,args,opts);
+    try{ return await go(); }
+    catch(e){
+      const m=String(e && e.message || e), w='WG_NOT_GRANTED:', r='WG_NOT_GRANTED_RUN:';
+      const run=m.startsWith(r);
+      if(!run && !m.startsWith(w)) throw e;
+      const path=m.slice((run? r : w).length);
+      if(!await window.__TAURI__.core.invoke('path_allow',{path, run})) throw new Error((run? 'Not run: ' : 'Not written: ')+path+' was not allowed');
+      return await go();
+    }
+  },
+
+  /** Asks the OS for a path. Returns null when the person backs out. The dialog is opened
+      by the program (`path_pick`), which records the answer as one the person chose. */
   async pick(kind,opts){
-    const d=window.__TAURI__&&window.__TAURI__.dialog;
-    if(!d) return null;
-    return kind==='save' ? d.save(opts||{}) : d.open(opts||{});
+    if(!this.has()) return null;
+    return this.inv('path_pick',{kind:kind==='save'? 'save' : 'open', opts:JSON.stringify(opts||{})});
   },
 
   /** Writes text to a path the person chooses. Returns the path, or null if they

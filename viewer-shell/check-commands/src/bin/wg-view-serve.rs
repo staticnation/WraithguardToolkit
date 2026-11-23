@@ -216,6 +216,22 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
             t::favourite_set(s(a, "kind"), s(a, "item"), b(a, "on"))?;
             Reply::Raw("true".into())
         }
+        /* Security F5: the desktop opens its file dialogs from Rust (`pick.rs`); out here
+           there is no dialog, so a pick backs out, and a write the page names is allowed
+           as the person allowing it in the message box would - the suites name temporary
+           files of their own. */
+        "path_pick" => Reply::Raw("null".into()),
+        "path_allow" => {
+            // `run` (a program) is granted the same way; the box only words it differently.
+            let p = s(a, "path");
+            let pb = std::path::PathBuf::from(p.trim());
+            if pb.is_dir() {
+                t::granted::folder(&pb)
+            } else {
+                t::granted::file(&pb)
+            }
+            Reply::Raw("true".into())
+        }
         "write_text" => {
             t::write_text(s(a, "path"), s(a, "text"))?;
             Reply::Raw("true".into())
@@ -567,7 +583,13 @@ fn run() -> i32 {
 #[global_allocator]
 static GLOBAL: &landcore::memory::Counting = &landcore::memory::COUNTING;
 
-fn main() { std::process::exit(run()) }
+fn main() {
+    // The Preview's Lua worker (`lua_run_start` starts this program again for it).
+    if std::env::args().nth(1).as_deref() == Some("--lua-worker") {
+        std::process::exit(viewcore::luaproc::serve());
+    }
+    std::process::exit(run())
+}
 
 /* Round 18bk — the two registries a command has to be in, checked against each other.
    

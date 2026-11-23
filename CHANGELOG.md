@@ -34,6 +34,115 @@
   pinned** (F9): the `.cab` must match `WEBVIEW2_FIXED_SHA256` (a variable, or the manual run's input)
   when it is set, is https only, and its hash is always printed to pin from.
 
+### Security (the second audit, 2026-11-23)
+
+- **Mod Lua cannot load precompiled code.** `require('openmw.util').loadCode` handed any string to the
+  host's `loadstring`, so a script could build a binary chunk (LuaJIT runs bytecode unverified) and reach
+  native code; a script file in bytecode was loaded the same way. Both take Lua source only now, as
+  OpenMW compiles scripts (`load_mode::text`), and `loadCode` runs its code in the table given or an empty
+  one, never the host's globals. On Lua 5.4, `loadCode` works again (it called the missing `loadstring`).
+- **A runaway pattern match is stopped like any other loop.** The time limit cannot reach into C, so
+  `("a"):rep(1e6):find("(.-)(.-)(.-)b")` held the Preview in the native matcher for good. A subject over
+  8 KB under a pattern that repeats goes through a port of Lua's own matcher (`lstrlib.c`) instead, whose
+  loops the limit does stop; everything else stays native. The port's answers are checked against the
+  native matcher's (find, match, gmatch, gsub, captures, `%b`, `%f`, back-references, anchors).
+- **The host's metatables are shut to scripts**: `getmetatable` on an object, vector, colour, inventory or
+  UI table answers `false`, and `setmetatable` cannot replace one (as `__metatable = false` does); a
+  script's own metatables work as Lua's do. One script could change how every other script's objects behave.
+- **A tes3cmd past its fifteen minutes is killed**, with what it started (its process group, or `taskkill /T`
+  on Windows), and reaped; it was left running, changing plugins after the page had said it failed.
+- **Counts read from files are bounded by the bytes behind them**: a leveled list's `INDX` (Gardenfell's
+  reader; a forged `0xFFFFFFFF` asked for 137 GB, and a refused allocation aborts the process), the
+  navmesh database's height counts and LZ4 sizes, and a WGTB's table count. The tes3 fork already bounded
+  its own leveled lists.
+- **The rule files downloaded by Update** (`plugin-order.yml`, the data paths, the rules) are written whole
+  (a temporary file, then a rename), as the rest of the app writes.
+- **The file browser and the kill helpers are started by full path** (F8): `%SystemRoot%\explorer.exe`,
+  `System32\taskkill.exe`, `/usr/bin/open`, `xdg-open` and `kill` where the system keeps them. Windows looks
+  for a bare name in the program's own folder first.
+- **The program writes only where you chose** (F5). The page named the file for every export, Save as and
+  output folder, and the commands wrote wherever it said; a page made to run a script it should not have
+  could have had the program write over a startup script. Now:
+  - The file and folder dialogs are opened by the program (`pick.rs`, `path_pick`), which records what you
+    picked before the page sees it. The page's own permission to open them is gone (`capabilities/cellviewer.json`).
+  - A write to any other path the page names (a typed output folder, a path kept from an earlier run, a
+    settings file other than the program's own) brings up the program's message box with the path in full;
+    it is written only if you allow it (`path_allow`, `Engine.inv`). The page cannot answer that box.
+  - A plugin written over in place (Remove / Rename Master, the Editor's build) is one that is there, with a
+    plugin's name. The openmw.cfg is rewritten in place when it is one.
+  - An external tes3cmd the page names (typed, or from the settings file) is run only when you picked it or
+    allowed it in the same box. This covers the settings file's program paths too; the OpenMW the Test run
+    starts was already limited to an openmw executable (F8).
+  - Deleting backups deletes only files whose names say they are backups.
+  - Tests: `granted_tests` (refused, granted, the report's picture beside it, a folder and `..`, plugins in
+    place, backups); the browser suites go through the page's ask-and-try-again.
+- **Plugins read from a memory map are not rewritten under the reader** (F7). Every whole-file write to a
+  plugin (the Editor's build, Merge objects, masters, tes3cmd) waits for the reads of mapped plugins to
+  finish (`editcore::plugin_io`), and writes a new file and renames it, so a map open on the old one keeps
+  reading the old bytes.
+- **The Preview's Lua runs in a process of its own, which the program ends** when one call runs past its
+  time (15 s a frame, 90 s to start), wherever the Lua is. The count hook cannot reach into a native call
+  (a huge `string.rep`, `table.concat`); the worker's deadline can. The next start makes a new worker.
+  `nearby.castRay` is answered by the program over the same line. Test: `luaproc` (a scene run in the
+  worker; a stuck call ended in time, and every call after it refused).
+- **LuaJIT is tested, and stopping a script on it works.** LuaJIT runs a compiled loop without calling the
+  count hook, so an endless loop in a mod's script was never stopped there; the prelude turns the JIT off
+  (`jit.off()`), as the limits need. Every Lua test runs on Lua 5.4 and on LuaJIT 2.1 (`WG_LUAJIT`, built in CI).
+- **A new place the page writes markup from a string fails CI** (`ui/tests/html_sinks.js`,
+  eslint-plugin-no-unsanitized): the 205 known places are in `html_sinks.baseline.json`, and a new one
+  is looked at by a person before it lands.
+- **Builds carry provenance**: each build job attests its artifacts (`actions/attest-build-provenance`),
+  checkable with `gh attestation verify`. The Rust toolchain action is pinned to a commit. (In
+  `workflows/` beside the repo, to be copied into `.github/workflows`.)
+
+### Fixed
+
+- **NPCs no longer vanish for a moment when they set off or stop** (`78_wg_animblend.js`, `10_preview.js`
+  `sameChain`, `boneFullTS`). The animation blend started each bone of the new animation from the old
+  one's pose node by node, and checked only that the two chains were as long. An animation's chain holds
+  the nodes it moves, so an idle's and a walk's can be as long and be other nodes: one node's pose was put
+  on another, the body's parts were flung away, and the actor was gone until the blend ended (a quarter
+  second). Chains of the same nodes (their still parts alike) blend node by node as before; otherwise the
+  bone's whole transform blends. A rigid part on another chain is another shape, and is not blended.
+  Test: `animblend.test.js` (chains of other nodes told apart; the bone starts where it was and turns in place).
+
+### Added
+
+- **MWSE mods run in the Preview** (`luarun.lua`, `luarun::start_json`). Each MWSE mod's `main.lua`
+  (`MWSE/mods/**`, and the older `MWSE/lua/*`) runs once at the start, in the same sandbox and limits as
+  OpenMW's scripts, with:
+  - its events: `initialized`, `loaded`, `cellChanged`, `enterFrame`, `simulate` and `activate` (an
+    activation a mod blocks is not done), and `event.trigger` between mods;
+  - `mwse.log`, `mwse.loadConfig` / `saveConfig` (kept for the run), timers (real, simulation and game
+    time), `json`, and `require` of the mod's own modules;
+  - the core `tes3` calls on the Preview's scene: the player and the objects drawn (`tes3.player`,
+    `getReference`, positions, cells), `messageBox`, `playSound`, globals, `positionCell`, `setEnabled`.
+  Everything else in MWSE answers "not run in the preview" once in the Scripts panel and returns
+  nothing: the Preview is not Morrowind.exe. The Scripts panel turns MWSE mods off as one (`@mwse`).
+  Tests: `an_mwse_mod_runs_on_the_preview_s_scene`, `mwse_starts_one_main_lua_a_mod`.
+- **Every call OpenMW's Lua API documents is defined in the Preview** (`luarun.lua` `api_fill`,
+  `viewcore/src/lua_api/openmw.json`, `tools/lua_api_surface.py`). The surface is read from OpenMW's
+  own definition files (`files/lua_api/openmw`, the commit kept in the file; names and documented types
+  only). A call the Preview does not do yet answers a value of its documented type (0, false, '', a
+  list, or an object of the documented type with its own calls) and says once in the Scripts panel that
+  it is not run in the preview; a documented package the Preview does not make (`openmw.postprocessing`,
+  `openmw.menu`) is made of such calls. What is implemented keeps its own answers; on the scene's
+  objects only calls are filled (a field that is nil there is nil in the game). Calls the documentation
+  keeps to some scripts (`storage.playerSection`) stay away from the others. A newer OpenMW is a re-run
+  of the script. Test: `every_documented_openmw_call_is_defined` (every package a global script can
+  require, every documented function a function).
+- **Every call MWSE's Lua API documents is defined for MWSE mods** (`luarun.lua` `mwse_env`,
+  `viewcore/src/lua_api/mwse.json`, `tools/mwse_api_surface.py`). The surface is read from MWSE's own
+  autocomplete definitions (20 libraries, 410 types, 1,436 functions, 191 events; names and documented
+  types only, read as data by a reader of Lua table literals, never run) and `tes3`'s 75 enumerations
+  with the game's own values (`tes3.objectType.npc` is 1598246990, as in the game). Every library
+  (`tes3ui`, `mge`, `lfs`, `mwscript`, `ni`, `toml`...) and `require('mwse.mcm')` is made of typed calls
+  that say once they are not run in the preview; what the Preview does (the events, timers, config,
+  the core `tes3` calls on the scene) keeps doing it. A reference has MWSE's documented calls and its own
+  `data` and `tempData` tables. The surface is read only when the load order has an MWSE mod. Test:
+  `every_documented_mwse_call_is_defined` (every function of `tes3`, `mwse`, `tes3ui`, `event`, `timer`,
+  `json`, `mge`, `lfs` and `mwse.mcm`; the constants; a reference's calls and data).
+
 ## 5.0.5
 
 ### Changed

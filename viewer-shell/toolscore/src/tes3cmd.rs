@@ -308,10 +308,12 @@ fn run_builtin(args: &[String], cwd: &Path, over: Option<&std::collections::Hash
 
 /// One tes3cmd run, its output joined: built in, or the external one launched.
 fn run_one(engine: &Engine, args: &[String], cwd: &Path, over: Option<&std::collections::HashMap<String, PathBuf>>) -> std::io::Result<(i32, String)> {
-    match engine {
+    // tes3cmd edits plugins in place: no plugin is mapped by this process while it runs
+    // (`editcore::plugin_io`, security audit F7).
+    editcore::plugin_io::writing(|| match engine {
         Engine::Builtin => run_builtin(args, cwd, over),
         Engine::External(argv) => run_external(argv, args, cwd),
-    }
+    })
 }
 
 /// One external tes3cmd run, its output joined.
@@ -324,26 +326,86 @@ fn run_external(argv: &[String], args: &[String], cwd: &Path) -> std::io::Result
         use std::os::windows::process::CommandExt as _;
         c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let child = c.spawn()?;
-    // Fifteen minutes, as the Python gave it; the output is read on its own threads so a full
-    // pipe never stalls the run.
+    // Fifteen minutes, as the Python gave it.
+    let (code, text) = run_with_deadline(c, Duration::from_secs(900), "tes3cmd")?;
+    Ok((code, text))
+}
+
+/// A process and everything it started, stopped: its process group on Unix (it was made the
+/// leader of one, `run_with_deadline`), its tree on Windows (`taskkill /T`).
+fn kill_tree(id: u32) {
+    #[cfg(unix)]
+    {
+        // By its full path, as the system keeps it (a bare name is looked for along PATH).
+        let kill = ["/bin/kill", "/usr/bin/kill"].into_iter().find(|p| Path::new(p).is_file()).unwrap_or("kill");
+        let _ = Command::new(kill).args(["-KILL", "--", &format!("-{id}")]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // By its full path: a bare name is looked for in the program's own folder first.
+        let root = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+        let _ = Command::new(root.join("System32").join("taskkill.exe"))
+            .args(["/T", "/F", "/PID", &id.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(0x0800_0000)
+            .status();
+    }
+}
+
+/// A program run to its end, or killed at `deadline`: its exit code and its output (stdout,
+/// then stderr). Each pipe is read on a thread of its own, so a full one never stalls it; at
+/// the deadline the process is killed and reaped - not left running - and the pipes' readers
+/// end with it (the audit of 2026-11-23: a tes3cmd past its fifteen minutes went on changing
+/// plugins after the page had said it failed).
+fn run_with_deadline(mut c: Command, deadline: Duration, what: &str) -> std::io::Result<(i32, String)> {
+    use std::io::Read as _;
+    // Its own process group, so what it starts goes with it at the deadline.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        c.process_group(0);
+    }
+    let mut child = c.spawn()?;
     let start = Instant::now();
     let id = child.id();
-    let out = std::thread::spawn(move || child.wait_with_output());
-    while !out.is_finished() {
-        if start.elapsed() > Duration::from_secs(900) {
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("tes3cmd (process {id}) ran past 15 minutes")));
+    let read = |p: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut b = Vec::new();
+            if let Some(mut p) = p {
+                let _ = p.read_to_end(&mut b);
+            }
+            b
+        })
+    };
+    let out = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let err = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        if start.elapsed() > deadline {
+            kill_tree(id);
+            let _ = child.kill();
+            let _ = child.wait();
+            // Not waited for: anything of its that outlived the kill would hold the pipes open.
+            drop((out, err));
+            let mins = deadline.as_secs() / 60;
+            let when = if mins >= 1 { format!("{mins} minutes") } else { format!("{} seconds", deadline.as_secs_f32()) };
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, format!("{what} (process {id}) ran past {when} and was stopped")));
         }
         std::thread::sleep(Duration::from_millis(50));
-    }
-    let o = out.join().map_err(|_| std::io::Error::other("tes3cmd's runner stopped"))??;
-    let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
-    let err = String::from_utf8_lossy(&o.stderr);
-    if !err.is_empty() {
+    };
+    let stdout = out.join().map_err(|_| std::io::Error::other(format!("{what}'s output reader stopped")))?;
+    let stderr = err.join().map_err(|_| std::io::Error::other(format!("{what}'s output reader stopped")))?;
+    let mut text = String::from_utf8_lossy(&stdout).into_owned();
+    let e = String::from_utf8_lossy(&stderr);
+    if !e.is_empty() {
         text.push('\n');
-        text.push_str(&err);
+        text.push_str(&e);
     }
-    Ok((o.status.code().unwrap_or(-1), text.trim().to_string()))
+    Ok((status.code().unwrap_or(-1), text.trim().to_string()))
 }
 
 /// What a run did, and its log.
@@ -624,6 +686,29 @@ pub fn run(engine: &Engine, cmd: &str, extra: &[String], files: &[PathBuf], find
 
 #[cfg(test)]
 mod tests {
+    /// A program past its deadline is killed, not left running, and said to have been
+    /// stopped; one that ends in time answers its code and output (stdout, then stderr).
+    #[cfg(unix)]
+    #[test]
+    fn a_run_past_its_deadline_is_killed() {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", "echo started; sleep 30"]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        let t = std::time::Instant::now();
+        let e = super::run_with_deadline(c, std::time::Duration::from_millis(400), "tes3cmd").unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
+        assert!(e.to_string().contains("was stopped"), "{e}");
+        assert!(t.elapsed() < std::time::Duration::from_secs(5), "{:?}", t.elapsed());
+        // Gone, the shell and what it started.
+        let pid: u32 = e.to_string().split("process ").nth(1).and_then(|r| r.split(')').next()).and_then(|n| n.parse().ok()).unwrap();
+        let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+        assert!(!alive, "process {pid} still running");
+
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", "echo out; echo err 1>&2; exit 3"]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        let (code, text) = super::run_with_deadline(c, std::time::Duration::from_secs(10), "tes3cmd").unwrap();
+        assert_eq!((code, text.as_str()), (3, "out\n\nerr"));
+    }
+
     #[test]
     fn only_a_tes3cmd_by_name_is_run_from_the_page() {
         for ok in ["tes3cmd", "C:\\tools\\tes3cmd.exe", "/opt/TES3CMD-0.40/tes3cmd.pl", "tes3cmd.bat"] {

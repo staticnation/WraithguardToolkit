@@ -24,6 +24,12 @@ use crate::vfs::Vfs;
 
 /// The OpenMW API in Lua (`luarun.lua`).
 pub const PRELUDE: &str = include_str!("luarun.lua");
+/// OpenMW's Lua API as its definition files give it (`tools/lua_api_surface.py`): the names and
+/// documented types the prelude fills in what it does not do itself (`api_fill`).
+const OPENMW_API: &str = include_str!("lua_api/openmw.json");
+/// MWSE's, the same way (`tools/mwse_api_surface.py`, from MWSE's autocomplete definitions):
+/// names, documented types, events and `tes3`'s constants, for MWSE mods (`mwse_env`).
+const MWSE_API: &str = include_str!("lua_api/mwse.json");
 
 /// OpenMW's built-in scripts the Preview runs: the ones that act on a scene (AI,
 /// activation, use, crimes, music, weather, the world's events, settings storage), the
@@ -114,6 +120,11 @@ pub struct Collider {
 
 /// The scene's collision (one Lua at a time, as the runner).
 pub static COLLIDER: std::sync::Mutex<Option<Collider>> = std::sync::Mutex::new(None);
+
+/// Where `ray` asks instead of `COLLIDER`, when set: the Lua worker's line back to the
+/// program that holds the scene (`luaproc::serve`).
+pub type RayVia = Box<dyn Fn([f64; 3], [f64; 3], Option<&str>, u32) -> Option<Hit> + Send + Sync>;
+pub static RAY_VIA: std::sync::OnceLock<RayVia> = std::sync::OnceLock::new();
 
 impl Shape {
     /// `tris` in the mesh's own units (three vertices a triangle), placed by `m` (3x4, rows,
@@ -301,6 +312,10 @@ fn tri_hit(a: [f64; 3], d: [f64; 3], t: &[f32; 9]) -> Option<(f64, [f64; 3])> {
 /// The ray the Lua asks for (`__wg_ray`), against the scene's collision: the types in
 /// `mask` (`collision_type`).
 pub fn ray(a: [f64; 3], b: [f64; 3], ignore: Option<&str>, mask: u32) -> Option<Hit> {
+    // In the Lua worker (`luaproc`) the scene is the program's: the ray is asked of it.
+    if let Some(via) = RAY_VIA.get() {
+        return via(a, b, ignore, mask);
+    }
     let g = COLLIDER.lock().ok()?;
     g.as_ref()?.cast(a, b, ignore, mask)
 }
@@ -485,7 +500,10 @@ impl Runner {
             match Jit::open(p) {
                 Ok(mut j) => {
                     j.exec(PRELUDE, "wg_luarun")?;
-                    return Ok(Runner { vm: Vm::Jit(j), backend: format!("LuaJIT ({})", p.display()) });
+                    let mut r = Runner { vm: Vm::Jit(j), backend: format!("LuaJIT ({})", p.display()) };
+                    r.call("__wg_api", OPENMW_API)?;
+                    r.call("__wg_mwse_api", MWSE_API)?;
+                    return Ok(r);
                 }
                 Err(e) => why = format!(" - the install's LuaJIT did not open: {e}"),
             }
@@ -512,7 +530,10 @@ impl Runner {
             .map_err(|e| e.to_string())?;
         lua.globals().set("__wg_ray", rayf).map_err(|e| e.to_string())?;
         lua.load(PRELUDE).set_name("=wg_luarun").exec().map_err(|e| e.to_string())?;
-        Ok(Runner { vm: Vm::Lua54(lua), backend: format!("Lua 5.4 (built in){why}") })
+        let mut r = Runner { vm: Vm::Lua54(lua), backend: format!("Lua 5.4 (built in){why}") };
+        r.call("__wg_api", OPENMW_API)?;
+        r.call("__wg_mwse_api", MWSE_API)?;
+        Ok(r)
     }
 
     /// One of the prelude's entry points (`__wg_start`, `__wg_step`): JSON in, JSON out.
@@ -625,6 +646,15 @@ pub fn api_revision(resources: Option<&Path>) -> i64 {
 
 /// The entry of `start_json`'s `off` that turns every OpenMW built-in off at once.
 pub const OFF_BUILTINS: &str = "@builtins";
+/// The main.lua's MWSE starts, of `files` (lowercase, `/`, sorted): one in each mod's folder,
+/// none inside the folder of another.
+pub fn mwse_mains(files: &[String]) -> Vec<String> {
+    let dirs: Vec<&str> = files.iter().filter_map(|k| k.strip_suffix("main.lua").filter(|d| d.ends_with('/'))).collect();
+    dirs.iter().filter(|d| !dirs.iter().any(|o| o.len() < d.len() && d.starts_with(*o))).map(|d| format!("{d}main.lua")).collect()
+}
+
+/// The Scripts panel's "turn off every MWSE mod".
+pub const OFF_MWSE: &str = "@mwse";
 
 /// Whether `path` is one the person turned off: `off` holds script paths (any case, either
 /// slash) and [`OFF_BUILTINS`].
@@ -696,6 +726,24 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
             sources.insert(k, t);
         }
     }
+    // MWSE mods (Static 2026-11-23): every Lua file under MWSE/mods and the older MWSE/lua,
+    // and the main.lua's MWSE starts - one in each mod's folder, not one inside another's, in
+    // name order as MWSE finds them. Turned off in the Scripts panel as one (`@mwse`) or each.
+    let mut mwse: Vec<String> = Vec::new();
+    if !off.iter().any(|o| o == OFF_MWSE) {
+        let mut files: Vec<String> = Vec::new();
+        for root in ["mwse/mods/", "mwse/lua/"] {
+            files.extend(vfs.list(root, &[".lua"]).into_iter().take(3000).map(|p| p.replace('\\', "/").to_ascii_lowercase()));
+        }
+        files.sort();
+        files.dedup();
+        for k in &files {
+            if let Some(t) = read_script(vfs, None, k) {
+                sources.insert(k.clone(), t);
+            }
+        }
+        mwse = mwse_mains(&files).into_iter().filter(|k| !is_off(off, k)).collect();
+    }
     let files: Vec<String> = vfs.list("music/", &[".mp3", ".wav", ".ogg", ".flac"]);
     use crate::json::{escape_into, string_array, J};
     let list: Vec<String> = scripts.iter().map(|(p, f)| J::obj().str("path", p).raw("flags", &string_array(f)).done()).collect();
@@ -715,6 +763,7 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
         .raw("scripts", &format!("[{}]", list.join(",")))
         .raw("sources", &src)
         .raw("files", &string_array(&files))
+        .raw("mwse", &string_array(&mwse))
         .raw("weathers", &string_array(weathers))
         .raw("content", &string_array(content))
         .int("apiRevision", api_revision(resources).max(0) as u64)
@@ -752,6 +801,16 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
 
 #[cfg(test)]
 mod tests {
+    /// The runner the tests use: the LuaJIT at `WG_LUAJIT` when it is set (a build's
+    /// `libluajit-5.1.so`, `lua51.dll`), so the whole suite runs on the engine OpenMW ships as
+    /// well as on the built-in Lua 5.4; Lua 5.4 otherwise.
+    fn runner() -> Runner {
+        match std::env::var("WG_LUAJIT") {
+            Ok(p) if !p.is_empty() => Runner::new(Some(std::path::Path::new(&p)), false).unwrap(),
+            _ => Runner::new(None, true).unwrap(),
+        }
+    }
+
     use super::*;
 
 
@@ -892,7 +951,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/ray.lua","flags":["NPC"]}}],"sources":{{"scripts/t/ray.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
-        let mut runners = vec![Runner::new(None, true).unwrap()];
+        let mut runners = vec![runner()];
         if let Ok(p) = std::env::var("WG_LUAJIT") {
             runners.push(Runner::new(Some(Path::new(&p)), false).unwrap());
         }
@@ -939,7 +998,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/ui.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/ui.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         let a = r.call("__wg_start", &start).unwrap();
         assert!(a.contains(r#""k":"ui""#) && a.contains(r#""layer":"Windows""#), "{a}");
         // The template's image first, the node's content inside its slot.
@@ -973,7 +1032,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/a.lua","flags":["NPC"]}}],"sources":{{"scripts/t/a.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
         let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
@@ -1001,7 +1060,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/w.lua","flags":["NPC"]}}],"sources":{{"scripts/t/w.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
         let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
@@ -1028,7 +1087,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/hud.lua","flags":["PLAYER"]}}],"sources":{{"scripts/t/hud.lua":{esc}}},"files":[],"weathers":["Clear"],"gmst":{{}}}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         let a = r.call("__wg_start", &start).unwrap();
         let step = r#"{"dt":0.05,"objects":{},"actors":{}}"#;
         let b = r.call("__wg_step", step).unwrap();
@@ -1083,7 +1142,7 @@ mod tests {
             src(npc),
             src(menu)
         );
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         let a = r.call("__wg_start", &start).unwrap();
         let step = r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}},"actors":{"n1":{"hp":50}}}"#;
         let b = r.call("__wg_step", step).unwrap();
@@ -1116,7 +1175,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/c.lua","flags":["NPC"]}}],"sources":{{"scripts/t/c.lua":{esc}}},"files":[],"weathers":["Clear"],"gmst":{{"fcombatdistance":128}}}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let step = r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","model":"guard.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}},"actors":{"n1":{"hp":50,"rates":[30,70,40,0],"walk":170,"run":330}}}"#;
         let got = r.call("__wg_step", step).unwrap();
@@ -1150,7 +1209,7 @@ mod tests {
         let start = format!(r#"{{"scripts":[{{"path":"scripts/fdu/settings.lua","flags":["MENU"]}},{{"path":"scripts/fdu/player.lua","flags":["PLAYER"]}},{{"path":"scripts/fdu/global.lua","flags":["GLOBAL"]}}],
             "sources":{{"scripts/fdu/settings.lua":{},"scripts/fdu/player.lua":{},"scripts/fdu/global.lua":{},"openmw_aux/time.lua":{}}},"files":[],"weathers":["Clear"]}}"#,
             q(menu), q(player), q(global), q(aux_time));
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         let a = r.call("__wg_start", &start).unwrap();
         assert!(a.contains(r#""text":"player 4 true right bow fire far 5""#), "{a}");
         assert!(a.contains(r#""text":"global 2""#), "{a}");
@@ -1169,7 +1228,7 @@ mod tests {
         crate::json::escape_into(script, &mut esc);
         esc.push('"');
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/m.lua","flags":["NPC"]}}],"sources":{{"scripts/t/m.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let obj = r#""objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"rot":[0,0,0],"scale":1,"enabled":true,"cell":{"name":"","ext":true,"gx":0,"gy":0}}}"#;
         let a = r.call("__wg_step", &format!(r#"{{"dt":0.05,{obj}}}"#)).unwrap();
@@ -1206,7 +1265,7 @@ mod tests {
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/p.lua","flags":["PLAYER"]}},{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}}],
             "sources":{{"scripts/t/p.lua":{},"scripts/t/g.lua":{}}},"files":[],"weathers":["Clear"]}}"#, q(player), q(global));
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let step = r#"{"dt":0.05,"journal":{"ms_lookout":10},"mwlocals":{"global:bountyscript":{"script":"BountyScript","vars":{"cancel":1}}}}"#;
         let got = r.call("__wg_step", step).unwrap();
@@ -1230,7 +1289,7 @@ mod tests {
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}}],
             "sources":{{"scripts/t/g.lua":{}}},"files":[],"weathers":["Clear"],"content":["Morrowind.esm","Mod.omwaddon"],"apiRevision":166}}"#, q(global));
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let got = r.call("__wg_step", r#"{"dt":0.05}"#).unwrap();
         assert!(got.contains(r#""text":"rev 166 true false 2 nil 2""#), "{got}");
@@ -1262,7 +1321,7 @@ mod tests {
         let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
         let start = format!(r#"{{"scripts":[{{"path":"scripts/t/p.lua","flags":["PLAYER"]}},{{"path":"scripts/t/g.lua","flags":["GLOBAL"]}}],
             "sources":{{"scripts/t/p.lua":{},"scripts/t/g.lua":{}}},"files":[],"weathers":["Clear"]}}"#, q(player), q(global));
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_start", &start).unwrap();
         let a = r.call("__wg_step", r#"{"dt":0.05,"player":{"pos":[100,100,0],"cell":{"name":"","ext":true,"gx":-2,"gy":-9}},"keys":[{"code":8,"down":true,"symbol":"e"}]}"#).unwrap();
         assert!(a.contains(r#""text":"key true e true""#) && a.contains(r#""text":"new -2 -9""#), "{a}");
@@ -1278,7 +1337,7 @@ mod tests {
     #[ignore]
     fn openmw_mwui_templates_draw() {
         let res = PathBuf::from(std::env::var("WG_RESOURCES").expect("WG_RESOURCES"));
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         let script = "local ui = require('openmw.ui') local I = require('openmw.interfaces') local done = false\n\
             return { engineHandlers = { onUpdate = function() if done then return end done = true\n\
             ui.create({ layer = 'Windows', template = I.MWUI.templates.boxSolid, content = ui.content { { template = I.MWUI.templates.textHeader, props = { text = 'Mod window' } } } }) end } }";
@@ -1310,7 +1369,7 @@ mod tests {
             src.push_str(&format!(r#""{path}":{esc}"#));
         }
         let start = format!(r#"{{"scripts":[{list}],"sources":{{{src}}},"files":[],"weathers":["Clear"]}}"#);
-        let mut r = Runner::new(None, true).unwrap();
+        let mut r = runner();
         r.call("__wg_set_limits", &format!("{seconds},{kb}")).unwrap();
         let t = std::time::Instant::now();
         let a = r.call("__wg_start", &start).unwrap();
@@ -1324,6 +1383,221 @@ mod tests {
         let script = "print(type(io), type(os.execute), type(os.remove), type(debug), type(load), type(loadstring), type(dofile), type(loadfile), type(package), type(ffi), type(getfenv), type(setfenv), type(collectgarbage))";
         let (_r, a, _) = started(&[("scripts/t/s.lua", script)], 0.5, 262_144);
         assert!(a.contains(r#""text":"nil nil nil nil nil nil nil nil nil nil nil nil nil""#), "{a}");
+    }
+
+    /// Lua source only, as OpenMW compiles it: `util.loadCode` refuses a precompiled chunk
+    /// (LuaJIT runs bytecode unverified; the audit of 2026-11-23, finding 1), and so does the
+    /// loader for a script file. Source still loads, in the table given or an empty one -
+    /// never the host's globals.
+    #[test]
+    fn precompiled_chunks_are_refused() {
+        let script = "local util = require('openmw.util')\n\
+            local f, e = util.loadCode('\\27LJ\\2\\0bytecode', {})\n\
+            local g, e2 = util.loadCode(string.char(27) .. 'Lua')\n\
+            local ok = util.loadCode('return 1 + x', { x = 41 })\n\
+            local bare = util.loadCode('return print == nil, require == nil')\n\
+            print(f == nil, tostring(e):find('precompiled') ~= nil, g == nil, ok(), bare())";
+        let (_r, a, _) = started(&[("scripts/t/b.lua", script), ("scripts/t/bin.lua", "\u{1b}LJ\u{2}x")], 0.5, 262_144);
+        assert!(a.contains(r#""text":"true true true 42 true true""#), "{a}");
+        assert!(a.contains("precompiled chunks are refused"), "the binary script file is refused: {a}");
+    }
+
+    /// The port of Lua's matcher (the audit of 2026-11-23, finding 4) answers as the native one
+    /// does: the same script run with every repeating pattern through the port and with none,
+    /// and its output compared - find (with init, plain, captures, position captures), match,
+    /// gmatch (empty matches too), gsub (string, table and function replacements, `%0`-`%9`,
+    /// a count), anchors, `%b`, `%f`, back-references, sets and classes.
+    #[test]
+    fn the_interruptible_matcher_answers_as_lua_s() {
+        let script = r#"
+local S = 'key = value; other=  thing ; [x] (a(b)c) "q\"uoted" 123 4.5e6 THE end\n  trailing   '
+local cases = {
+  { '(%w+)%s*=%s*(%w+)' }, { '^%s*(.-)%s*$' }, { '%b()' }, { '%f[%a]%a+' }, { '(["\'])(.-)%1' },
+  { '%d+%.?%d*e?%d*' }, { '[%a_][%w_]*' }, { '()%s+()' }, { 'x*' }, { '[^;]+' }, { '%u+' }, { '.-;' },
+  { 'a?b' }, { '[a-c]+' }, { '%[(.-)%]' }, { 'end$' }, { '%s' }, { '' },
+}
+local out = {}
+local function put(...) local t = { ... } for i = 1, select('#', ...) do t[i] = tostring(t[i]) end out[#out + 1] = table.concat(t, '|') end
+for _, c in ipairs(cases) do
+  local p = c[1]
+  put('find', S:find(p)) put('find7', S:find(p, 7)) put('findneg', S:find(p, -12)) put('match', S:match(p))
+  local n = 0 for a, b in S:gmatch(p) do n = n + 1 if n > 50 then break end put('g', a, b) end
+  put('gsubs', S:gsub(p, '<%0>')) put('gsubf', S:gsub(p, function(a) return type(a) == 'string' and a:upper() or nil end, 3))
+  put('gsubt', S:gsub(p, { key = 'K', value = 'V' }))
+end
+put('plain', S:find('(a(b)c)', 1, true))
+print(#table.concat(out, '\n'), table.concat(out, '\n'))
+"#;
+        let run = |small: &str| {
+            let mut r = runner();
+            r.call("__wg_set_pattern_small", small).unwrap();
+            let mut esc = String::from("\"");
+            crate::json::escape_into(script, &mut esc);
+            esc.push('"');
+            let start = format!(r#"{{"scripts":[{{"path":"scripts/t/p.lua","flags":["GLOBAL"]}}],"sources":{{"scripts/t/p.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+            r.call("__wg_start", &start).unwrap()
+        };
+        // What the script printed (the answer's other fields come in any order on LuaJIT).
+        let printed = |a: &str| -> String {
+            let at = a.find(r#""text":""#).map(|i| i + 8).unwrap_or(0);
+            let mut out = String::new();
+            let mut esc = false;
+            for c in a[at..].chars() {
+                if esc { out.push(c); esc = false; continue; }
+                if c == '\\' { out.push(c); esc = true; continue; }
+                if c == '"' { break; }
+                out.push(c);
+            }
+            out
+        };
+        let native = run("1000000000");
+        let ported = run("0");
+        assert!(!native.contains(r#""kind":"error""#) && native.len() > 2000, "{native}");
+        let (n, p) = (printed(&native), printed(&ported));
+        for (i, (a, b)) in n.split("\\n").zip(p.split("\\n")).enumerate() {
+            assert_eq!(a, b, "line {i}");
+        }
+        assert_eq!(n, p);
+    }
+
+    /// The audit's hang: `("a"):rep(1e6):find("(.-)(.-)(.-)b")` spun in the native matcher, out of
+    /// the time limit's reach. Through the port it is stopped in time and the script named.
+    #[test]
+    fn a_catastrophic_pattern_is_stopped() {
+        let script = "local s = ('a'):rep(1000000) print(s:find('(.-)(.-)(.-)b'))";
+        let (_r, a, took) = started(&[("scripts/t/hang.lua", script), ("scripts/t/after.lua", "print('after')")], 0.3, 262_144);
+        assert!(a.contains("ran too long") && a.contains(r#""text":"after""#), "{a}");
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+    }
+
+    /// Every call OpenMW documents is there (`lua_api/openmw.json`, `api_fill`): in each package a
+    /// script of that kind can require, each documented function is a function; one the
+    /// preview does not do answers a value of its documented type and says so once.
+    #[test]
+    fn every_documented_openmw_call_is_defined() {
+        let api: serde_json::Value = serde_json::from_str(OPENMW_API).unwrap();
+        let mut checks = String::new();
+        for (pkg, ty) in api["packages"].as_object().unwrap() {
+            let ty = ty.as_str().unwrap();
+            // Not the ones a global script does not have (`storage.playerSection`: player and menu).
+            let here = |k: &str| api["only"].get(format!("{ty}.{k}")).and_then(|o| o.as_array()).is_none_or(|o| o.iter().any(|c| c == "global"));
+            let fns: Vec<String> = api["types"][ty]["fns"].as_object().unwrap().keys().filter(|k| here(k)).map(|k| format!("'{k}'")).collect();
+            checks.push_str(&format!(
+                "do local ok, p = pcall(require, '{pkg}') if ok and type(p) == 'table' then for _, f in ipairs({{{}}}) do if type(p[f]) ~= 'function' then missing[#missing + 1] = '{pkg}.' .. f end end checked = checked + 1 end end\n",
+                fns.join(",")
+            ));
+        }
+        let script = format!("local missing, checked = {{}}, 0\n{checks}print('checked', checked, 'missing', #missing, table.concat(missing, ' '))");
+        let (mut r, a, _) = started(&[("scripts/t/api.lua", &script)], 5.0, 262_144);
+        assert!(a.contains("missing 0"), "{a}");
+        // What is only answered by type, for the record (`WG_API_REPORT=1`).
+        if std::env::var_os("WG_API_REPORT").is_some() {
+            eprintln!("{}", r.call("__wg_api_stubbed", "").unwrap());
+        }
+        // A call the preview does not do: typed, said once.
+        let s2 = "local pp = require('openmw.postprocessing')\nlocal core = require('openmw.core')\n\
+                  print(type(pp.load), type(core.getFormId), type(require('openmw.types').Actor.STANCE), type(pp.load('x')))";
+        let (_r, b, _) = started(&[("scripts/t/b.lua", s2)], 1.0, 262_144);
+        assert!(b.contains(r#""text":"function function table"#), "{b}");
+    }
+
+    /// An MWSE mod's main.lua (Static 2026-11-23): its events, timers, config, its own
+    /// modules, the core tes3 calls on the scene, and the rest of MWSE answered as not run.
+    #[test]
+    fn an_mwse_mod_runs_on_the_preview_s_scene() {
+        let main = r#"
+            local cfg = require('wg.test.config')
+            local conf = mwse.loadConfig('wgtest', { greet = cfg.greeting, n = 1 })
+            mwse.log('[wgtest] %s %d', conf.greet, conf.n)
+            event.register('initialized', function() mwse.log('initialized') end)
+            event.register('loaded', function(e) mwse.log('loaded %s', tostring(e.newGame)) end)
+            event.register('cellChanged', function(e) mwse.log('cell %s', e.cell.id) end)
+            local frames = 0
+            event.register('simulate', function(e) frames = frames + 1 end)
+            event.register('activate', function(e)
+                tes3.messageBox('You may not touch %s', e.target.object.id)
+                return false
+            end, { filter = tes3.getReference('wg_box') })
+            timer.start({ duration = 0.5, callback = function() mwse.log('timer after %d frames', frames) end })
+            local p = tes3.player.position
+            mwse.log('player at %d,%d', p.x, p.y)
+            tes3ui.showInventorySelectMenu({})
+            mwse.saveConfig('wgtest', { greet = 'saved', n = 2 })
+            mwse.log('saved %s', mwse.loadConfig('wgtest', {}).greet)
+        "#;
+        let esc = |t: &str| {
+            let mut e = String::from("\"");
+            crate::json::escape_into(t, &mut e);
+            e.push('"');
+            e
+        };
+        let start = format!(
+            r#"{{"scripts":[],"sources":{{"mwse/mods/wg/test/main.lua":{},"mwse/mods/wg/test/config.lua":{}}},"mwse":["mwse/mods/wg/test/main.lua"],"files":[],"weathers":["Clear"],"state":{}}}"#,
+            esc(main),
+            esc("return { greeting = 'hello' }"),
+            r#"{"player":{"pos":[100,200,0],"cell":{"name":"Balmora","ext":false}},"objects":{"k1":{"id":"wg_box","tag":"CONT","pos":[0,0,0]}}}"#
+        );
+        let mut r = runner();
+        let a = r.call("__wg_start", &start).unwrap();
+        for want in ["[wgtest] hello 1", "initialized", "loaded false", "cell Balmora", "player at 100,200", "saved saved", "tes3ui.showInventorySelectMenu is not run in the preview"] {
+            assert!(a.contains(want), "{want}: {a}");
+        }
+        assert!(a.contains(r#""mwse":1"#), "{a}");
+        // The activation an MWSE mod blocks is not done; its message is.
+        let b = r.call("__wg_step", r#"{"dt":0.3,"activations":[{"key":"k1","by":"player"}]}"#).unwrap();
+        assert!(b.contains("You may not touch wg_box") && !b.contains(r#""k":"activate""#), "{b}");
+        let c = r.call("__wg_step", r#"{"dt":0.3}"#).unwrap();
+        assert!(c.contains("timer after 2 frames"), "{c}");
+        // Into another cell.
+        let d = r.call("__wg_step", r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#).unwrap();
+        assert!(d.contains("cell Wilderness"), "{d}");
+    }
+
+    /// Every call MWSE documents is there for an MWSE mod (`lua_api/mwse.json`): in each of its
+    /// libraries, each function; the game's constants are the game's; a reference has its calls.
+    #[test]
+    fn every_documented_mwse_call_is_defined() {
+        let api: serde_json::Value = serde_json::from_str(MWSE_API).unwrap();
+        let mut checks = String::new();
+        for lib in ["tes3", "mwse", "tes3ui", "event", "timer", "json", "mge", "lfs", "mwse.mcm"] {
+            let fns: Vec<String> = api["types"][lib]["fns"].as_object().unwrap().keys().map(|k| format!("'{k}'")).collect();
+            let get = if lib == "mwse.mcm" { "require('mwse.mcm')".to_string() } else { lib.to_string() };
+            checks.push_str(&format!("do local p = {get} for _, f in ipairs({{{}}}) do if type(p[f]) ~= 'function' then missing[#missing + 1] = '{lib}.' .. f end end end\n", fns.join(",")));
+        }
+        let main = format!(
+            "local missing = {{}}\n{checks}mwse.log('missing %d %s', #missing, table.concat(missing, ' '))\n\
+             mwse.log('npc %d menu %s angle %s', tes3.objectType.npc, type(tes3ui.findMenu('MenuMulti')), type(tes3.player.getAngleTo))\n\
+             tes3.player.data.seen = 1 mwse.log('data %d', tes3.player.data.seen)"
+        );
+        let mut e = String::from("\"");
+        crate::json::escape_into(&main, &mut e);
+        e.push('"');
+        let start = format!(r#"{{"scripts":[],"sources":{{"mwse/mods/wg/api/main.lua":{e}}},"mwse":["mwse/mods/wg/api/main.lua"],"files":[],"weathers":["Clear"]}}"#);
+        let mut r = runner();
+        r.call("__wg_set_limits", "5,262144").unwrap();
+        let a = r.call("__wg_start", &start).unwrap();
+        assert!(a.contains(r#""text":"missing 0 ""#), "{a}");
+        assert!(a.contains(r#""text":"npc 1598246990 menu table angle function""#), "{a}");
+        assert!(a.contains(r#""text":"data 1""#), "{a}");
+    }
+
+    #[test]
+    fn mwse_starts_one_main_lua_a_mod() {
+        let f = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let files = f(&["mwse/mods/a/b/main.lua", "mwse/mods/a/main.lua", "mwse/mods/a/util.lua", "mwse/mods/c/main.lua", "mwse/lua/old/main.lua", "mwse/mods/main.lua.bak"]);
+        assert_eq!(mwse_mains(&files), f(&["mwse/mods/a/main.lua", "mwse/mods/c/main.lua", "mwse/lua/old/main.lua"]));
+    }
+
+    /// The host's metatables are not a script's to read or replace (the audit of 2026-11-23,
+    /// finding 5); a script's own are.
+    #[test]
+    fn the_host_s_metatables_are_shut() {
+        let script = "local util = require('openmw.util')\n\
+            local v = util.vector3(1, 2, 3)\n\
+            local own = setmetatable({}, { __index = function() return 7 end })\n\
+            print(getmetatable(v), pcall(setmetatable, v, {}), getmetatable(own) ~= nil, own.x, getmetatable('').__index == string)";
+        let (_r, a, _) = started(&[("scripts/t/m.lua", script)], 0.5, 262_144);
+        assert!(a.contains(r#""text":"false false true 7 true""#), "{a}");
     }
 
     /// One script cannot change the libraries another uses, by the copy or through the string metatable.

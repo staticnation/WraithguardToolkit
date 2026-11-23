@@ -50,9 +50,13 @@ pub(crate) fn with_file_bytes<T>(path: &Path, f: impl FnOnce(&[u8]) -> io::Resul
     if file.metadata()?.len() == 0 {
         return f(&[]);
     }
-    // SAFETY: the plugin is only read, and only while mapped here.
-    let map = unsafe { memmap2::Mmap::map(&file) }?;
-    f(&map)
+    // Under `plugin_io::reading`: no write of this process cuts a plugin short while it is mapped.
+    crate::plugin_io::reading(|| {
+        // SAFETY: the plugin is only read, and only while mapped here; this process writes plugins
+        // whole and not while a map is alive (`plugin_io`).
+        let map = unsafe { memmap2::Mmap::map(&file) }?;
+        f(&map)
+    })
 }
 
 /// How many plugins a warm-up reads at once: not every core, so the window and the other

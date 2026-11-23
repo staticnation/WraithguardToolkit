@@ -11,6 +11,11 @@
 -- reads it. Copyright (c) 2026 StaticNation, GPL-2.0 as part of the viewer.
 
 local G = _G
+-- LuaJIT runs a hot loop as machine code, where no debug hook fires: the time limit below
+-- (a count hook) never saw `while true do end`, and the Preview hung on the engine OpenMW
+-- ships (found running the tests on LuaJIT 2.1, 2026-11-23). The compiler is off for this
+-- state - every script is interpreted, and every hook fires - and `jit` is no script's.
+if jit and jit.off then jit.off() jit.flush() end
 -- The engine's ray against the scene's collision (luarun.rs), the one call out of Lua.
 local RAY = __wg_ray
 __wg_ray = nil
@@ -59,6 +64,343 @@ do
   end
 end
 local function pack(...) return { n = select('#', ...), ... } end
+-- Pattern matching a script can be stopped in (the audit of 2026-11-23, finding 4): the count
+-- hook never fires inside C, so `("a"):rep(1e6):find("(.-)(.-)(.-)b")` held the Preview in the
+-- native matcher for good. A long subject under a pattern that repeats goes through this port
+-- of Lua's own matcher (lstrlib.c's `match`, `max_expand`, `min_expand`, captures, `%b`, `%f`,
+-- back-references, anchors) instead: the same answers, and its loops are Lua's, so the time
+-- limit stops a runaway like any other loop and names the script. Everything else - a plain
+-- find, a pattern with no repetition, a subject of 8 KB or less - stays native.
+do
+  local sfind, smatch, sgmatch, sgsub, ssub, sbyte, schar = string.find, string.match, string.gmatch, string.gsub, string.sub, string.byte, string.char
+  local LUA54 = _VERSION == 'Lua 5.4'
+  local SMALL = 8192
+  -- The tests set it (0: every repeating pattern through the port; huge: none), as `__wg_set_limits`.
+  function __wg_set_pattern_small(arg) SMALL = tonumber(arg) or SMALL return '' end
+  local POS = -2   -- a position capture
+  local function classEnd(p, i)
+    local c = ssub(p, i, i); i = i + 1
+    if c == '%' then
+      if i > #p then error('malformed pattern (ends with \'%\')', 3) end
+      return i + 1
+    elseif c == '[' then
+      if ssub(p, i, i) == '^' then i = i + 1 end
+      repeat
+        if i > #p then error('malformed pattern (missing \']\')', 3) end
+        local cc = ssub(p, i, i); i = i + 1
+        if cc == '%' then i = i + 1 end
+      until ssub(p, i, i) == ']'
+      return i + 1
+    end
+    return i
+  end
+  local function classMatch(c, cl)
+    local lo = cl:lower()
+    local r
+    if lo == 'a' then r = c:match('^%a') ~= nil
+    elseif lo == 'c' then r = c:match('^%c') ~= nil
+    elseif lo == 'd' then r = c:match('^%d') ~= nil
+    elseif lo == 'g' then local b = sbyte(c) r = b > 32 and b < 127
+    elseif lo == 'l' then r = c:match('^%l') ~= nil
+    elseif lo == 'p' then r = c:match('^%p') ~= nil
+    elseif lo == 's' then r = c:match('^%s') ~= nil
+    elseif lo == 'u' then r = c:match('^%u') ~= nil
+    elseif lo == 'w' then r = c:match('^%w') ~= nil
+    elseif lo == 'x' then r = c:match('^%x') ~= nil
+    else return cl == c end
+    if cl:match('^%u') then return not r end
+    return r
+  end
+  local function bracket(c, p, i, ec)   -- p[i] is '[', p[ec] is ']'
+    local sig = true
+    if ssub(p, i + 1, i + 1) == '^' then sig = false; i = i + 1 end
+    i = i + 1
+    while i < ec do
+      local pc = ssub(p, i, i)
+      if pc == '%' then
+        i = i + 1
+        if classMatch(c, ssub(p, i, i)) then return sig end
+        i = i + 1
+      elseif ssub(p, i + 1, i + 1) == '-' and i + 2 < ec then
+        if sbyte(pc) <= sbyte(c) and sbyte(c) <= sbyte(p, i + 2) then return sig end
+        i = i + 3
+      else
+        if pc == c then return sig end
+        i = i + 1
+      end
+    end
+    return not sig
+  end
+  local function single(ms, si, p, pi, ep)
+    if si > ms.len then return false end
+    local c = ssub(ms.src, si, si)
+    local pc = ssub(p, pi, pi)
+    if pc == '.' then return true
+    elseif pc == '%' then return classMatch(c, ssub(p, pi + 1, pi + 1))
+    elseif pc == '[' then return bracket(c, p, pi, ep - 1)
+    else return pc == c end
+  end
+  local doMatch
+  local function captureTo(ms, l)
+    l = sbyte(l) - 48
+    if l < 1 or l > ms.level or ms.capture[l].len == -1 then error('invalid capture index %' .. l, 0) end
+    return l
+  end
+  local function capToClose(ms)
+    for l = ms.level, 1, -1 do if ms.capture[l].len == -1 then return l end end
+    error('invalid pattern capture', 0)
+  end
+  local function maxExpand(ms, si, p, pi, ep)
+    local i = 0
+    while single(ms, si + i, p, pi, ep) do i = i + 1 end
+    while i >= 0 do
+      local r = doMatch(ms, si + i, p, ep + 1)
+      if r then return r end
+      i = i - 1
+    end
+    return nil
+  end
+  local function minExpand(ms, si, p, pi, ep)
+    while true do
+      local r = doMatch(ms, si, p, ep + 1)
+      if r then return r end
+      if single(ms, si, p, pi, ep) then si = si + 1 else return nil end
+    end
+  end
+  doMatch = function(ms, si, p, pi)
+    ms.depth = ms.depth - 1
+    if ms.depth == 0 then error('pattern too complex', 0) end
+    while true do
+      if pi > #p then ms.depth = ms.depth + 1 return si end
+      local pc = ssub(p, pi, pi)
+      if pc == '(' then
+        local r
+        local l = ms.level + 1
+        if ssub(p, pi + 1, pi + 1) == ')' then
+          ms.capture[l] = { init = si, len = POS }; ms.level = l
+          r = doMatch(ms, si, p, pi + 2)
+        else
+          ms.capture[l] = { init = si, len = -1 }; ms.level = l
+          r = doMatch(ms, si, p, pi + 1)
+        end
+        if not r then ms.level = ms.level - 1 end
+        ms.depth = ms.depth + 1
+        return r
+      elseif pc == ')' then
+        local l = capToClose(ms)
+        ms.capture[l].len = si - ms.capture[l].init
+        local r = doMatch(ms, si, p, pi + 1)
+        if not r then ms.capture[l].len = -1 end
+        ms.depth = ms.depth + 1
+        return r
+      elseif pc == '$' and pi == #p then
+        ms.depth = ms.depth + 1
+        if si == ms.len + 1 then return si end
+        return nil
+      elseif pc == '%' and ssub(p, pi + 1, pi + 1) == 'b' then
+        local open, close = ssub(p, pi + 2, pi + 2), ssub(p, pi + 3, pi + 3)
+        if close == '' then error('missing arguments to \'%b\'', 0) end
+        if ssub(ms.src, si, si) ~= open then ms.depth = ms.depth + 1 return nil end
+        local cont, k, found = 1, si + 1, nil
+        while k <= ms.len do
+          local c = ssub(ms.src, k, k)
+          if c == close then cont = cont - 1; if cont == 0 then found = k + 1 break end
+          elseif c == open then cont = cont + 1 end
+          k = k + 1
+        end
+        if not found then ms.depth = ms.depth + 1 return nil end
+        si = found; pi = pi + 4
+      elseif pc == '%' and ssub(p, pi + 1, pi + 1) == 'f' then
+        pi = pi + 2
+        if ssub(p, pi, pi) ~= '[' then error('missing \'[\' after \'%f\' in pattern', 0) end
+        local ep = classEnd(p, pi)
+        local prev = si == 1 and '\0' or ssub(ms.src, si - 1, si - 1)
+        local cur = si <= ms.len and ssub(ms.src, si, si) or '\0'
+        if (not bracket(prev, p, pi, ep - 1)) and bracket(cur, p, pi, ep - 1) then pi = ep
+        else ms.depth = ms.depth + 1 return nil end
+      elseif pc == '%' and ssub(p, pi + 1, pi + 1):match('^%d') then
+        local l = captureTo(ms, ssub(p, pi + 1, pi + 1))
+        local cap = ssub(ms.src, ms.capture[l].init, ms.capture[l].init + ms.capture[l].len - 1)
+        if ssub(ms.src, si, si + #cap - 1) == cap then si = si + #cap; pi = pi + 2
+        else ms.depth = ms.depth + 1 return nil end
+      else
+        local ep = classEnd(p, pi)
+        local epc = ssub(p, ep, ep)
+        if epc == '?' then
+          if single(ms, si, p, pi, ep) then
+            local r = doMatch(ms, si + 1, p, ep + 1)
+            if r then ms.depth = ms.depth + 1 return r end
+          end
+          pi = ep + 1
+        elseif epc == '+' then
+          local r = single(ms, si, p, pi, ep) and maxExpand(ms, si + 1, p, pi, ep) or nil
+          ms.depth = ms.depth + 1
+          return r
+        elseif epc == '*' then
+          local r = maxExpand(ms, si, p, pi, ep)
+          ms.depth = ms.depth + 1
+          return r
+        elseif epc == '-' then
+          local r = minExpand(ms, si, p, pi, ep)
+          ms.depth = ms.depth + 1
+          return r
+        else
+          if not single(ms, si, p, pi, ep) then ms.depth = ms.depth + 1 return nil end
+          si = si + 1; pi = ep
+        end
+      end
+    end
+  end
+  local function newMs(src) return { src = src, len = #src, level = 0, capture = {}, depth = 200 } end
+  local function oneCapture(ms, i, s, e)
+    if i > ms.level then
+      if i == 1 then return ssub(ms.src, s, e - 1) end
+      error('invalid capture index %' .. i, 0)
+    end
+    local c = ms.capture[i]
+    if c.len == POS then return c.init end
+    return ssub(ms.src, c.init, c.init + c.len - 1)
+  end
+  local function captures(ms, s, e, whole)
+    local n = (ms.level == 0 and whole) and 1 or ms.level
+    local out = {}
+    for i = 1, n do out[i] = oneCapture(ms, i, s, e) end
+    return out, n
+  end
+  -- Whether a pattern repeats anything (`*`, `+` or `-` after an item): one that does not is
+  -- matched in time proportional to its subject, natively.
+  local function repeats(p)
+    local i, n = 1, #p
+    if ssub(p, 1, 1) == '^' then i = 2 end
+    while i <= n do
+      local c = ssub(p, i, i)
+      if c == '(' or c == ')' then i = i + 1
+      elseif c == '%' and (ssub(p, i + 1, i + 1) == 'b') then i = i + 4
+      elseif c == '%' and (ssub(p, i + 1, i + 1) == 'f') then i = classEnd(p, i + 2)
+      elseif c == '$' and i == n then i = i + 1
+      else
+        local ok, ep = pcall(classEnd, p, i)
+        if not ok then return true end
+        local q = ssub(p, ep, ep)
+        if q == '*' or q == '+' or q == '-' then return true end
+        i = (q == '?') and ep + 1 or ep
+      end
+    end
+    return false
+  end
+  local function risky(s, p, plain)
+    return not plain and type(s) == 'string' and #s > SMALL and type(p) == 'string' and repeats(p)
+  end
+  local function startAt(init, len)
+    init = tonumber(init) or 1
+    if init < 0 then init = len + init + 1; if init < 1 then init = 1 end
+    elseif init == 0 then init = 1 end
+    return init
+  end
+  local function luaFind(s, p, init, find)
+    local len = #s
+    init = startAt(init, len)
+    if init > len + 1 then return nil end
+    local anchor = ssub(p, 1, 1) == '^'
+    local pi = anchor and 2 or 1
+    local si = init
+    repeat
+      local ms = newMs(s)
+      local e = doMatch(ms, si, p, pi)
+      if e then
+        local caps, n = captures(ms, si, e, not find)
+        if find then
+          local out = { si, e - 1 }
+          if ms.level > 0 then for i = 1, n do out[#out + 1] = caps[i] end end
+          return unpack(out)
+        end
+        return unpack(caps, 1, n)
+      end
+      si = si + 1
+    until anchor or si > len + 1
+    return nil
+  end
+  string.find = function(s, p, init, plain)
+    if type(s) == 'number' then s = tostring(s) end
+    if type(p) == 'number' then p = tostring(p) end
+    if not risky(s, p, plain) then return sfind(s, p, init, plain) end
+    return luaFind(s, p, init, true)
+  end
+  string.match = function(s, p, init)
+    if type(s) == 'number' then s = tostring(s) end
+    if type(p) == 'number' then p = tostring(p) end
+    if not risky(s, p, false) then return smatch(s, p, init) end
+    return luaFind(s, p, init, false)
+  end
+  string.gmatch = function(s, p, init)
+    if type(s) == 'number' then s = tostring(s) end
+    if type(p) == 'number' then p = tostring(p) end
+    if not risky(s, p, false) then return sgmatch(s, p, init) end
+    local si, last = startAt(init, #s), nil
+    return function()
+      while si <= #s + 1 do
+        local ms = newMs(s)
+        local e = doMatch(ms, si, p, 1)
+        if e and not (LUA54 and e == last) then
+          local caps, n = captures(ms, si, e, true)
+          if LUA54 then si = e; last = e elseif e == si then si = si + 1 else si = e end
+          return unpack(caps, 1, n)
+        end
+        si = si + 1
+      end
+      return nil
+    end
+  end
+  string.gsub = function(s, p, repl, maxN)
+    if type(s) == 'number' then s = tostring(s) end
+    if type(p) == 'number' then p = tostring(p) end
+    if not risky(s, p, false) then return sgsub(s, p, repl, maxN) end
+    local tr = type(repl)
+    if tr == 'number' then repl = tostring(repl); tr = 'string' end
+    if tr ~= 'string' and tr ~= 'table' and tr ~= 'function' then error("bad argument #3 to 'gsub' (string/function/table expected)", 2) end
+    local anchor = ssub(p, 1, 1) == '^'
+    local pi = anchor and 2 or 1
+    maxN = maxN and tonumber(maxN) or (#s + 1)
+    local out, si, n, last = {}, 1, 0, nil
+    local function add(ms, e)
+      local whole = ssub(s, si, e - 1)
+      local caps = captures(ms, si, e, true)
+      local v
+      if tr == 'string' then
+        v = sgsub(repl, '%%(.)', function(d)
+          if d == '%' then return '%' end
+          if not d:match('^%d') then error("invalid use of '%' in replacement string", 0) end
+          if d == '0' then return whole end
+          return tostring(oneCapture(ms, tonumber(d), si, e))
+        end)
+      else
+        if tr == 'table' then v = repl[caps[1]] else v = repl(unpack(caps)) end
+        if v == nil or v == false then v = whole
+        elseif type(v) ~= 'string' and type(v) ~= 'number' then error('invalid replacement value (a ' .. type(v) .. ')', 0)
+        else v = tostring(v) end
+      end
+      out[#out + 1] = v
+    end
+    -- lstrlib.c's `str_gsub` loop, as each version has it.
+    while n < maxN do
+      local ms = newMs(s)
+      local e = doMatch(ms, si, p, pi)
+      if LUA54 then
+        if e and e ~= last then n = n + 1; add(ms, e); si = e; last = e
+        elseif si <= #s then out[#out + 1] = ssub(s, si, si); si = si + 1
+        else break end
+      else
+        if e then n = n + 1; add(ms, e) end
+        if e and e > si then si = e
+        elseif si <= #s then out[#out + 1] = ssub(s, si, si); si = si + 1
+        else break end
+      end
+      if anchor then break end
+    end
+    if si <= #s then out[#out + 1] = ssub(s, si) end
+    return table.concat(out), n
+  end
+end
 
 ------------------------------------------------------------------------------- JSON
 local json = {}
@@ -284,7 +626,20 @@ util.transform = {
 }
 util.makeReadOnly = function(t) return setmetatable({}, { __index = t, __newindex = function() error('read-only table', 2) end }) end
 util.makeStrictReadOnly = util.makeReadOnly
-util.loadCode = function(code, env) local f, e = loadstring(code) if f and setfenv then setfenv(f, env) end return f, e end
+-- Text only, as OpenMW compiles scripts (`load_mode::text`): a precompiled chunk starts with
+-- ESC (27), and LuaJIT runs its bytecode unverified - a crafted one reaches native code. The
+-- code runs in the table it is given (an empty one when none: never the host's globals).
+local function textOnly(s) return type(s) == 'string' and s:byte(1) ~= 27 end
+util.loadCode = function(code, env)
+  if not textOnly(code) then return nil, 'only Lua source is loaded: precompiled chunks are refused' end
+  if type(env) ~= 'table' then env = {} end
+  if setfenv and loadstring then
+    local f, e = loadstring(code, '=loadCode')
+    if f then setfenv(f, env) end
+    return f, e
+  end
+  return load(code, '=loadCode', 't', env)
+end
 
 ------------------------------------------------------------------------- objects
 local objects = {}                -- key -> handle
@@ -678,6 +1033,109 @@ end
 sendLocal = function(key, name, d) localQueue[#localQueue + 1] = { key, name, d } end
 
 ---------------------------------------------------------------------------- packages
+------------------------------------------------------- every documented call (Static 2026-11-23)
+-- OpenMW's API as its own definition files describe it (`lua_api/openmw.json`, written by
+-- tools/lua_api_surface.py): a call this prelude does not do yet is still there, answers a
+-- value of the type the documentation gives (0, false, '', an empty list, or an object of the
+-- documented type whose own calls are there too), and says once that it is not run in the
+-- preview. A script that reaches for any documented name gets something, never nil to call.
+-- Implemented tables keep what they have: only names they lack are filled, and on the scene's
+-- own objects only calls are (a field that is nil there is nil in the game too: `cell` in an
+-- inventory, `parentContainer` in a cell).
+local API
+local MWSE_API      -- MWSE's, the same way (`lua_api/mwse.json`, `mwse_env`)
+local api_n = 0
+local api_filled = setmetatable({}, { __mode = 'k' })
+local api_stubbed = {}     -- `Type.name` the preview only answers by type (`__wg_api_stubbed`)
+function __wg_api_stubbed() local t = json.array() for k in pairs(api_stubbed) do t[#t + 1] = k end table.sort(t) return json.encode(t) end
+local api_fill
+local function api_value(t, path, A)
+  A = A or API
+  if t == 'number' or t == 'float' or t == 'int' or t == 'integer' then return 0 end
+  if t == 'boolean' then return false end
+  if t == 'string' then return '' end
+  if t == 'table' then return {} end
+  if A and A.types[t] then return api_fill({}, t, path, true, nil, A) end
+  return nil
+end
+local function api_look(tname, k, path, fields, ctx, A)
+  local ty, guard = tname, 0
+  while ty and guard < 16 do
+    guard = guard + 1
+    local D = A.types[ty]
+    if not D then return nil end
+    local r = D.fns[k]
+    -- Only for some kinds of script, as its documentation says (`storage.playerSection`): nil elsewhere.
+    local only = A.only and A.only[ty .. '.' .. k]
+    if r ~= nil and only and ctx then
+      local ok = false
+      for _, c in ipairs(only) do if c == ctx then ok = true end end
+      if not ok then return nil end
+    end
+    if r ~= nil then
+      local full = path .. '.' .. k
+      api_stubbed[ty .. '.' .. k] = true
+      return function() once('api:' .. full, 'skip', full .. ' is not run in the preview') return api_value(r, full .. '()', A) end
+    end
+    local f = D.fields[k]
+    if f ~= nil then
+      if not fields then return nil end
+      if A.types[f] then return api_fill({}, f, path .. '.' .. k, true, ctx, A) end
+      -- A constant (an enumeration's member): a number of its own, or its own name.
+      if f == 'number' then api_n = api_n + 1 return api_n end
+      if f == 'string' then return k end
+      if f == 'boolean' then return false end
+      return nil
+    end
+    ty = D.extends
+  end
+  return nil
+end
+-- `tbl` given the names `tname` documents that it lacks. `fields`: its documented fields too
+-- (a package's, or a stand-in's), not only its calls.
+api_fill = function(tbl, tname, path, fields, ctx, A)
+  A = A or API
+  if not A or type(tbl) ~= 'table' or not A.types[tname] then return tbl end
+  local mt = getmetatable(tbl)
+  local key = mt or tbl
+  if api_filled[key] then return tbl end
+  api_filled[key] = true
+  local look = function(k) if type(k) ~= 'string' then return nil end return api_look(tname, k, path, fields, ctx, A) end
+  if mt == nil then
+    setmetatable(tbl, { __index = function(t, k) local v = look(k) if v ~= nil then rawset(t, k, v) end return v end })
+  else
+    local old = rawget(mt, '__index')
+    rawset(mt, '__index', function(t, k)
+      local v
+      if type(old) == 'function' then v = old(t, k) elseif type(old) == 'table' then v = old[k] end
+      if v ~= nil then return v end
+      return look(k)
+    end)
+  end
+  -- What it already has of the documented sub-tables (`types.Actor`, `core.magic`): filled too.
+  local D = A.types[tname]
+  for k, f in pairs(D.fields) do
+    local sub = rawget(tbl, k)
+    if type(sub) == 'table' and A.types[f] then api_fill(sub, f, path .. '.' .. k, true, ctx, A) end
+  end
+  return tbl
+end
+-- MWSE's surface is kept as text until a load order has an MWSE mod (`mwse_start` reads it then).
+local mwse_api_text
+function __wg_mwse_api(arg) mwse_api_text = arg return 'ok' end
+function __wg_api(arg)
+  API = json.decode(arg)
+  -- The scene's objects: the calls GameObject documents (fields stay the scene's own).
+  api_fill(setmetatable({}, Obj), 'GameObject', 'GameObject', false)
+  return 'ok'
+end
+local function api_package(name, v, inst)
+  local t = API and API.packages[name]
+  if not t then return v end
+  if v == nil then v = {} end
+  return api_fill(v, t, name, true, inst and inst.ctx)
+end
+
 local packages = {}
 local storage = {}
 local function section(name)
@@ -1439,6 +1897,8 @@ local BASE = { 'assert', 'error', 'getmetatable', 'ipairs', 'next', 'pairs', 'pc
   'setmetatable', 'tonumber', 'tostring', 'type', 'xpcall', 'coroutine', 'string', 'table', 'math', 'bit', 'unpack' }
 local function loadIn(text, name, env)
   local f, err
+  -- A script file is Lua source, as OpenMW reads it: a precompiled one is refused (`textOnly`).
+  if not textOnly(text) then return nil, name .. ': only Lua source is loaded: precompiled chunks are refused' end
   if setfenv and loadstring then
     f, err = loadstring(text, name)
     if f then setfenv(f, env) end
@@ -1447,6 +1907,7 @@ local function loadIn(text, name, env)
   end
   return f, err
 end
+local scriptMetas = setmetatable({}, { __mode = 'k' })   -- the metatables scripts gave (`sandbox`)
 local function sandbox(inst)
   local env = {}
   for _, n in ipairs(BASE) do env[n] = G[n] end
@@ -1458,7 +1919,28 @@ local function sandbox(inst)
   env.string, env.math = copy(string), copy(math)
   if bit then env.bit = copy(bit) end
   local stringMeta = { __index = env.string }
-  env.getmetatable = function(x) if type(x) == 'string' then return stringMeta end return getmetatable(x) end
+  -- The host's metatables (objects, vectors, transforms, colours, inventories, the UI's
+  -- content and elements) are not the scripts' to read or replace, as if each had
+  -- `__metatable = false`: they are shared, and one script could change how every other
+  -- script's objects behave (the audit of 2026-11-23, finding 5). A script's own metatables -
+  -- those it gave with `setmetatable` - work as Lua's do.
+  env.getmetatable = function(x)
+    if type(x) == 'string' then return stringMeta end
+    local mt = getmetatable(x)
+    if mt == nil or scriptMetas[mt] then return mt end
+    if type(mt) == 'table' and rawget(mt, '__metatable') ~= nil then return rawget(mt, '__metatable') end
+    return false
+  end
+  env.setmetatable = function(t, mt)
+    if type(t) ~= 'table' then error("bad argument #1 to 'setmetatable' (table expected, got " .. type(t) .. ')', 2) end
+    local cur = getmetatable(t)
+    if cur ~= nil and not scriptMetas[cur] then error('cannot change a protected metatable', 2) end
+    if mt ~= nil then
+      if type(mt) ~= 'table' then error("bad argument #2 to 'setmetatable' (nil or table expected)", 2) end
+      scriptMetas[mt] = true
+    end
+    return setmetatable(t, mt)
+  end
   -- The guard's error is not the script's to catch: once it has been raised, every pcall,
   -- xpcall and coroutine resume raises it again on the way out, so no loop can swallow it.
   local rawpcall, rawxpcall = G.pcall, G.xpcall
@@ -1492,12 +1974,16 @@ local function sandbox(inst)
   env.require = function(name)
     if loaded[name] ~= nil then return loaded[name] end
     local v
-    if packages[name] then v = packages[name](inst)
+    if packages[name] then v = api_package(name, packages[name](inst), inst)
     else
       local file = string.lower(name:gsub('%.', '/'))
       local text = sources[file .. '.lua'] or sources[file .. '/init.lua']
       if not text then
-        if name:match('^openmw%.') then
+        if API and API.packages[name] then
+          -- A documented package this prelude does not make: every call it documents, typed.
+          once('pkg:' .. name, 'skip', name .. ' is not run in the preview')
+          v = api_package(name, {}, inst)
+        elseif name:match('^openmw%.') then
           once('pkg:' .. name, 'skip', name .. ' is not run in the preview')
           -- Anything asked of it answers: a call does nothing, an enum's value is its name.
           local function stub() return setmetatable({}, { __call = function() return nil end, __index = function(t, k) local x = stub() rawset(t, k, x) return x end, __tostring = function() return name end }) end
@@ -1569,6 +2055,359 @@ activate = function(key, by)
   if not handled then emit({ k = 'activate', key = key, by = by }) end
 end
 
+------------------------------------------------------------- MWSE mods (Static 2026-11-23)
+-- Morrowind Script Extender mods: `MWSE/mods/**/main.lua` (and the older `MWSE/lua/*/main.lua`),
+-- each run once at the start in the same sandbox as OpenMW's scripts, with what the Preview has
+-- to give them: their events (`initialized`, `loaded`, `cellChanged`, `simulate`, `enterFrame`,
+-- `activate`), `mwse.log`, timers, `mwse.loadConfig`/`saveConfig` (kept for this run only),
+-- `json`, and the core `tes3` calls on the Preview's scene (the player and the objects drawn,
+-- the cell, messages, sounds, globals, moving a reference). Everything else MWSE has answers
+-- "not run in the preview" once and returns nothing: the Preview is not Morrowind.exe, and an
+-- MWSE mod's reach into the game's memory has nothing here to reach.
+local mwse_on = {}          -- the mods that started (instances, ctx 'mwse')
+local mwse_ev = {}          -- event name -> { {fn, inst, priority, filter} }
+local mwse_timers = {}
+local mwse_config = {}      -- mwse.saveConfig, by name, as JSON (this run only)
+local mwse_cell             -- the cell the last cellChanged was for (its id)
+local mwse_num, mwse_n = {}, 0
+local function mwse_stub(name)
+  return setmetatable({}, {
+    __call = function() once('mwse:' .. name, 'skip', name .. ' is not run in the preview') return nil end,
+    __index = function(t, k) local x = mwse_stub(name .. '.' .. tostring(k)) rawset(t, k, x) return x end,
+    __tostring = function() return name end,
+  })
+end
+-- A table of what is here, the rest of MWSE's names answering as stubs.
+-- A table of what is here, with the rest of what MWSE documents for its type (`MWSE_API`: every
+-- call there, typed, said once); a type MWSE does not document answers stubs for any name.
+local function mwse_partial(name, t)
+  if MWSE_API and MWSE_API.types[name] then return api_fill(t, name, name, true, nil, MWSE_API) end
+  return setmetatable(t, { __index = function(tt, k) local x = mwse_stub(name .. '.' .. tostring(k)) rawset(tt, k, x) return x end })
+end
+-- tes3's enumerations (`tes3.objectType.npc`...): a number each, the same one every time asked.
+local function mwse_enum(name)
+  -- MWSE's own constants (`tes3.objectType.npc` is the game's 'NPC_' tag as a number).
+  local known = MWSE_API and MWSE_API.enums and MWSE_API.enums[name]
+  if known then local t = {} for k, v in pairs(known) do t[k] = v end return t end
+  return setmetatable({}, { __index = function(t, k)
+    local key = name .. '.' .. tostring(k)
+    if not mwse_num[key] then mwse_n = mwse_n + 1 mwse_num[key] = mwse_n end
+    rawset(t, k, mwse_num[key]) return mwse_num[key]
+  end })
+end
+local function mwse_cellOf(c)
+  if not c then return nil end
+  local ext = c.ext ~= false
+  return mwse_partial('tes3cell', { id = ext and (c.name ~= '' and c.name or 'Wilderness') or (c.name or ''), name = c.name or '', isInterior = not ext,
+    isOrBehavesAsExterior = ext, gridX = c.gx or 0, gridY = c.gy or 0 })
+end
+local mwse_refs = {}
+local tes3_mobilePlayer   -- set below, once the player's reference can be made
+local function mwse_ref(key)
+  if key == nil then return nil end
+  local r = mwse_refs[key]
+  if r then return r end
+  local REF = {}
+  REF.__index = function(_, k)
+    local d = obj_of(key)
+    if k == 'position' then local p = d and d.pos or { 0, 0, 0 } return v3(p[1], p[2], p[3]) end
+    if k == 'orientation' then local o = d and d.rot or { 0, 0, d and d.yaw or 0 } return v3(o[1] or 0, o[2] or 0, o[3] or 0) end
+    if k == 'id' then return key == 'player' and 'PlayerSaveGame' or (d and d.id) or key end
+    if k == 'baseObject' or k == 'object' then local id = key == 'player' and 'player' or (d and d.id) or key return mwse_partial('tes3object', { id = id, name = id }) end
+    if k == 'cell' then return mwse_cellOf(d and d.cell or S.player.cell) end
+    if k == 'disabled' then return d ~= nil and d.enabled == false end
+    if k == 'scale' then return d and d.scale or 1 end
+    if k == 'mobile' then return key == 'player' and tes3_mobilePlayer or nil end
+    -- A reference's own Lua tables, as MWSE gives each (`data` is kept in the save; here, the run).
+    if k == 'data' or k == 'tempData' then local t = {} rawset(_, k, t) return t end
+    -- The calls MWSE documents for references (and what they inherit): typed, said once.
+    if MWSE_API and type(k) == 'string' then
+      local f = api_look('tes3reference', k, 'tes3reference', false, nil, MWSE_API)
+      if f ~= nil then return f end
+    end
+    once('mwse:ref.' .. tostring(k), 'skip', 'tes3reference.' .. tostring(k) .. ' is not run in the preview')
+    return nil
+  end
+  REF.__tostring = function() return 'tes3reference: ' .. tostring(key) end
+  r = setmetatable({ __key = key }, REF)
+  mwse_refs[key] = r
+  return r
+end
+tes3_mobilePlayer = setmetatable({}, { __index = function(_, k)
+  if k == 'reference' then return mwse_ref('player') end
+  if k == 'position' then return mwse_ref('player').position end
+  once('mwse:mobile.' .. tostring(k), 'skip', 'tes3.mobilePlayer.' .. tostring(k) .. ' is not run in the preview')
+  return nil
+end })
+local function mwse_keyOf(ref) return type(ref) == 'table' and rawget(ref, '__key') or nil end
+local function mwse_find(id)
+  if type(id) == 'table' then return mwse_keyOf(id) end
+  local want = string.lower(tostring(id or ''))
+  if want == 'player' or want == 'playersavegame' then return 'player' end
+  for k, d in pairs(S.objects) do if d.id and string.lower(d.id) == want then return k end end
+  return nil
+end
+
+local function mwse_fire(name, e, filter)
+  local list = mwse_ev[name]
+  if not list or #list == 0 then return e end
+  e = e or {}
+  e.eventType = name
+  for _, h in ipairs(list) do
+    if not h.inst.dead and (h.filter == nil or h.filter == filter) then
+      local _, ret = call(h.inst, h.fn, e)
+      if ret == false then e.block = true end
+      if e.claim or ret == false then break end
+    end
+  end
+  return e
+end
+
+local function mwse_timer_start(t, kind)
+  if type(t) ~= 'table' or type(t.callback) ~= 'function' then error('timer.start: a table with a callback is needed', 2) end
+  local tm = { duration = tonumber(t.duration) or 0, cb = t.callback, left = t.iterations or 1, kind = t.type or kind or 1, inst = current, state = 0, data = t.data }
+  tm.at = tm.duration
+  tm.timeLeft = tm.duration
+  tm.cancel = function() tm.state = 2 return true end
+  tm.pause = function() if tm.state == 0 then tm.state = 1 return true end return false end
+  tm.resume = function() if tm.state == 1 then tm.state = 0 return true end return false end
+  tm.reset = function() tm.at = tm.duration tm.state = 0 end
+  mwse_timers[#mwse_timers + 1] = tm
+  return tm
+end
+local function mwse_timers_step(dt)
+  local game = dt * 30 / 3600       -- a game hour at the timescale of 30
+  local due = {}
+  for _, tm in ipairs(mwse_timers) do
+    if tm.state == 0 and not tm.inst.dead then
+      tm.at = tm.at - (tm.kind == 3 and game or dt)
+      tm.timeLeft = math.max(0, tm.at)
+      if tm.at <= 0 then due[#due + 1] = tm end
+    end
+  end
+  for _, tm in ipairs(due) do
+    if tm.state == 0 then
+      call(tm.inst, tm.cb, { timer = tm, data = tm.data })
+      if tm.left == -1 or tm.left > 1 then
+        if tm.left > 1 then tm.left = tm.left - 1 end
+        tm.at = tm.at + math.max(tm.duration, 1e-3)
+      else tm.state = 2 end
+    end
+  end
+  local live = {}
+  for _, tm in ipairs(mwse_timers) do if tm.state ~= 2 and not tm.inst.dead then live[#live + 1] = tm end end
+  mwse_timers = live
+end
+
+local function mwse_copy(t, seen)
+  if type(t) ~= 'table' then return t end
+  seen = seen or {}
+  if seen[t] then return seen[t] end
+  local c = {} seen[t] = c
+  for k, v in pairs(t) do c[mwse_copy(k, seen)] = mwse_copy(v, seen) end
+  return c
+end
+
+local function mwse_env(inst, root)
+  local env = sandbox(inst)
+  local loaded = {}
+  -- `require('author.mod.config')`: MWSE/mods/author/mod/config.lua (or MWSE/lua/...); MWSE's
+  -- own modules and Lua's C ones are not here.
+  env.require = function(name)
+    if loaded[name] ~= nil then return loaded[name] end
+    local file = string.lower(tostring(name):gsub('%.', '/'))
+    local text
+    for _, base in ipairs({ 'mwse/mods/', 'mwse/lua/', root }) do
+      text = sources[base .. file .. '.lua'] or sources[base .. file .. '/init.lua']
+      if text then break end
+    end
+    local v
+    if text then
+      local f, err = loadIn(text, '@' .. file .. '.lua', env)
+      if not f then error(err, 2) end
+      v = f(name)
+      if v == nil then v = true end
+    else
+      local doc = MWSE_API and MWSE_API.types[tostring(name)]
+      v = doc and api_fill({}, tostring(name), tostring(name), true, nil, MWSE_API) or mwse_stub('require("' .. tostring(name) .. '")')
+      once('mwse:pkg:' .. name, 'skip', tostring(name) .. ' is not run in the preview')
+    end
+    loaded[name] = v
+    return v
+  end
+  env.include = function(name) local ok, v = pcall(env.require, name) if ok then return v end return nil end
+  env.dofile = nil
+  env.mwse = mwse_partial('mwse', {
+    version = 21000000, buildDate = 20260101,
+    log = function(fmt, ...) local ok, s = pcall(string.format, tostring(fmt), ...) log('print', inst.path, ok and s or tostring(fmt)) end,
+    loadConfig = function(name, defaults)
+      local saved = mwse_config[tostring(name)]
+      local t = saved and json.decode(saved) or nil
+      if type(defaults) == 'table' then
+        t = t or {}
+        for k, v in pairs(defaults) do if t[k] == nil then t[k] = mwse_copy(v) end end
+      end
+      return t
+    end,
+    saveConfig = function(name, t) mwse_config[tostring(name)] = json.encode(t) return true end,
+    registerModConfig = function(name) once('mwse:mcm:' .. tostring(name), 'skip', 'the Mod Config Menu (' .. tostring(name) .. ') is not drawn in the preview') end,
+    getVersion = function() return 21000000 end,
+  })
+  env.event = {
+    register = function(name, fn, opts)
+      if type(fn) ~= 'function' then error('event.register: a function is needed', 2) end
+      local list = mwse_ev[name] or {}
+      mwse_ev[name] = list
+      local h = { fn = fn, inst = inst, priority = opts and opts.priority or 0, filter = opts and opts.filter }
+      list[#list + 1] = h
+      table.sort(list, function(a, b) return a.priority > b.priority end)
+    end,
+    unregister = function(name, fn, opts)
+      local list = mwse_ev[name] or {}
+      for i = #list, 1, -1 do if list[i].fn == fn and list[i].filter == (opts and opts.filter) then table.remove(list, i) end end
+    end,
+    isRegistered = function(name, fn, opts)
+      for _, h in ipairs(mwse_ev[name] or {}) do if h.fn == fn and h.filter == (opts and opts.filter) then return true end end
+      return false
+    end,
+    trigger = function(name, payload, opts) return mwse_fire(name, payload, opts and opts.filter) end,
+  }
+  env.timer = { real = 1, simulate = 2, game = 3, active = 0, paused = 1, expired = 2,
+    start = function(t) return mwse_timer_start(t, 2) end,
+    delayOneFrame = function(cb, kind) return mwse_timer_start({ duration = 0, callback = cb, type = kind }, 2) end,
+  }
+  env.json = { encode = function(t) return json.encode(t) end, decode = function(s) return json.decode(s) end,
+    loadfile = function(n) once('mwse:json.loadfile', 'skip', 'json.loadfile is not run in the preview (no files are read)') return nil end,
+    savefile = function(n) once('mwse:json.savefile', 'skip', 'json.savefile is not run in the preview (no files are written)') end }
+  env.tes3 = mwse_partial('tes3', {
+    player = mwse_ref('player'),
+    mobilePlayer = tes3_mobilePlayer,
+    objectType = mwse_enum('objectType'), event = mwse_enum('event'), scanCode = mwse_enum('scanCode'),
+    effect = mwse_enum('effect'), skill = mwse_enum('skill'), attribute = mwse_enum('attribute'),
+    getPlayerRef = function() return mwse_ref('player') end,
+    getPlayerCell = function() return mwse_cellOf(S.player.cell) end,
+    getReference = function(id) local k = mwse_find(id) return k and mwse_ref(k) or nil end,
+    getObject = function(id)
+      local k = mwse_find(id)
+      if k then return mwse_ref(k).object end
+      once('mwse:getObject', 'skip', 'tes3.getObject answers only for what is in the Preview\'s scene')
+      return nil
+    end,
+    messageBox = function(m, ...)
+      local text = m
+      if type(m) == 'table' then
+        text = m.message
+        if m.buttons then once('mwse:msgbuttons', 'skip', 'a message box\'s buttons are not answered in the preview') end
+      else local ok, s = pcall(string.format, tostring(m), ...) text = ok and s or tostring(m) end
+      emit({ k = 'msg', text = tostring(text or '') })
+    end,
+    playSound = function(t)
+      local id = type(t) == 'table' and (t.sound and (type(t.sound) == 'table' and t.sound.id or t.sound)) or t
+      emit({ k = 'sound', id = tostring(id or ''), vol = type(t) == 'table' and t.volume or nil })
+    end,
+    getGlobal = function(id) local g = S.globals[string.lower(tostring(id))] if g then return g.v end if string.lower(tostring(id)) == 'gamehour' then return S.hour end return nil end,
+    setGlobal = function(id, v)
+      local k = string.lower(tostring(id))
+      if k == 'gamehour' then S.hour = v emit({ k = 'hour', v = v }) return true end
+      local g = S.globals[k]
+      if not g then return false end
+      g.v = (g.kind == 'f') and v or (v >= 0 and math.floor(v) or -math.floor(-v))
+      emit({ k = 'global', name = k, v = g.v })
+      return true
+    end,
+    getSimulationTimestamp = function() return (S.day or 1) * 24 + (S.hour or 0) end,
+    getCurrentWeather = function() return mwse_partial('tes3weather', { index = S.weather or 0, name = S.weathers[(S.weather or 0) + 1] }) end,
+    positionCell = function(t)
+      if type(t) ~= 'table' then return false end
+      local k = t.reference and mwse_find(t.reference) or 'player'
+      local d = k and obj_of(k)
+      local p = t.position
+      if not d or not p then return false end
+      local x, y, z = p.x or p[1], p.y or p[2], p.z or p[3]
+      d.pos = { x, y, z }
+      emit({ k = 'place', key = k, pos = d.pos })
+      return true
+    end,
+    setEnabled = function(t)
+      local k = type(t) == 'table' and mwse_find(t.reference)
+      local d = k and obj_of(k)
+      if not d or k == 'player' then return false end
+      local on = t.enabled ~= false
+      if t.toggle then on = d.enabled == false end
+      d.enabled = on
+      emit({ k = 'enable', key = k, on = on })
+      return true
+    end,
+    isModActive = function(name) return S.contentIndex[string.lower(tostring(name))] ~= nil end,
+    getFileExists = function() return false end,
+    worldController = mwse_partial('tes3worldController', { hour = setmetatable({}, { __index = function(_, k) if k == 'value' then return S.hour end end }) }),
+  })
+  -- The other libraries MWSE documents (`tes3ui`, `mge`, `lfs`, `mwscript`, `ni`, `toml`...): every call,
+  -- typed; `event`, `timer` and `json` keep what they do here and get the rest.
+  for lib in pairs(MWSE_API and MWSE_API.libs or {}) do
+    if env[lib] == nil and lib ~= 'debug' and lib ~= 'os' and lib ~= 'string' and lib ~= 'table' and lib ~= 'math' and lib ~= 'include' then
+      env[lib] = api_fill({}, lib, lib, true, nil, MWSE_API)
+    end
+  end
+  for _, lib in ipairs({ 'event', 'timer', 'json' }) do if type(env[lib]) == 'table' then api_fill(env[lib], lib, lib, true, nil, MWSE_API) end end
+  if not env.tes3ui then env.tes3ui = mwse_stub('tes3ui') end
+  if not env.mge then env.mge = mwse_stub('mge') end
+  if not env.lfs then env.lfs = mwse_stub('lfs') end
+  return env
+end
+
+-- A cell's own name: an exterior square by its grid (their names repeat, or are empty).
+local function mwse_cellKey(c) if not c then return nil end if c.ext ~= false then return '#' .. (c.gx or 0) .. ',' .. (c.gy or 0) end return string.lower(c.name or '') end
+local mwse_cellObj
+local function mwse_start(list)
+  if list and #list > 0 and not MWSE_API and mwse_api_text then MWSE_API = json.decode(mwse_api_text) mwse_api_text = nil end
+  for _, path in ipairs(list or {}) do
+    local p = string.lower(path)
+    local text = sources[p]
+    if text then
+      local inst = { path = path, key = nil, ctx = 'mwse', handlers = {}, events = {} }
+      local root = p:match('^(.*/)main%.lua$') or ''
+      inst.env = mwse_env(inst, root)
+      local f, err = loadIn(text, '@' .. path, inst.env)
+      if not f then log('error', path, err)
+      else
+        local ok = call(inst, f)
+        if ok then mwse_on[#mwse_on + 1] = inst end
+      end
+    end
+  end
+  if #mwse_on == 0 then return end
+  mwse_fire('initialized', {})
+  mwse_fire('loaded', { newGame = false, filename = 'preview', quickload = false })
+  local c = S.player.cell
+  mwse_cell = mwse_cellKey(c)
+  mwse_cellObj = mwse_cellOf(c)
+  mwse_fire('cellChanged', { cell = mwse_cellObj, previousCell = nil })
+end
+
+-- One frame: the cell entered, `enterFrame` and `simulate`, the timers. Activations are asked of
+-- `activate` first (`mwse_activate`): one an MWSE mod blocks is not done.
+local function mwse_step(dt)
+  if #mwse_on == 0 then return end
+  local c = S.player.cell
+  local id = mwse_cellKey(c)
+  if id ~= mwse_cell then
+    local prev = mwse_cellObj
+    mwse_cell = id
+    mwse_cellObj = mwse_cellOf(c)
+    mwse_fire('cellChanged', { cell = mwse_cellObj, previousCell = prev })
+  end
+  mwse_fire('enterFrame', { delta = dt, menuMode = false, timestamp = (S.day or 1) * 24 + (S.hour or 0) })
+  mwse_fire('simulate', { delta = dt, menuMode = false, timestamp = (S.day or 1) * 24 + (S.hour or 0) })
+  mwse_timers_step(dt)
+end
+local function mwse_activate(key, by)
+  if #mwse_on == 0 then return false end
+  local target = mwse_ref(key)
+  local e = mwse_fire('activate', { activator = mwse_ref(by or 'player'), target = target }, target)
+  return e and e.block == true
+end
+
 ------------------------------------------------------------------- the frame, from the page
 local function status()
   local g, p, l, bad = 0, 0, 0, json.array()
@@ -1578,7 +2417,8 @@ local function status()
       if (i.errors or 0) > 0 then bad[#bad + 1] = i.path end
     end
   end
-  return { global = g, player = p, ['local'] = l, failing = bad, timers = #timers }
+  for _, i in ipairs(mwse_on) do if (i.errors or 0) > 0 and not i.dead then bad[#bad + 1] = i.path end end
+  return { global = g, player = p, ['local'] = l, mwse = #mwse_on, failing = bad, timers = #timers + #mwse_timers }
 end
 local function answer()
   uiFlush()
@@ -1588,7 +2428,7 @@ local function answer()
 end
 
 -- `{scripts: [{path, flags}], sources: {path: text}, files: [vfs paths], weathers: [names],
--- content: [content= names], apiRevision}`
+-- content: [content= names], apiRevision, mwse: [MWSE mods' main.lua paths]}`
 function __wg_start(arg)
   local a = json.decode(arg)
   registered = a.scripts or {}
@@ -1620,6 +2460,8 @@ function __wg_start(arg)
   for _, r in ipairs(registered) do
     if has(r.flags, 'PLAYER') then instantiate(r.path, 'player', 'player') end
   end
+  -- MWSE mods' main.lua, after OpenMW's own (`mwse_start`).
+  mwse_start(a.mwse)
   return answer()
 end
 
@@ -1654,7 +2496,7 @@ function __wg_step(arg)
   local dt = a.dt or 0
   S.sim = S.sim + dt
   S.dt = dt
-  for _, e in ipairs(a.activations or {}) do activate(e.key, e.by) end
+  for _, e in ipairs(a.activations or {}) do if not mwse_activate(e.key, e.by) then activate(e.key, e.by) end end
   if a.screen then S.screen = a.screen end
   for _, e in ipairs(a.ui or {}) do __wg_ui_event(e.id, e.path, e.event, e.x, e.y, e.text) end
   -- Keys pressed over the Preview: player scripts' onKeyPress and onKeyRelease, and input.isKeyPressed.
@@ -1692,6 +2534,7 @@ function __wg_step(arg)
       if i.ctx == 'player' then call(i, i.handlers.onFrame, dt) end
     end
   end
+  mwse_step(dt)
   local live = {}
   for _, i in ipairs(scripts) do if not i.dead then live[#live + 1] = i end end
   scripts = live

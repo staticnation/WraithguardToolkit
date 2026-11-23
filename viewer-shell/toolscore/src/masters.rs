@@ -190,7 +190,7 @@ fn write_with_backup(plugin: &std::path::Path, bytes: &[u8]) -> io::Result<std::
     if !backup.exists() {
         std::fs::copy(plugin, &backup)?;
     }
-    std::fs::write(plugin, bytes)?;
+    editcore::plugin_io::write_whole(plugin, bytes)?;
     Ok(backup)
 }
 

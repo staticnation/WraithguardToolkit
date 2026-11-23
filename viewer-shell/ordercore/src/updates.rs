@@ -395,6 +395,18 @@ fn read_or_empty(p: &Path) -> Result<Vec<u8>, UpdateError> {
     }
 }
 
+/// A downloaded file put in place whole: written beside it under a temporary name, then renamed
+/// over it, so a run stopped part way (a crash, a full disk) leaves the old file, not half of
+/// the new one - as the rest of the app writes (`write_file_whole`).
+fn write_whole(p: &Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp = p.with_file_name(format!(".{}.gfnew", file_name(p)));
+    let r = fs::write(&tmp, data).and_then(|_| fs::rename(&tmp, p));
+    if r.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    r
+}
+
 /// Keep the file as `<name>.bak-<stamp>` beside it.
 fn keep_bak(p: &Path, old: &[u8], stamp: &str) -> Result<(), UpdateError> {
     let bak = p.with_file_name(format!("{}.bak-{stamp}", file_name(p)));
@@ -461,7 +473,7 @@ pub fn update_plugin_order_yml(
         if path.exists() {
             keep_bak(path, &old, env.stamp)?;
         }
-        fs::write(path, &data)?;
+        write_whole(path, &data)?;
         // the "N -> M" count is cosmetic: the new file is written, so a failure to read the old
         // one must be invisible
         let from = if old.is_empty() { None } else { parse(&old).ok() };
@@ -522,7 +534,7 @@ pub fn fetch_list_data_paths(
     if path.exists() {
         keep_bak(path, &old, env.stamp)?;
     }
-    fs::write(path, data)?;
+    write_whole(path, &data)?;
     Ok(vec![format!("{name}: cached {} data paths for '{slug}' (previous kept as .bak).", tails.len())])
 }
 
@@ -579,7 +591,7 @@ pub fn update_rule_files(
         if p.exists() {
             keep_bak(p, &old, env.stamp)?;
         }
-        fs::write(p, &data)?;
+        write_whole(p, &data)?;
         report.push(format!(
             "{name}: updated {} -> {} bytes (previous version kept as .bak)",
             commas(old.len()),

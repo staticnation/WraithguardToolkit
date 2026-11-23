@@ -19,6 +19,9 @@ luacore = { path = "../luacore", features = ["teal"] }
 # already build (mlua, MIT, its features the ones htl-core asks for).
 libloading = "0.9"
 mlua = "0.12"
+# Wraithguard: the Lua worker's line to the program (src/luaproc.rs), one JSON message a line
+# (already in the build: the shell and the pages use it).
+serde_json = "1"
 # Wraithguard: the Editor's Physics drop (Rapier over the scene's collision; ../physcore).
 physcore = { path = "../physcore" }
 # Wraithguard: the openmw.cfg reader (data folders, content, groundcover, archives, chained

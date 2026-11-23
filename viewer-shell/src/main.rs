@@ -72,6 +72,11 @@ fn main() {
     launch_env();
     let args: Vec<String> = std::env::args().collect();
 
+    // The Preview's Lua, in a process of its own the program can end (viewcore::luaproc).
+    if args.get(1).map(String::as_str) == Some("--lua-worker") {
+        std::process::exit(viewcore::luaproc::serve());
+    }
+
     // One context for the whole binary. On macOS `generate_context!` embeds the
     // Info.plist as a named static (`_EMBED_INFO_PLIST`), so expanding it in both
     // modes -- here and in the cell viewer -- fails to link with a duplicate symbol.

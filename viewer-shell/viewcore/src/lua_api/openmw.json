@@ -1,0 +1,3795 @@
+{
+"only": {
+"Cell.getAll": [
+"global"
+],
+"storage.allPlayerSections": [
+"menu",
+"player"
+],
+"storage.playerSection": [
+"menu",
+"player"
+]
+},
+"packages": {
+"openmw.ambient": "ambient",
+"openmw.animation": "animation",
+"openmw.async": "async",
+"openmw.camera": "camera",
+"openmw.content": "content",
+"openmw.core": "core",
+"openmw.debug": "Debug",
+"openmw.input": "input",
+"openmw.interfaces": "interfaces",
+"openmw.markup": "markup",
+"openmw.menu": "menu",
+"openmw.nearby": "nearby",
+"openmw.postprocessing": "postprocessing",
+"openmw.self": "Self",
+"openmw.storage": "storage",
+"openmw.types": "types",
+"openmw.ui": "ui",
+"openmw.util": "util",
+"openmw.vfs": "vfs",
+"openmw.world": "world"
+},
+"source": "OpenMW files/lua_api/openmw at 10b88689fa1105edc6f24959b041e5c0b12b2d11",
+"types": {
+"ACTION": {
+"extends": null,
+"fields": {
+"Activate": "number",
+"AlwaysRun": "number",
+"AutoMove": "number",
+"Console": "number",
+"CycleSpellLeft": "number",
+"CycleSpellRight": "number",
+"CycleWeaponLeft": "number",
+"CycleWeaponRight": "number",
+"GameMenu": "number",
+"Inventory": "number",
+"Journal": "number",
+"Jump": "number",
+"MoveBackward": "number",
+"MoveForward": "number",
+"MoveLeft": "number",
+"MoveRight": "number",
+"QuickKey1": "number",
+"QuickKey10": "number",
+"QuickKey2": "number",
+"QuickKey3": "number",
+"QuickKey4": "number",
+"QuickKey5": "number",
+"QuickKey6": "number",
+"QuickKey7": "number",
+"QuickKey8": "number",
+"QuickKey9": "number",
+"QuickKeysMenu": "number",
+"QuickLoad": "number",
+"QuickMenu": "number",
+"QuickSave": "number",
+"Run": "number",
+"Screenshot": "number",
+"Sneak": "number",
+"ToggleDebug": "number",
+"ToggleHUD": "number",
+"TogglePOV": "number",
+"TogglePostProcessorHUD": "number",
+"ToggleSpell": "number",
+"ToggleWeapon": "number",
+"Use": "number",
+"ZoomIn": "number",
+"ZoomOut": "number"
+},
+"fns": {}
+},
+"ACTION_TYPE": {
+"extends": null,
+"fields": {
+"Boolean": "ActionType",
+"Number": "ActionType",
+"Range": "ActionType"
+},
+"fns": {}
+},
+"AIStat": {
+"extends": null,
+"fields": {
+"base": "number",
+"modified": "number",
+"modifier": "number"
+},
+"fns": {}
+},
+"AIStats": {
+"extends": null,
+"fields": {},
+"fns": {
+"alarm": "AIStat",
+"fight": "AIStat",
+"flee": "AIStat",
+"hello": "AIStat"
+}
+},
+"ALIGNMENT": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"ATTACK_TYPE": {
+"extends": null,
+"fields": {
+"Any": "number",
+"Chop": "number",
+"NoAttack": "number",
+"Slash": "number",
+"Thrust": "number"
+},
+"fns": {}
+},
+"ActionInfo": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"ActionType": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"Actioninfo": {
+"extends": null,
+"fields": {
+"description": "string",
+"initial": "defaultValue",
+"key": "string",
+"l10n": "string",
+"name": "string",
+"type": "ActionType"
+},
+"fns": {}
+},
+"Activator": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "ActivatorRecord",
+"objectIsInstance": "boolean",
+"record": "ActivatorRecord"
+}
+},
+"ActivatorContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"ActivatorRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"model": "string",
+"mwscript": "string",
+"name": "string"
+},
+"fns": {}
+},
+"ActiveEffect": {
+"extends": null,
+"fields": {
+"affectedAttribute": "string",
+"affectedSkill": "string",
+"id": "string",
+"magnitude": "number",
+"magnitudeBase": "number",
+"magnitudeModifier": "number",
+"name": "string"
+},
+"fns": {}
+},
+"ActiveSpell": {
+"extends": null,
+"fields": {
+"activeSpellId": "string",
+"affectsBaseValues": "boolean",
+"caster": "GameObject",
+"effects": "table",
+"fromEquipment": "boolean",
+"id": "string",
+"item": "GameObject",
+"name": "string",
+"stackable": "boolean",
+"temporary": "boolean"
+},
+"fns": {}
+},
+"ActiveSpellEffect": {
+"extends": null,
+"fields": {
+"affectedAttribute": "string",
+"affectedSkill": "string",
+"duration": "number",
+"durationLeft": "number",
+"id": "string",
+"index": "number",
+"magnitudeThisFrame": "number",
+"maxMagnitude": "number",
+"minMagnitude": "number",
+"name": "string"
+},
+"fns": {}
+},
+"Actor": {
+"extends": null,
+"fields": {
+"EQUIPMENT_SLOT": "EQUIPMENT_SLOT",
+"STANCE": "STANCE",
+"stats": "ActorStats"
+},
+"fns": {
+"activeEffects": "ActorActiveEffects",
+"activeSpells": "ActorActiveSpells",
+"canMove": "boolean",
+"clearSelectedCastable": "nil",
+"getBarterGold": "number",
+"getCapacity": "number",
+"getCurrentSpeed": "number",
+"getEncumbrance": "number",
+"getEquipment": "EquipmentTable",
+"getHitRecovery": "boolean",
+"getKnockedDown": "boolean",
+"getPathfindingAgentBounds": "table",
+"getRunSpeed": "number",
+"getSelectedEnchantedItem": "GameObject",
+"getSelectedSpell": "Spell",
+"getStance": "number",
+"getWalkSpeed": "number",
+"hasEquipped": "boolean",
+"inventory": "Inventory",
+"isDead": "boolean",
+"isDeathFinished": "boolean",
+"isInActorsProcessingRange": "boolean",
+"isOnGround": "boolean",
+"isSwimming": "boolean",
+"objectIsInstance": "boolean",
+"setBarterGold": "nil",
+"setEquipment": "nil",
+"setHitRecovery": "nil",
+"setKnockedDown": "nil",
+"setSelectedEnchantedItem": "nil",
+"setSelectedSpell": "nil",
+"setStance": "nil",
+"spells": "ActorSpells"
+}
+},
+"ActorActiveEffects": {
+"extends": null,
+"fields": {},
+"fns": {
+"getEffect": "ActiveEffect",
+"modify": "nil",
+"remove": "nil",
+"set": "nil"
+}
+},
+"ActorActiveSpells": {
+"extends": null,
+"fields": {},
+"fns": {
+"add": "nil",
+"getByActiveSpellId": "ActiveSpell",
+"isSpellActive": "true",
+"remove": "nil"
+}
+},
+"ActorControls": {
+"extends": null,
+"fields": {
+"jump": "boolean",
+"movement": "number",
+"pitchChange": "number",
+"run": "boolean",
+"sideMovement": "number",
+"sneak": "boolean",
+"use": "ATTACK_TYPE",
+"yawChange": "number"
+},
+"fns": {}
+},
+"ActorSpells": {
+"extends": null,
+"fields": {},
+"fns": {
+"add": "nil",
+"canUsePower": "nil",
+"clear": "nil",
+"remove": "nil"
+}
+},
+"ActorStats": {
+"extends": null,
+"fields": {
+"ai": "AIStats",
+"attributes": "AttributeStats",
+"dynamic": "DynamicStats"
+},
+"fns": {
+"level": "LevelStat"
+}
+},
+"AgentBounds": {
+"extends": null,
+"fields": {
+"halfExtents": "Vector3",
+"shapeType": "COLLISION_SHAPE_TYPE"
+},
+"fns": {}
+},
+"Apparatus": {
+"extends": "Item",
+"fields": {
+"TYPE": "ApparatusTYPE",
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"objectIsInstance": "boolean",
+"record": "ApparatusRecord"
+}
+},
+"ApparatusContent": {
+"extends": null,
+"fields": {
+"TYPE": "ApparatusTYPE",
+"records": "table"
+},
+"fns": {}
+},
+"ApparatusRecord": {
+"extends": null,
+"fields": {
+"icon": "string",
+"id": "string",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"quality": "number",
+"type": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"ApparatusTYPE": {
+"extends": null,
+"fields": {
+"Alembic": "number",
+"Calcinator": "number",
+"MortarPestle": "number",
+"Retort": "number"
+},
+"fns": {}
+},
+"AreaCosts": {
+"extends": null,
+"fields": {
+"door": "number",
+"ground": "number",
+"pathgrid": "number",
+"water": "number"
+},
+"fns": {}
+},
+"Armor": {
+"extends": "Item",
+"fields": {
+"TYPE": "ArmorTYPE",
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "ArmorRecord",
+"objectIsInstance": "boolean",
+"record": "ArmorRecord"
+}
+},
+"ArmorRecord": {
+"extends": null,
+"fields": {
+"baseArmor": "number",
+"enchant": "string",
+"enchantCapacity": "number",
+"health": "number",
+"icon": "string",
+"id": "string",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"type": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"ArmorTYPE": {
+"extends": null,
+"fields": {
+"Boots": "number",
+"Cuirass": "number",
+"Greaves": "number",
+"Helmet": "number",
+"LBracer": "number",
+"LGauntlet": "number",
+"LPauldron": "number",
+"RBracer": "number",
+"RGauntlet": "number",
+"RPauldron": "number",
+"Shield": "number"
+},
+"fns": {}
+},
+"Attribute": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"record": "AttributeRecord"
+}
+},
+"AttributeContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"AttributeRecord": {
+"extends": null,
+"fields": {
+"description": "string",
+"icon": "string",
+"id": "string",
+"name": "string",
+"werewolfValue": "number"
+},
+"fns": {}
+},
+"AttributeStat": {
+"extends": null,
+"fields": {
+"base": "number",
+"damage": "number",
+"modified": "number",
+"modifier": "number"
+},
+"fns": {}
+},
+"AttributeStats": {
+"extends": null,
+"fields": {},
+"fns": {
+"agility": "AttributeStat",
+"endurance": "AttributeStat",
+"intelligence": "AttributeStat",
+"luck": "AttributeStat",
+"personality": "AttributeStat",
+"speed": "AttributeStat",
+"strength": "AttributeStat",
+"willpower": "AttributeStat"
+}
+},
+"BirthSignRecord": {
+"extends": null,
+"fields": {
+"description": "string",
+"id": "string",
+"name": "string",
+"spells": "table",
+"texture": "string"
+},
+"fns": {}
+},
+"BirthSigns": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"record": "BirthSignRecord"
+}
+},
+"BlendMask": {
+"extends": null,
+"fields": {
+"All": "number",
+"LeftArm": "number",
+"LowerBody": "number",
+"RightArm": "number",
+"Torso": "number",
+"UpperBody": "number"
+},
+"fns": {}
+},
+"BodyPart": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"objectIsInstance": "boolean"
+}
+},
+"BodyPartRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"isFemale": "boolean",
+"isPlayable": "boolean",
+"isVampire": "boolean",
+"model": "string",
+"race": "string",
+"type": "string"
+},
+"fns": {}
+},
+"BoneGroup": {
+"extends": null,
+"fields": {
+"LeftArm": "number",
+"LowerBody": "number",
+"RightArm": "number",
+"Torso": "number"
+},
+"fns": {}
+},
+"Book": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "BookRecord",
+"objectIsInstance": "boolean",
+"record": "BookRecord"
+}
+},
+"BookContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"BookRecord": {
+"extends": null,
+"fields": {
+"enchant": "string",
+"enchantCapacity": "number",
+"icon": "string",
+"id": "string",
+"isScroll": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"skill": "string",
+"text": "string",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"Box": {
+"extends": null,
+"fields": {
+"center": "Vector3",
+"halfSize": "Vector3",
+"transform": "Transform",
+"vertices": "table"
+},
+"fns": {}
+},
+"COLLISION_SHAPE_TYPE": {
+"extends": null,
+"fields": {
+"Aabb": "number",
+"Cylinder": "number",
+"RotatingBox": "number"
+},
+"fns": {}
+},
+"COLLISION_TYPE": {
+"extends": null,
+"fields": {
+"Actor": "number",
+"AnyPhysical": "number",
+"Camera": "number",
+"Default": "number",
+"Door": "number",
+"HeightMap": "number",
+"Projectile": "number",
+"VisualOnly": "number",
+"Water": "number",
+"World": "number"
+},
+"fns": {}
+},
+"COLOR": {
+"extends": null,
+"fields": {},
+"fns": {
+"commaString": "Color",
+"hex": "Color",
+"rgb": "Color",
+"rgba": "Color"
+}
+},
+"CONSOLE_COLOR": {
+"extends": null,
+"fields": {
+"Default": "Color",
+"Error": "Color",
+"Info": "Color",
+"Success": "Color"
+},
+"fns": {}
+},
+"CONTROLLER_AXIS": {
+"extends": null,
+"fields": {
+"LeftX": "number",
+"LeftY": "number",
+"LookLeftRight": "number",
+"LookUpDown": "number",
+"MoveForwardBackward": "number",
+"MoveLeftRight": "number",
+"RightX": "number",
+"RightY": "number",
+"TriggerLeft": "number",
+"TriggerRight": "number"
+},
+"fns": {}
+},
+"CONTROLLER_BUTTON": {
+"extends": null,
+"fields": {
+"A": "number",
+"B": "number",
+"Back": "number",
+"DPadDown": "number",
+"DPadLeft": "number",
+"DPadRight": "number",
+"DPadUp": "number",
+"Guide": "number",
+"LeftShoulder": "number",
+"LeftStick": "number",
+"Misc1": "number",
+"Paddle1": "number",
+"Paddle2": "number",
+"Paddle3": "number",
+"Paddle4": "number",
+"RightShoulder": "number",
+"RightStick": "number",
+"Start": "number",
+"Touchpad": "number",
+"X": "number",
+"Y": "number"
+},
+"fns": {}
+},
+"CONTROL_SWITCH": {
+"extends": null,
+"fields": {
+"Controls": "ControlSwitch",
+"Fighting": "ControlSwitch",
+"Jumping": "ControlSwitch",
+"Looking": "ControlSwitch",
+"Magic": "ControlSwitch",
+"VanityMode": "ControlSwitch",
+"ViewMode": "ControlSwitch"
+},
+"fns": {}
+},
+"CastRayOptions": {
+"extends": null,
+"fields": {
+"collisionType": "number",
+"ignore": "any",
+"radius": "number"
+},
+"fns": {}
+},
+"CastRenderingRayOptions": {
+"extends": null,
+"fields": {
+"ignore": "any"
+},
+"fns": {}
+},
+"Cell": {
+"extends": null,
+"fields": {
+"displayName": "string",
+"gridX": "number",
+"gridY": "number",
+"hasBeenLoaded": "boolean",
+"hasSky": "boolean",
+"hasWater": "boolean",
+"id": "string",
+"isExterior": "boolean",
+"isQuasiExterior": "boolean",
+"name": "string",
+"pathGrid": "PathGrid",
+"region": "string",
+"waterLevel": "number",
+"worldSpaceId": "string"
+},
+"fns": {
+"getAll": "ObjectList",
+"hasTag": "boolean",
+"isInSameSpace": "boolean"
+}
+},
+"ClassContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"ClassRecord": {
+"extends": null,
+"fields": {
+"attributes": "table",
+"description": "string",
+"id": "string",
+"isPlayable": "boolean",
+"majorSkills": "table",
+"minorSkills": "table",
+"name": "string",
+"specialization": "string"
+},
+"fns": {}
+},
+"Classes": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"record": "ClassRecord"
+}
+},
+"Clothing": {
+"extends": "Item",
+"fields": {
+"TYPE": "ClothingTYPE",
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "ClothingRecord",
+"objectIsInstance": "boolean",
+"record": "ClothingRecord"
+}
+},
+"ClothingRecord": {
+"extends": null,
+"fields": {
+"enchant": "string",
+"enchantCapacity": "number",
+"icon": "string",
+"id": "string",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"type": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"ClothingTYPE": {
+"extends": null,
+"fields": {
+"Amulet": "number",
+"Belt": "number",
+"LGlove": "number",
+"Pants": "number",
+"RGlove": "number",
+"Ring": "number",
+"Robe": "number",
+"Shirt": "number",
+"Shoes": "number",
+"Skirt": "number"
+},
+"fns": {}
+},
+"Color": {
+"extends": null,
+"fields": {
+"a": "number",
+"b": "number",
+"g": "number",
+"r": "number"
+},
+"fns": {
+"asHex": "string",
+"asRgb": "Vector3",
+"asRgba": "Vector4"
+}
+},
+"Container": {
+"extends": "LOCKABLE",
+"fields": {
+"baseType": "LOCKABLE",
+"records": "table"
+},
+"fns": {
+"content": "Inventory",
+"createRecordDraft": "ContainerRecord",
+"getCapacity": "number",
+"getEncumbrance": "number",
+"inventory": "Inventory",
+"objectIsInstance": "boolean",
+"record": "ContainerRecord"
+}
+},
+"ContainerRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"isOrganic": "boolean",
+"isRespawning": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"weight": "number"
+},
+"fns": {}
+},
+"Content": {
+"extends": null,
+"fields": {},
+"fns": {
+"__index": "any",
+"add": "nil",
+"indexOf": "number",
+"insert": "nil"
+}
+},
+"ContentFiles": {
+"extends": null,
+"fields": {
+"list": "table"
+},
+"fns": {
+"has": "boolean",
+"indexOf": "number"
+}
+},
+"ControlSwitch": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"Creature": {
+"extends": "Actor",
+"fields": {
+"TYPE": "CreatureTYPE",
+"baseType": "Actor",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "CreatureRecord",
+"objectIsInstance": "boolean",
+"record": "CreatureRecord"
+}
+},
+"CreatureAttack": {
+"extends": null,
+"fields": {
+"maxDamage": "number",
+"minDamage": "number"
+},
+"fns": {}
+},
+"CreatureLevelledList": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "CreatureLevelledListRecord",
+"objectIsInstance": "boolean",
+"record": "CreatureLevelledListRecord"
+}
+},
+"CreatureLevelledListRecord": {
+"extends": null,
+"fields": {
+"calculateFromAllLevels": "boolean",
+"chanceNone": "number",
+"creatures": "table",
+"id": "string"
+},
+"fns": {
+"getRandomId": "string"
+}
+},
+"CreatureRecord": {
+"extends": null,
+"fields": {
+"attack": "table",
+"baseCreature": "string",
+"baseGold": "number",
+"bloodType": "number",
+"canFly": "boolean",
+"canSwim": "boolean",
+"canUseWeapons": "boolean",
+"canWalk": "boolean",
+"combatSkill": "number",
+"id": "string",
+"isBiped": "boolean",
+"isEssential": "boolean",
+"isPersistent": "boolean",
+"isRespawning": "boolean",
+"magicSkill": "number",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"soulValue": "number",
+"stealthSkill": "number",
+"travelDestinations": "table",
+"type": "number"
+},
+"fns": {}
+},
+"CreatureTYPE": {
+"extends": null,
+"fields": {
+"Creatures": "number",
+"Daedra": "number",
+"Humanoid": "number",
+"Undead": "number"
+},
+"fns": {}
+},
+"CursorMode": {
+"extends": null,
+"fields": {
+"The": "LOCKED"
+},
+"fns": {}
+},
+"CursorResource": {
+"extends": null,
+"fields": {
+"hotspot": "Vector2",
+"path": "string",
+"rotation": "number",
+"size": "Vector2"
+},
+"fns": {}
+},
+"CursorResourceOptions": {
+"extends": null,
+"fields": {
+"hotspot": "Vector2",
+"path": "string",
+"rotation": "number",
+"size": "Vector2"
+},
+"fns": {}
+},
+"Debug": {
+"extends": null,
+"fields": {
+"NAV_MESH_RENDER_MODE": "NAV_MESH_RENDER_MODE",
+"RENDER_MODE": "RENDER_MODE"
+},
+"fns": {
+"isAIEnabled": "boolean",
+"isCollisionEnabled": "boolean",
+"isGodMode": "boolean",
+"isMWScriptEnabled": "boolean",
+"reloadLua": "nil",
+"setNavMeshRenderMode": "nil",
+"setShaderHotReloadEnabled": "nil",
+"takeScreenshot": "nil",
+"toggleAI": "nil",
+"toggleCollision": "nil",
+"toggleGodMode": "nil",
+"toggleMWScript": "nil",
+"toggleRenderMode": "nil",
+"triggerShaderReload": "nil"
+}
+},
+"Dialogue": {
+"extends": null,
+"fields": {
+"CONDITION_OPERATOR": "DialogueConditionOperator",
+"CONDITION_TYPE": "DialogueConditionType"
+},
+"fns": {}
+},
+"DialogueConditionOperator": {
+"extends": null,
+"fields": {
+"Equal": "number",
+"Greater": "number",
+"GreaterEqual": "number",
+"Less": "number",
+"LessEqual": "number",
+"NotEqual": "number"
+},
+"fns": {}
+},
+"DialogueConditionType": {
+"extends": null,
+"fields": {
+"Alarm": "number",
+"Alarmed": "number",
+"Attacked": "number",
+"Choice": "number",
+"CreatureTarget": "number",
+"Dead": "number",
+"Detected": "number",
+"FacReactionHighest": "number",
+"FacReactionLowest": "number",
+"FactionRankDifference": "number",
+"Fight": "number",
+"Flee": "number",
+"FriendHit": "number",
+"Global": "number",
+"HealthPercent": "number",
+"Hello": "number",
+"Item": "number",
+"Journal": "number",
+"Level": "number",
+"Local": "number",
+"NotCell": "number",
+"NotClass": "number",
+"NotFaction": "number",
+"NotId": "number",
+"NotLocal": "number",
+"NotRace": "number",
+"PcAcrobatics": "number",
+"PcAgility": "number",
+"PcAlchemy": "number",
+"PcAlteration": "number",
+"PcArmorer": "number",
+"PcAthletics": "number",
+"PcAxe": "number",
+"PcBlightDisease": "number",
+"PcBlock": "number",
+"PcBluntWeapon": "number",
+"PcClothingModifier": "number",
+"PcCommonDisease": "number",
+"PcConjuration": "number",
+"PcCorprus": "number",
+"PcCrimeLevel": "number",
+"PcDestruction": "number",
+"PcEnchant": "number",
+"PcEndurance": "number",
+"PcExpelled": "number",
+"PcFatigue": "number",
+"PcGender": "number",
+"PcHandToHand": "number",
+"PcHealth": "number",
+"PcHealthPercent": "number",
+"PcHeavyArmor": "number",
+"PcIllusion": "number",
+"PcIntelligence": "number",
+"PcLevel": "number",
+"PcLightArmor": "number",
+"PcLongBlade": "number",
+"PcLuck": "number",
+"PcMagicka": "number",
+"PcMarksman": "number",
+"PcMediumArmor": "number",
+"PcMercantile": "number",
+"PcMysticism": "number",
+"PcPersonality": "number",
+"PcReputation": "number",
+"PcRestoration": "number",
+"PcSecurity": "number",
+"PcShortBlade": "number",
+"PcSneak": "number",
+"PcSpear": "number",
+"PcSpeechcraft": "number",
+"PcSpeed": "number",
+"PcStrength": "number",
+"PcUnarmored": "number",
+"PcVampire": "number",
+"PcWerewolfKills": "number",
+"PcWillpower": "number",
+"RankRequirement": "number",
+"Reputation": "number",
+"SameFaction": "number",
+"SameGender": "number",
+"SameRace": "number",
+"ShouldAttack": "number",
+"TalkedToPc": "number",
+"Weather": "number",
+"Werewolf": "number"
+},
+"fns": {}
+},
+"DialogueInfoCondition": {
+"extends": null,
+"fields": {
+"cellName": "string",
+"operator": "DialogueConditionOperator",
+"recordId": "string",
+"type": "DialogueConditionType",
+"value": "number",
+"variableName": "string"
+},
+"fns": {}
+},
+"DialogueRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"infos": "table",
+"name": "string",
+"questName": "string"
+},
+"fns": {}
+},
+"DialogueRecordInfo": {
+"extends": null,
+"fields": {
+"conditions": "table",
+"filterActorClass": "string",
+"filterActorDisposition": "number",
+"filterActorFaction": "string",
+"filterActorFactionRank": "number",
+"filterActorGender": "string",
+"filterActorId": "string",
+"filterActorRace": "string",
+"filterPlayerCell": "string",
+"filterPlayerFaction": "string",
+"filterPlayerFactionRank": "number",
+"id": "string",
+"isQuestFinished": "boolean",
+"isQuestName": "boolean",
+"isQuestRestart": "boolean",
+"questStage": "number",
+"resultScript": "string",
+"sound": "string",
+"text": "string"
+},
+"fns": {}
+},
+"DialogueRecords": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"Door": {
+"extends": "LOCKABLE",
+"fields": {
+"STATE": "DoorSTATE",
+"baseType": "LOCKABLE",
+"records": "table"
+},
+"fns": {
+"activateDoor": "nil",
+"createRecordDraft": "DoorRecord",
+"destCell": "Cell",
+"destPosition": "Vector3",
+"destRotation": "Transform",
+"getDoorState": "DoorSTATE",
+"isClosed": "boolean",
+"isOpen": "boolean",
+"isTeleport": "boolean",
+"objectIsInstance": "boolean",
+"record": "DoorRecord"
+}
+},
+"DoorContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"DoorRecord": {
+"extends": null,
+"fields": {
+"closeSound": "string",
+"id": "string",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"openSound": "string"
+},
+"fns": {}
+},
+"DoorSTATE": {
+"extends": null,
+"fields": {
+"Closing": "number",
+"Idle": "number",
+"Opening": "number"
+},
+"fns": {}
+},
+"DynamicStat": {
+"extends": null,
+"fields": {
+"base": "number",
+"current": "number",
+"modifier": "number"
+},
+"fns": {}
+},
+"DynamicStats": {
+"extends": null,
+"fields": {},
+"fns": {
+"fatigue": "DynamicStat",
+"health": "DynamicStat",
+"magicka": "DynamicStat"
+}
+},
+"EQUIPMENT_SLOT": {
+"extends": null,
+"fields": {
+"Ammunition": "number",
+"Amulet": "number",
+"Belt": "number",
+"Boots": "number",
+"CarriedLeft": "number",
+"CarriedRight": "number",
+"Cuirass": "number",
+"Greaves": "number",
+"Helmet": "number",
+"LeftGauntlet": "number",
+"LeftPauldron": "number",
+"LeftRing": "number",
+"Pants": "number",
+"RightGauntlet": "number",
+"RightPauldron": "number",
+"RightRing": "number",
+"Robe": "number",
+"Shirt": "number",
+"Skirt": "number"
+},
+"fns": {}
+},
+"ESM4Door": {
+"extends": "LOCKABLE",
+"fields": {
+"baseType": "LOCKABLE",
+"records": "table"
+},
+"fns": {
+"destCell": "Cell",
+"destPosition": "Vector3",
+"destRotation": "Transform",
+"isTeleport": "boolean",
+"objectIsInstance": "boolean",
+"record": "ESM4DoorRecord"
+}
+},
+"ESM4DoorRecord": {
+"extends": null,
+"fields": {
+"closeSound": "string",
+"id": "string",
+"model": "string",
+"name": "string",
+"openSound": "string"
+},
+"fns": {}
+},
+"ESM4Terminal": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"objectIsInstance": "boolean",
+"record": "ESM4TerminalRecord"
+}
+},
+"ESM4TerminalRecord": {
+"extends": null,
+"fields": {
+"editorId": "string",
+"id": "string",
+"model": "string",
+"name": "string",
+"resultText": "string",
+"text": "string"
+},
+"fns": {}
+},
+"Element": {
+"extends": null,
+"fields": {
+"layout": "Layout"
+},
+"fns": {
+"destroy": "nil",
+"update": "nil"
+}
+},
+"Enchantment": {
+"extends": null,
+"fields": {
+"autocalcFlag": "boolean",
+"charge": "number",
+"cost": "number",
+"effects": "table",
+"id": "string",
+"isAutocalc": "boolean",
+"type": "number"
+},
+"fns": {}
+},
+"EnchantmentContent": {
+"extends": null,
+"fields": {
+"TYPE": "EnchantmentType",
+"records": "table"
+},
+"fns": {}
+},
+"EnchantmentType": {
+"extends": null,
+"fields": {
+"CastOnStrike": "number",
+"CastOnUse": "number",
+"CastOnce": "number",
+"ConstantEffect": "number"
+},
+"fns": {}
+},
+"Enchantments": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "Enchantment"
+}
+},
+"EquipmentTable": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"FIND_PATH_STATUS": {
+"extends": null,
+"fields": {
+"EndPolygonNotFound": "number",
+"FindPathOverPolygonsFailed": "number",
+"FindStraightPathFailed": "number",
+"InitNavMeshQueryFailed": "number",
+"MoveAlongSurfaceFailed": "number",
+"NavMeshNotFound": "number",
+"PartialPath": "number",
+"StartPolygonNotFound": "number",
+"Success": "number",
+"TargetPolygonNotFound": "number"
+},
+"fns": {}
+},
+"FactionContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"FactionRank": {
+"extends": null,
+"fields": {
+"attributeValues": "table",
+"factionReaction": "number",
+"factionReputation": "number",
+"favouredSkillValue": "number",
+"name": "string",
+"primarySkillValue": "number"
+},
+"fns": {}
+},
+"FactionRecord": {
+"extends": null,
+"fields": {
+"attributes": "table",
+"hidden": "boolean",
+"id": "string",
+"name": "string",
+"ranks": "table",
+"skills": "table"
+},
+"fns": {}
+},
+"Factions": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"FileHandle": {
+"extends": null,
+"fields": {
+"fileName": "string"
+},
+"fns": {
+"close": "boolean",
+"lines": "function",
+"read": "string",
+"seek": "number"
+}
+},
+"FindNearestNavMeshPositionOptions": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"FindPathOptions": {
+"extends": null,
+"fields": {
+"agentBounds": "AgentBounds",
+"areaCosts": "AreaCosts",
+"checkpoints": "table",
+"destinationTolerance": "number",
+"includeFlags": "number"
+},
+"fns": {}
+},
+"GMSTContent": {
+"extends": null,
+"fields": {},
+"fns": {
+"getFallbacks": "table"
+}
+},
+"GameObject": {
+"extends": "userdata",
+"fields": {
+"cell": "Cell",
+"contentFile": "string",
+"count": "number",
+"enabled": "boolean",
+"globalVariable": "string",
+"id": "string",
+"owner": "ObjectOwner",
+"parentContainer": "GameObject",
+"position": "Vector3",
+"recordId": "string",
+"rotation": "Transform",
+"saveState": "boolean",
+"scale": "number",
+"startingCell": "Cell",
+"startingPosition": "Vector3",
+"startingRotation": "Transform",
+"type": "any"
+},
+"fns": {
+"activateBy": "nil",
+"addScript": "nil",
+"getBoundingBox": "Box",
+"hasScript": "boolean",
+"isValid": "boolean",
+"moveInto": "nil",
+"remove": "nil",
+"removeScript": "nil",
+"sendEvent": "nil",
+"setSaveState": "nil",
+"setScale": "nil",
+"split": "GameObject",
+"teleport": "nil"
+}
+},
+"GenderedNumber": {
+"extends": null,
+"fields": {
+"female": "number",
+"male": "number"
+},
+"fns": {}
+},
+"Ingredient": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "IngredientRecord",
+"objectIsInstance": "boolean",
+"record": "IngredientRecord"
+}
+},
+"IngredientContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"IngredientRecord": {
+"extends": null,
+"fields": {
+"effects": "table",
+"icon": "string",
+"id": "string",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"Inventory": {
+"extends": null,
+"fields": {},
+"fns": {
+"countOf": "number",
+"find": "GameObject",
+"findAll": "ObjectList",
+"getAll": "ObjectList",
+"isResolved": "boolean",
+"resolve": "nil"
+}
+},
+"Item": {
+"extends": null,
+"fields": {
+"levelledItems": "ItemLevelledList"
+},
+"fns": {
+"getEnchantmentCharge": "number",
+"isCarriable": "boolean",
+"isRestocking": "boolean",
+"itemData": "ItemData",
+"objectIsInstance": "boolean",
+"setEnchantmentCharge": "nil"
+}
+},
+"ItemData": {
+"extends": null,
+"fields": {
+"condition": "number",
+"enchantmentCharge": "number",
+"soul": "string"
+},
+"fns": {}
+},
+"ItemLevelledList": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "ItemLevelledListRecord",
+"record": "ItemLevelledListRecord"
+}
+},
+"ItemLevelledListRecord": {
+"extends": null,
+"fields": {
+"calculateForEach": "boolean",
+"calculateFromAllLevels": "boolean",
+"chanceNone": "number",
+"id": "string",
+"items": "table"
+},
+"fns": {
+"getRandomId": "string"
+}
+},
+"KEY": {
+"extends": null,
+"fields": {
+"A": "KeyCode",
+"Apostrophe": "KeyCode",
+"B": "KeyCode",
+"BackSlash": "KeyCode",
+"Backspace": "KeyCode",
+"C": "KeyCode",
+"CapsLock": "KeyCode",
+"Comma": "KeyCode",
+"D": "KeyCode",
+"Delete": "KeyCode",
+"DownArrow": "KeyCode",
+"E": "KeyCode",
+"End": "KeyCode",
+"Enter": "KeyCode",
+"Equals": "KeyCode",
+"Escape": "KeyCode",
+"F": "KeyCode",
+"F1": "KeyCode",
+"F10": "KeyCode",
+"F11": "KeyCode",
+"F12": "KeyCode",
+"F2": "KeyCode",
+"F3": "KeyCode",
+"F4": "KeyCode",
+"F5": "KeyCode",
+"F6": "KeyCode",
+"F7": "KeyCode",
+"F8": "KeyCode",
+"F9": "KeyCode",
+"G": "KeyCode",
+"H": "KeyCode",
+"Home": "KeyCode",
+"I": "KeyCode",
+"Insert": "KeyCode",
+"J": "KeyCode",
+"K": "KeyCode",
+"L": "KeyCode",
+"LeftAlt": "KeyCode",
+"LeftArrow": "KeyCode",
+"LeftBracket": "KeyCode",
+"LeftCtrl": "KeyCode",
+"LeftShift": "KeyCode",
+"LeftSuper": "KeyCode",
+"M": "KeyCode",
+"Minus": "KeyCode",
+"N": "KeyCode",
+"NP_0": "KeyCode",
+"NP_1": "KeyCode",
+"NP_2": "KeyCode",
+"NP_3": "KeyCode",
+"NP_4": "KeyCode",
+"NP_5": "KeyCode",
+"NP_6": "KeyCode",
+"NP_7": "KeyCode",
+"NP_8": "KeyCode",
+"NP_9": "KeyCode",
+"NP_Delete": "KeyCode",
+"NP_Divide": "KeyCode",
+"NP_Enter": "KeyCode",
+"NP_Minus": "KeyCode",
+"NP_Multiply": "KeyCode",
+"NP_Plus": "KeyCode",
+"NumLock": "KeyCode",
+"O": "KeyCode",
+"P": "KeyCode",
+"PageDown": "KeyCode",
+"PageUp": "KeyCode",
+"Pause": "KeyCode",
+"Period": "KeyCode",
+"PrintScreen": "KeyCode",
+"Q": "KeyCode",
+"R": "KeyCode",
+"RightAlt": "KeyCode",
+"RightArrow": "KeyCode",
+"RightBracket": "KeyCode",
+"RightCtrl": "KeyCode",
+"RightShift": "KeyCode",
+"RightSuper": "KeyCode",
+"S": "KeyCode",
+"ScrollLock": "KeyCode",
+"Semicolon": "KeyCode",
+"Slash": "KeyCode",
+"Space": "KeyCode",
+"T": "KeyCode",
+"Tab": "KeyCode",
+"U": "KeyCode",
+"UpArrow": "KeyCode",
+"V": "KeyCode",
+"W": "KeyCode",
+"X": "KeyCode",
+"Y": "KeyCode",
+"Z": "KeyCode",
+"_0": "KeyCode",
+"_1": "KeyCode",
+"_2": "KeyCode",
+"_3": "KeyCode",
+"_4": "KeyCode",
+"_5": "KeyCode",
+"_6": "KeyCode",
+"_7": "KeyCode",
+"_8": "KeyCode",
+"_9": "KeyCode"
+},
+"fns": {}
+},
+"KeyCode": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"KeyboardEvent": {
+"extends": null,
+"fields": {
+"code": "KeyCode",
+"symbol": "string",
+"withAlt": "boolean",
+"withCtrl": "boolean",
+"withShift": "boolean",
+"withSuper": "boolean"
+},
+"fns": {}
+},
+"LOCKABLE": {
+"extends": null,
+"fields": {},
+"fns": {
+"getKeyRecord": "MiscellaneousRecord",
+"getLockLevel": "number",
+"getTrapSpell": "Spell",
+"isLocked": "boolean",
+"lock": "nil",
+"objectIsInstance": "boolean",
+"setKeyRecord": "nil",
+"setTrapSpell": "nil",
+"unlock": "nil"
+}
+},
+"Land": {
+"extends": null,
+"fields": {},
+"fns": {
+"getHeightAt": "number",
+"getTextureAt": "nil"
+}
+},
+"Layer": {
+"extends": null,
+"fields": {
+"name": "string",
+"size": "Vector2"
+},
+"fns": {}
+},
+"Layers": {
+"extends": null,
+"fields": {},
+"fns": {
+"indexOf": "number",
+"insertAfter": "nil",
+"insertBefore": "nil"
+}
+},
+"Layout": {
+"extends": null,
+"fields": {
+"Arbitrary": "userData",
+"Type": "type",
+"content": "Content",
+"events": "table",
+"external": "table",
+"layer": "string",
+"name": "string",
+"props": "table",
+"template": "Template"
+},
+"fns": {}
+},
+"LevCreatureContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"LevItemContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"LevelStat": {
+"extends": null,
+"fields": {
+"current": "number",
+"progress": "number",
+"skillIncreasesForAttribute": "SkillIncreasesForAttributeStats",
+"skillIncreasesForSpecialization": "SkillIncreasesForSpecializationStats"
+},
+"fns": {}
+},
+"LevelledListItem": {
+"extends": null,
+"fields": {
+"id": "string",
+"level": "number"
+},
+"fns": {}
+},
+"LifeTime": {
+"extends": null,
+"fields": {
+"GameSession": "number",
+"Persistent": "number",
+"Temporary": "number"
+},
+"fns": {}
+},
+"Light": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "LightRecord",
+"objectIsInstance": "boolean",
+"record": "LightRecord"
+}
+},
+"LightContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"LightRecord": {
+"extends": null,
+"fields": {
+"color": "Color",
+"duration": "number",
+"icon": "string",
+"id": "string",
+"isCarriable": "boolean",
+"isDynamic": "boolean",
+"isFire": "boolean",
+"isFlicker": "boolean",
+"isFlickerSlow": "boolean",
+"isNegative": "boolean",
+"isOffByDefault": "boolean",
+"isPulse": "boolean",
+"isPulseSlow": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"radius": "number",
+"sound": "string",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"Lockpick": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"objectIsInstance": "boolean",
+"record": "LockpickRecord"
+}
+},
+"LockpickContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"LockpickRecord": {
+"extends": null,
+"fields": {
+"icon": "string",
+"id": "string",
+"maxCondition": "number",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"quality": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"MODE": {
+"extends": null,
+"fields": {
+"FirstPerson": "Mode",
+"Preview": "Mode",
+"Static": "Mode",
+"ThirdPerson": "Mode",
+"Vanity": "Mode"
+},
+"fns": {}
+},
+"MOON_PHASE": {
+"extends": null,
+"fields": {
+"FirstQuarter": "number",
+"Full": "number",
+"New": "number",
+"ThirdQuarter": "number",
+"WaningCrescent": "number",
+"WaningGibbous": "number",
+"WaxingCrescent": "number",
+"WaxingGibbous": "number"
+},
+"fns": {}
+},
+"MWScript": {
+"extends": null,
+"fields": {
+"isRunning": "boolean",
+"object": "GameObject",
+"player": "GameObject",
+"recordId": "string",
+"variables": "MWScriptVariables"
+},
+"fns": {}
+},
+"MWScriptFunctions": {
+"extends": null,
+"fields": {},
+"fns": {
+"getGlobalScript": "MWScript",
+"getGlobalVariables": "MWScriptVariables",
+"getLocalScript": "MWScript",
+"pauseLocalScript": "boolean",
+"resumeLocalScript": "boolean",
+"runLocalScript": "boolean",
+"runResultScript": "boolean",
+"startGlobalScript": "boolean",
+"stopGlobalScript": "boolean"
+}
+},
+"MWScriptRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"text": "string"
+},
+"fns": {}
+},
+"MWScriptVariables": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"MWScripts": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"Magic": {
+"extends": null,
+"fields": {
+"EFFECT_TYPE": "MagicEffectId",
+"ENCHANTMENT_TYPE": "EnchantmentType",
+"RANGE": "SpellRange",
+"SPELL_TYPE": "SpellType",
+"effects": "Effects",
+"enchantments": "Enchantments",
+"spells": "Spells"
+},
+"fns": {}
+},
+"MagicEffect": {
+"extends": null,
+"fields": {
+"allowsEnchanting": "boolean",
+"allowsSpellmaking": "boolean",
+"areaSound": "string",
+"areaStatic": "string",
+"baseCost": "number",
+"bolt": "string",
+"boltSound": "string",
+"castSound": "string",
+"castStatic": "string",
+"casterLinked": "boolean",
+"color": "Color",
+"continuousVfx": "boolean",
+"description": "string",
+"harmful": "boolean",
+"hasAttribute": "boolean",
+"hasDuration": "boolean",
+"hasMagnitude": "boolean",
+"hasSkill": "boolean",
+"hitSound": "string",
+"hitStatic": "string",
+"icon": "string",
+"id": "string",
+"isAppliedOnce": "boolean",
+"name": "string",
+"negativeLight": "boolean",
+"nonRecastable": "boolean",
+"onSelf": "boolean",
+"onTarget": "boolean",
+"onTouch": "boolean",
+"particle": "string",
+"school": "string",
+"speed": "number",
+"unreflectable": "boolean"
+},
+"fns": {}
+},
+"MagicEffectContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"MagicEffectId": {
+"extends": null,
+"fields": {
+"AbsorbAttribute": "string",
+"AbsorbFatigue": "string",
+"AbsorbHealth": "string",
+"AbsorbMagicka": "string",
+"AbsorbSkill": "string",
+"AlmsiviIntervention": "string",
+"Blind": "string",
+"BoundBattleAxe": "string",
+"BoundBoots": "string",
+"BoundCuirass": "string",
+"BoundDagger": "string",
+"BoundGloves": "string",
+"BoundHelm": "string",
+"BoundLongbow": "string",
+"BoundLongsword": "string",
+"BoundMace": "string",
+"BoundShield": "string",
+"BoundSpear": "string",
+"Burden": "string",
+"CalmCreature": "string",
+"CalmHumanoid": "string",
+"Chameleon": "string",
+"Charm": "string",
+"CommandCreature": "string",
+"CommandHumanoid": "string",
+"Corprus": "string",
+"CureBlightDisease": "string",
+"CureCommonDisease": "string",
+"CureCorprusDisease": "string",
+"CureParalyzation": "string",
+"CurePoison": "string",
+"DamageAttribute": "string",
+"DamageFatigue": "string",
+"DamageHealth": "string",
+"DamageMagicka": "string",
+"DamageSkill": "string",
+"DemoralizeCreature": "string",
+"DemoralizeHumanoid": "string",
+"DetectAnimal": "string",
+"DetectEnchantment": "string",
+"DetectKey": "string",
+"DisintegrateArmor": "string",
+"DisintegrateWeapon": "string",
+"Dispel": "string",
+"DivineIntervention": "string",
+"DrainAttribute": "string",
+"DrainFatigue": "string",
+"DrainHealth": "string",
+"DrainMagicka": "string",
+"DrainSkill": "string",
+"ExtraSpell": "string",
+"Feather": "string",
+"FireDamage": "string",
+"FireShield": "string",
+"FortifyAttack": "string",
+"FortifyAttribute": "string",
+"FortifyFatigue": "string",
+"FortifyHealth": "string",
+"FortifyMagicka": "string",
+"FortifyMaximumMagicka": "string",
+"FortifySkill": "string",
+"FrenzyCreature": "string",
+"FrenzyHumanoid": "string",
+"FrostDamage": "string",
+"FrostShield": "string",
+"Invisibility": "string",
+"Jump": "string",
+"Levitate": "string",
+"Light": "string",
+"LightningShield": "string",
+"Lock": "string",
+"Mark": "string",
+"NightEye": "string",
+"Open": "string",
+"Paralyze": "string",
+"Poison": "string",
+"RallyCreature": "string",
+"RallyHumanoid": "string",
+"Recall": "string",
+"Reflect": "string",
+"RemoveCurse": "string",
+"ResistBlightDisease": "string",
+"ResistCommonDisease": "string",
+"ResistCorprusDisease": "string",
+"ResistFire": "string",
+"ResistFrost": "string",
+"ResistMagicka": "string",
+"ResistNormalWeapons": "string",
+"ResistParalysis": "string",
+"ResistPoison": "string",
+"ResistShock": "string",
+"RestoreAttribute": "string",
+"RestoreFatigue": "string",
+"RestoreHealth": "string",
+"RestoreMagicka": "string",
+"RestoreSkill": "string",
+"Sanctuary": "string",
+"Shield": "string",
+"ShockDamage": "string",
+"Silence": "string",
+"SlowFall": "string",
+"Soultrap": "string",
+"Sound": "string",
+"SpellAbsorption": "string",
+"StuntedMagicka": "string",
+"SummonAncestralGhost": "string",
+"SummonBear": "string",
+"SummonBonelord": "string",
+"SummonBonewalker": "string",
+"SummonBonewolf": "string",
+"SummonCenturionSphere": "string",
+"SummonClannfear": "string",
+"SummonCreature04": "string",
+"SummonCreature05": "string",
+"SummonDaedroth": "string",
+"SummonDremora": "string",
+"SummonFabricant": "string",
+"SummonFlameAtronach": "string",
+"SummonFrostAtronach": "string",
+"SummonGoldenSaint": "string",
+"SummonGreaterBonewalker": "string",
+"SummonHunger": "string",
+"SummonScamp": "string",
+"SummonSkeletalMinion": "string",
+"SummonStormAtronach": "string",
+"SummonWingedTwilight": "string",
+"SummonWolf": "string",
+"SunDamage": "string",
+"SwiftSwim": "string",
+"Telekinesis": "string",
+"TurnUndead": "string",
+"Vampirism": "string",
+"WaterBreathing": "string",
+"WaterWalking": "string",
+"WeaknessToBlightDisease": "string",
+"WeaknessToCommonDisease": "string",
+"WeaknessToCorprusDisease": "string",
+"WeaknessToFire": "string",
+"WeaknessToFrost": "string",
+"WeaknessToMagicka": "string",
+"WeaknessToNormalWeapons": "string",
+"WeaknessToPoison": "string",
+"WeaknessToShock": "string"
+},
+"fns": {}
+},
+"MagicEffectWithParams": {
+"extends": null,
+"fields": {
+"affectedAttribute": "string",
+"affectedSkill": "string",
+"area": "number",
+"duration": "number",
+"effect": "MagicEffect",
+"id": "string",
+"index": "number",
+"magnitudeMax": "number",
+"magnitudeMin": "number",
+"range": "number"
+},
+"fns": {}
+},
+"MagicSchoolData": {
+"extends": null,
+"fields": {
+"areaSound": "string",
+"autoCalcMax": "number",
+"boltSound": "string",
+"castSound": "string",
+"failureSound": "string",
+"greeting": "Dialogue",
+"hitSound": "string",
+"journal": "Dialogue",
+"name": "string",
+"persuasion": "Dialogue",
+"topic": "Dialogue",
+"voice": "Dialogue"
+},
+"fns": {}
+},
+"MiscContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"Miscellaneous": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "MiscellaneousRecord",
+"getSoul": "string",
+"objectIsInstance": "boolean",
+"record": "MiscellaneousRecord",
+"setSoul": "nil"
+}
+},
+"MiscellaneousRecord": {
+"extends": null,
+"fields": {
+"icon": "string",
+"id": "string",
+"isKey": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"Mode": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"Moon": {
+"extends": null,
+"fields": {
+"alpha": "number",
+"name": "string",
+"phase": "number",
+"phaseValue": "number"
+},
+"fns": {}
+},
+"MouseEvent": {
+"extends": null,
+"fields": {
+"button": "number",
+"offset": "Vector2",
+"position": "Vector2"
+},
+"fns": {}
+},
+"MouseWheelEvent": {
+"extends": null,
+"fields": {
+"delta": "Vector2",
+"position": "Vector2"
+},
+"fns": {}
+},
+"NAVIGATOR_FLAGS": {
+"extends": null,
+"fields": {
+"OpenDoor": "number",
+"Swim": "number",
+"UsePathgrid": "number",
+"Walk": "number"
+},
+"fns": {}
+},
+"NAV_MESH_RENDER_MODE": {
+"extends": null,
+"fields": {
+"AreaType": "number",
+"UpdateFrequency": "number"
+},
+"fns": {}
+},
+"NPC": {
+"extends": "Actor",
+"fields": {
+"baseType": "Actor",
+"classes": "Classes",
+"races": "Races",
+"records": "table",
+"stats": "NpcStats"
+},
+"fns": {
+"clearExpelled": "nil",
+"createRecordDraft": "NpcRecord",
+"expel": "nil",
+"getBaseDisposition": "number",
+"getDisposition": "number",
+"getFactionRank": "number",
+"getFactionReputation": "number",
+"getFactions": "table",
+"isExpelled": "boolean",
+"isWerewolf": "boolean",
+"joinFaction": "nil",
+"leaveFaction": "nil",
+"modifyBaseDisposition": "nil",
+"modifyFactionRank": "nil",
+"modifyFactionReputation": "nil",
+"objectIsInstance": "boolean",
+"record": "NpcRecord",
+"setBaseDisposition": "nil",
+"setFactionRank": "nil",
+"setFactionReputation": "nil",
+"setWerewolf": "nil"
+}
+},
+"NavMeshOptions": {
+"extends": null,
+"fields": {
+"agentBounds": "AgentBounds",
+"includeFlags": "number",
+"searchAreaHalfExtents": "Vector3"
+},
+"fns": {}
+},
+"NewGameOptions": {
+"extends": null,
+"fields": {
+"bypass": "boolean"
+},
+"fns": {}
+},
+"NpcRecord": {
+"extends": null,
+"fields": {
+"baseDisposition": "number",
+"baseGold": "number",
+"bloodType": "number",
+"class": "string",
+"hair": "string",
+"head": "string",
+"id": "string",
+"isAutocalc": "boolean",
+"isEssential": "boolean",
+"isMale": "boolean",
+"isPersistent": "boolean",
+"isRespawning": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"primaryFaction": "string",
+"primaryFactionRank": "number",
+"race": "string",
+"travelDestinations": "table"
+},
+"fns": {}
+},
+"NpcStats": {
+"extends": "ActorStats",
+"fields": {
+"reputation": "ReputationStat",
+"skills": "SkillStats"
+},
+"fns": {}
+},
+"OFFENSE_TYPE_IDS": {
+"extends": null,
+"fields": {
+"Assault": "number",
+"Murder": "number",
+"Pickpocket": "number",
+"SleepingInOwnedBed": "number",
+"Theft": "number",
+"Trespassing": "number"
+},
+"fns": {}
+},
+"ObjectList": {
+"extends": null,
+"fields": {},
+"fns": {}
+},
+"ObjectOwner": {
+"extends": null,
+"fields": {
+"factionId": "string",
+"factionRank": "number",
+"recordId": "string"
+},
+"fns": {}
+},
+"PLAYER": {
+"extends": "NPC",
+"fields": {
+"CONTROL_SWITCH": "CONTROL_SWITCH",
+"OFFENSE_TYPE": "OFFENSE_TYPE_IDS",
+"baseType": "NPC",
+"birthSigns": "BirthSigns"
+},
+"fns": {
+"addTopic": "nil",
+"getBirthSign": "string",
+"getControlSwitch": "boolean",
+"getCrimeLevel": "number",
+"isCharGenFinished": "boolean",
+"isTeleportingEnabled": "boolean",
+"journal": "PlayerJournal",
+"objectIsInstance": "boolean",
+"quests": "table",
+"sendMenuEvent": "nil",
+"setBirthSign": "nil",
+"setControlSwitch": "nil",
+"setCrimeLevel": "nil",
+"setTeleportingEnabled": "nil"
+}
+},
+"PLAYERQuest": {
+"extends": null,
+"fields": {
+"finished": "boolean",
+"id": "string",
+"stage": "number",
+"started": "boolean"
+},
+"fns": {
+"addJournalEntry": "nil"
+}
+},
+"PathGrid": {
+"extends": null,
+"fields": {},
+"fns": {
+"getPoints": "table"
+}
+},
+"PathGridPoint": {
+"extends": null,
+"fields": {
+"autoGenerated": "boolean",
+"connections": "table",
+"relativePosition": "Vector3"
+},
+"fns": {}
+},
+"PlayerJournal": {
+"extends": null,
+"fields": {
+"journalTextEntries": "table"
+},
+"fns": {}
+},
+"PlayerJournalTextEntry": {
+"extends": null,
+"fields": {
+"day": "number",
+"dayOfMonth": "number",
+"id": "string",
+"month": "number",
+"questId": "string",
+"text": "string"
+},
+"fns": {}
+},
+"PlayerJournalTopic": {
+"extends": null,
+"fields": {
+"entries": "table",
+"id": "string",
+"name": "string"
+},
+"fns": {}
+},
+"PlayerJournalTopicEntry": {
+"extends": null,
+"fields": {
+"actor": "string",
+"id": "string",
+"text": "string"
+},
+"fns": {}
+},
+"Potion": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "PotionRecord",
+"objectIsInstance": "boolean",
+"record": "PotionRecord"
+}
+},
+"PotionContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"PotionRecord": {
+"extends": null,
+"fields": {
+"effects": "table",
+"icon": "string",
+"id": "string",
+"isAutocalc": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"Priority": {
+"extends": null,
+"fields": {
+"Block": "number",
+"Death": "number",
+"Default": "number",
+"Hit": "number",
+"Jump": "number",
+"Knockdown": "number",
+"Movement": "number",
+"Scripted": "number",
+"SneakIdleLowerBody": "number",
+"Storm": "number",
+"SwimIdle": "number",
+"Torch": "number",
+"Weapon": "number",
+"WeaponLowerBody": "number"
+},
+"fns": {}
+},
+"Probe": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "ProbeRecord",
+"objectIsInstance": "boolean",
+"record": "ProbeRecord"
+}
+},
+"ProbeContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"ProbeRecord": {
+"extends": null,
+"fields": {
+"icon": "string",
+"id": "string",
+"maxCondition": "number",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"quality": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"RENDER_MODE": {
+"extends": null,
+"fields": {
+"ActorsPaths": "number",
+"CollisionDebug": "number",
+"NavMesh": "number",
+"Pathgrid": "number",
+"RecastMesh": "number",
+"Scene": "number",
+"Water": "number",
+"Wireframe": "number"
+},
+"fns": {}
+},
+"RaceContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"RaceRecord": {
+"extends": null,
+"fields": {
+"description": "string",
+"height": "GenderedNumber",
+"id": "string",
+"isBeast": "boolean",
+"isPlayable": "boolean",
+"name": "string",
+"spells": "table",
+"weight": "GenderedNumber"
+},
+"fns": {}
+},
+"Races": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"record": "RaceRecord"
+}
+},
+"RayCastingResult": {
+"extends": null,
+"fields": {
+"hit": "boolean",
+"hitNormal": "Vector3",
+"hitObject": "GameObject",
+"hitPos": "Vector3"
+},
+"fns": {}
+},
+"RegionRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"mapColor": "Color",
+"name": "string",
+"sleepList": "string",
+"sounds": "table",
+"weatherProbabilities": "table"
+},
+"fns": {
+"resetProbability": "nil",
+"setProbability": "nil"
+}
+},
+"RegionSoundRef": {
+"extends": null,
+"fields": {
+"chance": "number",
+"soundId": "string"
+},
+"fns": {}
+},
+"Regions": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"Repair": {
+"extends": "Item",
+"fields": {
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"objectIsInstance": "boolean",
+"record": "RepairRecord"
+}
+},
+"RepairContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"RepairRecord": {
+"extends": null,
+"fields": {
+"icon": "string",
+"id": "string",
+"maxCondition": "number",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"quality": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"ReputationStat": {
+"extends": null,
+"fields": {
+"current": "number"
+},
+"fns": {}
+},
+"STANCE": {
+"extends": null,
+"fields": {
+"Nothing": "number",
+"Spell": "number",
+"Weapon": "number"
+},
+"fns": {}
+},
+"STATE": {
+"extends": null,
+"fields": {
+"Ended": "STATE",
+"NoGame": "STATE",
+"Running": "STATE"
+},
+"fns": {}
+},
+"SaveInfo": {
+"extends": null,
+"fields": {
+"contentFiles": "table",
+"creationTime": "number",
+"description": "string",
+"playerLevel": "string",
+"playerName": "string",
+"timePlayed": "number"
+},
+"fns": {}
+},
+"Self": {
+"extends": "GameObject",
+"fields": {
+"controls": "ActorControls",
+"object": "GameObject"
+},
+"fns": {
+"enableAI": "nil",
+"isActive": "boolean"
+}
+},
+"SettingsPageOptions": {
+"extends": null,
+"fields": {
+"element": "Element",
+"name": "string",
+"searchHints": "string"
+},
+"fns": {}
+},
+"Shader": {
+"extends": null,
+"fields": {
+"author": "string",
+"description": "string",
+"name": "string",
+"version": "string"
+},
+"fns": {
+"disable": "nil",
+"enable": "nil",
+"isEnabled": "boolean",
+"setBool": "nil",
+"setFloat": "nil",
+"setFloatArray": "nil",
+"setInt": "nil",
+"setIntArray": "nil",
+"setVector2": "nil",
+"setVector2Array": "nil",
+"setVector3": "nil",
+"setVector3Array": "nil",
+"setVector4": "nil",
+"setVector4Array": "nil"
+}
+},
+"Skill": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"record": "SkillRecord"
+}
+},
+"SkillContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"SkillIncreasesForAttributeStats": {
+"extends": null,
+"fields": {
+"agility": "number",
+"endurance": "number",
+"intelligence": "number",
+"luck": "number",
+"personality": "number",
+"speed": "number",
+"strength": "number",
+"willpower": "number"
+},
+"fns": {}
+},
+"SkillIncreasesForSpecializationStats": {
+"extends": null,
+"fields": {
+"combat": "number",
+"magic": "number",
+"stealth": "number"
+},
+"fns": {}
+},
+"SkillRecord": {
+"extends": null,
+"fields": {
+"attribute": "string",
+"description": "string",
+"icon": "string",
+"id": "string",
+"name": "string",
+"school": "MagicSchoolData",
+"skillGain": "table",
+"specialization": "string",
+"werewolfValue": "number"
+},
+"fns": {}
+},
+"SkillStat": {
+"extends": null,
+"fields": {
+"base": "number",
+"damage": "number",
+"modified": "number",
+"modifier": "number",
+"progress": "number"
+},
+"fns": {}
+},
+"SkillStats": {
+"extends": null,
+"fields": {},
+"fns": {
+"acrobatics": "SkillStat",
+"alchemy": "SkillStat",
+"alteration": "SkillStat",
+"armorer": "SkillStat",
+"athletics": "SkillStat",
+"axe": "SkillStat",
+"block": "SkillStat",
+"bluntweapon": "SkillStat",
+"conjuration": "SkillStat",
+"destruction": "SkillStat",
+"enchant": "SkillStat",
+"handtohand": "SkillStat",
+"heavyarmor": "SkillStat",
+"illusion": "SkillStat",
+"lightarmor": "SkillStat",
+"longblade": "SkillStat",
+"marksman": "SkillStat",
+"mediumarmor": "SkillStat",
+"mercantile": "SkillStat",
+"mysticism": "SkillStat",
+"restoration": "SkillStat",
+"security": "SkillStat",
+"shortblade": "SkillStat",
+"sneak": "SkillStat",
+"spear": "SkillStat",
+"speechcraft": "SkillStat",
+"unarmored": "SkillStat"
+}
+},
+"Sound": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"isEnabled": "boolean",
+"isSayActive": "boolean",
+"isSoundFilePlaying": "boolean",
+"isSoundPlaying": "boolean",
+"playSound3d": "nil",
+"playSoundFile3d": "nil",
+"say": "nil",
+"stopSay": "nil",
+"stopSound3d": "nil",
+"stopSoundFile3d": "nil"
+}
+},
+"SoundContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"SoundRecord": {
+"extends": null,
+"fields": {
+"fileName": "string",
+"id": "string",
+"maxRange": "number",
+"minRange": "number",
+"volume": "number"
+},
+"fns": {}
+},
+"Spell": {
+"extends": null,
+"fields": {
+"alwaysSucceedFlag": "boolean",
+"autocalcFlag": "boolean",
+"cost": "number",
+"effects": "table",
+"id": "string",
+"isAutocalc": "boolean",
+"name": "string",
+"starterSpellFlag": "boolean",
+"type": "number"
+},
+"fns": {}
+},
+"SpellContent": {
+"extends": null,
+"fields": {
+"TYPE": "SpellType",
+"records": "table"
+},
+"fns": {}
+},
+"SpellRange": {
+"extends": null,
+"fields": {
+"Self": "number",
+"Target": "number",
+"Touch": "number"
+},
+"fns": {}
+},
+"SpellType": {
+"extends": null,
+"fields": {
+"Ability": "number",
+"Blight": "number",
+"Curse": "number",
+"Disease": "number",
+"Power": "number",
+"Spell": "number"
+},
+"fns": {}
+},
+"Spells": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "Spell"
+}
+},
+"Static": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "StaticRecord",
+"objectIsInstance": "boolean",
+"record": "StaticRecord"
+}
+},
+"StaticContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"StaticRecord": {
+"extends": null,
+"fields": {
+"id": "string",
+"model": "string"
+},
+"fns": {}
+},
+"Stats": {
+"extends": null,
+"fields": {
+"Attribute": "Attribute",
+"Skill": "Skill"
+},
+"fns": {}
+},
+"StorageSection": {
+"extends": null,
+"fields": {},
+"fns": {
+"asTable": "table",
+"get": "any",
+"getCopy": "any",
+"removeOnExit": "nil",
+"reset": "nil",
+"set": "nil",
+"setLifeTime": "nil",
+"subscribe": "nil"
+}
+},
+"TRANSFORM": {
+"extends": null,
+"fields": {
+"identity": "Transform"
+},
+"fns": {
+"move": "Transform",
+"rotate": "Transform",
+"rotateX": "Transform",
+"rotateY": "Transform",
+"rotateZ": "Transform",
+"scale": "Transform"
+}
+},
+"TYPE": {
+"extends": null,
+"fields": {
+"Accepts": "TextEdit",
+"Aligns": "Flex",
+"Automatically": "Container",
+"Base": "Widget",
+"Can": "Window",
+"Display": "Text",
+"Displays": "Image"
+},
+"fns": {}
+},
+"TeleportOptions": {
+"extends": null,
+"fields": {
+"onGround": "boolean",
+"rotation": "Transform"
+},
+"fns": {}
+},
+"Template": {
+"extends": null,
+"fields": {
+"One": "type",
+"content": "Content",
+"props": "table"
+},
+"fns": {}
+},
+"TextureResource": {
+"extends": null,
+"fields": {
+"offset": "Vector2",
+"path": "string",
+"size": "Vector2"
+},
+"fns": {}
+},
+"TextureResourceOptions": {
+"extends": null,
+"fields": {
+"offset": "Vector2",
+"path": "string",
+"size": "Vector2"
+},
+"fns": {}
+},
+"TimeOfDayInterpolatorColor": {
+"extends": null,
+"fields": {
+"day": "Color",
+"night": "Color",
+"sunrise": "Color",
+"sunset": "Color"
+},
+"fns": {}
+},
+"TimeOfDayInterpolatorFloat": {
+"extends": null,
+"fields": {
+"day": "number",
+"night": "number",
+"sunrise": "number",
+"sunset": "number"
+},
+"fns": {}
+},
+"TouchEvent": {
+"extends": null,
+"fields": {
+"device": "number",
+"finger": "number",
+"position": "Vector2",
+"pressure": "number"
+},
+"fns": {}
+},
+"Transform": {
+"extends": null,
+"fields": {},
+"fns": {
+"__mul": "Transform",
+"apply": "Vector3",
+"getAnglesXZ": "number",
+"getAnglesZYX": "number",
+"getPitch": "number",
+"getYaw": "number",
+"inverse": "Transform"
+}
+},
+"TravelDestination": {
+"extends": null,
+"fields": {
+"cellId": "string",
+"position": "Vector3",
+"rotation": "Transform"
+},
+"fns": {}
+},
+"TriggerInfo": {
+"extends": null,
+"fields": {
+"description": "string",
+"key": "string",
+"l10n": "string",
+"name": "string"
+},
+"fns": {}
+},
+"VFX": {
+"extends": null,
+"fields": {},
+"fns": {
+"remove": "nil",
+"spawn": "nil"
+}
+},
+"Vector2": {
+"extends": null,
+"fields": {
+"x": "number",
+"xy01": "string",
+"y": "number"
+},
+"fns": {
+"__add": "Vector2",
+"__div": "Vector2",
+"__mul": "Vector2",
+"__sub": "Vector2",
+"dot": "number",
+"ediv": "Vector2",
+"emul": "Vector2",
+"length": "number",
+"length2": "number",
+"normalize": "Vector2",
+"rotate": "Vector2"
+}
+},
+"Vector3": {
+"extends": null,
+"fields": {
+"x": "number",
+"xyz01": "string",
+"y": "number",
+"z": "number"
+},
+"fns": {
+"__add": "Vector3",
+"__div": "Vector3",
+"__mul": "Vector3",
+"__sub": "Vector3",
+"__tostring": "string",
+"cross": "Vector3",
+"dot": "number",
+"ediv": "Vector3",
+"emul": "Vector3",
+"length": "number",
+"length2": "number",
+"normalize": "Vector3"
+}
+},
+"Vector4": {
+"extends": null,
+"fields": {
+"w": "number",
+"x": "number",
+"xyzw01": "string",
+"y": "number",
+"z": "number"
+},
+"fns": {
+"__add": "Vector4",
+"__div": "Vector4",
+"__mul": "Vector4",
+"__sub": "Vector4",
+"__tostring": "string",
+"dot": "number",
+"ediv": "Vector4",
+"emul": "Vector4",
+"length": "number",
+"length2": "number",
+"normalize": "Vector4"
+}
+},
+"Weapon": {
+"extends": "Item",
+"fields": {
+"TYPE": "WeaponTYPE",
+"baseType": "Item",
+"records": "table"
+},
+"fns": {
+"createRecordDraft": "WeaponRecord",
+"objectIsInstance": "boolean",
+"record": "WeaponRecord"
+}
+},
+"WeaponRecord": {
+"extends": null,
+"fields": {
+"chopMaxDamage": "number",
+"chopMinDamage": "number",
+"enchant": "string",
+"enchantCapacity": "number",
+"health": "number",
+"icon": "string",
+"id": "string",
+"isMagical": "boolean",
+"isSilver": "boolean",
+"model": "string",
+"mwscript": "string",
+"name": "string",
+"reach": "number",
+"slashMaxDamage": "number",
+"slashMinDamage": "number",
+"speed": "number",
+"thrustMaxDamage": "number",
+"thrustMinDamage": "number",
+"type": "number",
+"value": "number",
+"weight": "number"
+},
+"fns": {}
+},
+"WeaponTYPE": {
+"extends": null,
+"fields": {
+"Arrow": "number",
+"AxeOneHand": "number",
+"AxeTwoHand": "number",
+"BluntOneHand": "number",
+"BluntTwoClose": "number",
+"BluntTwoWide": "number",
+"Bolt": "number",
+"LongBladeOneHand": "number",
+"LongBladeTwoHand": "number",
+"MarksmanBow": "number",
+"MarksmanCrossbow": "number",
+"MarksmanThrown": "number",
+"ShortBladeOneHand": "number",
+"SpearTwoWide": "number"
+},
+"fns": {}
+},
+"Weather": {
+"extends": null,
+"fields": {
+"MOON_PHASE": "MOON_PHASE",
+"records": "table"
+},
+"fns": {
+"changeWeather": "nil",
+"getCurrent": "WeatherRecord",
+"getCurrentMoons": "table",
+"getCurrentStormDirection": "Vector3",
+"getCurrentSunLightDirection": "Vector4",
+"getCurrentSunPercentage": "number",
+"getCurrentSunVisibility": "number",
+"getCurrentWindSpeed": "number",
+"getNext": "WeatherRecord",
+"getTransition": "number"
+}
+},
+"WeatherContent": {
+"extends": null,
+"fields": {
+"records": "table"
+},
+"fns": {}
+},
+"WeatherRecord": {
+"extends": null,
+"fields": {
+"ambientColor": "TimeOfDayInterpolatorColor",
+"ambientLoopSoundID": "string",
+"canUseTorches": "boolean",
+"cloudSpeed": "number",
+"cloudTexture": "string",
+"cloudsMaximumPercent": "number",
+"distantLandFogFactor": "number",
+"distantLandFogOffset": "number",
+"flashDecrement": "number",
+"fogColor": "TimeOfDayInterpolatorColor",
+"glareView": "number",
+"hasRipples": "boolean",
+"isOccluded": "boolean",
+"isStorm": "boolean",
+"landFogDepth": "TimeOfDayInterpolatorFloat",
+"name": "string",
+"particleEffect": "string",
+"rainDiameter": "number",
+"rainEffect": "string",
+"rainEntranceSpeed": "number",
+"rainLoopSoundID": "string",
+"rainMaxHeight": "number",
+"rainMaxRaindrops": "number",
+"rainMinHeight": "number",
+"rainSpeed": "number",
+"recordId": "string",
+"scriptId": "number",
+"skyColor": "TimeOfDayInterpolatorColor",
+"stormDirection": "Vector3",
+"stormParticleRotation": "Vector3",
+"sunColor": "TimeOfDayInterpolatorColor",
+"sunDiscSunsetColor": "Color",
+"thunderFrequency": "number",
+"thunderSoundID": "table",
+"thunderThreshold": "number",
+"transitionDelta": "number",
+"windSpeed": "number"
+},
+"fns": {}
+},
+"ambient": {
+"extends": null,
+"fields": {},
+"fns": {
+"isMusicPlaying": "boolean",
+"isSoundFilePlaying": "boolean",
+"isSoundPlaying": "boolean",
+"playSound": "nil",
+"playSoundFile": "nil",
+"say": "nil",
+"stopMusic": "nil",
+"stopSay": "nil",
+"stopSound": "nil",
+"stopSoundFile": "nil",
+"streamMusic": "nil"
+}
+},
+"animation": {
+"extends": null,
+"fields": {
+"BLEND_MASK": "BlendMask",
+"BONE_GROUP": "BoneGroup",
+"PRIORITY": "Priority"
+},
+"fns": {
+"addGlow": "nil",
+"addVfx": "nil",
+"cancel": "nil",
+"clearAnimationQueue": "nil",
+"getActiveGroup": "string",
+"getCompletion": "number",
+"getCurrentTime": "number",
+"getLoopCount": "number",
+"getSpeed": "number",
+"getTextKeyTime": "number",
+"hasAnimation": "boolean",
+"hasBone": "boolean",
+"hasGroup": "boolean",
+"isLoopingAnimation": "boolean",
+"isPlaying": "boolean",
+"playBlended": "nil",
+"playQueued": "nil",
+"removeAllVfx": "nil",
+"removeVfx": "nil",
+"setLoopingEnabled": "nil",
+"setSpeed": "nil",
+"skipAnimationThisFrame": "nil"
+}
+},
+"async": {
+"extends": null,
+"fields": {},
+"fns": {
+"callback": "Callback",
+"newGameTimer": "nil",
+"newRealTimeTimer": "nil",
+"newSimulationTimer": "nil",
+"newUnsavableGameTimer": "nil",
+"newUnsavableRealTimeTimer": "nil",
+"newUnsavableSimulationTimer": "nil",
+"registerTimerCallback": "TimerCallback"
+}
+},
+"camera": {
+"extends": null,
+"fields": {
+"MODE": "MODE"
+},
+"fns": {
+"allowCharacterDeferredRotation": "nil",
+"getBaseFieldOfView": "number",
+"getBaseViewDistance": "number",
+"getCollisionType": "number",
+"getExtraPitch": "number",
+"getExtraRoll": "number",
+"getExtraYaw": "number",
+"getFieldOfView": "number",
+"getFirstPersonOffset": "Vector3",
+"getFocalPreferredOffset": "Vector2",
+"getFocalTransitionSpeed": "number",
+"getFocusRay": "RayCastingResult",
+"getMode": "Mode",
+"getPitch": "number",
+"getPosition": "Vector3",
+"getProjectionOffset": "Vector2",
+"getQueuedMode": "Mode",
+"getRoll": "number",
+"getThirdPersonDistance": "number",
+"getTrackedPosition": "Vector3",
+"getViewDistance": "number",
+"getViewTransform": "Transform",
+"getYaw": "number",
+"instantTransition": "nil",
+"setCollisionType": "nil",
+"setExtraPitch": "nil",
+"setExtraRoll": "nil",
+"setExtraYaw": "nil",
+"setFieldOfView": "nil",
+"setFirstPersonOffset": "nil",
+"setFocalPreferredOffset": "nil",
+"setFocalTransitionSpeed": "nil",
+"setMode": "nil",
+"setPitch": "nil",
+"setPreferredThirdPersonDistance": "nil",
+"setProjectionOffset": "nil",
+"setRoll": "nil",
+"setStaticPosition": "nil",
+"setViewDistance": "nil",
+"setYaw": "nil",
+"showCrosshair": "nil",
+"viewportToWorldVector": "Vector3",
+"worldToViewportVector": "Vector3"
+}
+},
+"content": {
+"extends": null,
+"fields": {
+"RANGE": "SpellRange",
+"activators": "ActivatorContent",
+"apparatuses": "ApparatusContent",
+"attributes": "AttributeContent",
+"books": "BookContent",
+"classes": "ClassContent",
+"doors": "DoorContent",
+"enchantments": "EnchantmentContent",
+"factions": "FactionContent",
+"gameSettings": "GMSTContent",
+"globals": "GlobalContent",
+"ingredients": "IngredientContent",
+"levelledCreatures": "LevCreatureContent",
+"levelledItems": "LevItemContent",
+"lights": "LightContent",
+"lockpicks": "LockpickContent",
+"magicEffects": "MagicEffectContent",
+"miscs": "MiscContent",
+"potions": "PotionContent",
+"probes": "ProbeContent",
+"races": "RaceContent",
+"repairs": "RepairContent",
+"skills": "SkillContent",
+"sounds": "SoundContent",
+"spells": "SpellContent",
+"statics": "StaticContent",
+"weathers": "WeatherContent"
+},
+"fns": {}
+},
+"core": {
+"extends": null,
+"fields": {
+"API_REVISION": "number",
+"contentFiles": "ContentFiles",
+"dialogue": "Dialogue",
+"factions": "Factions",
+"land": "Land",
+"magic": "Magic",
+"mwscripts": "MWScript",
+"regions": "Regions",
+"sound": "Sound",
+"stats": "Stats",
+"weather": "Weather"
+},
+"fns": {
+"getFormId": "string",
+"getGMST": "any",
+"getGameDifficulty": "number",
+"getGameTime": "number",
+"getGameTimeScale": "number",
+"getRealFrameDuration": "number",
+"getRealTime": "number",
+"getSimulationTime": "number",
+"getSimulationTimeScale": "number",
+"isWorldPaused": "boolean",
+"l10n": "function",
+"quit": "nil",
+"sendGlobalEvent": "nil"
+}
+},
+"input": {
+"extends": null,
+"fields": {
+"ACTION": "ACTION",
+"ACTION_TYPE": "ACTION_TYPE",
+"CONTROLLER_AXIS": "CONTROLLER_AXIS",
+"CONTROLLER_BUTTON": "CONTROLLER_BUTTON",
+"CONTROL_SWITCH": "CONTROL_SWITCH",
+"KEY": "KEY",
+"actions": "table",
+"triggers": "table"
+},
+"fns": {
+"activateTrigger": "nil",
+"bindAction": "nil",
+"getAxisValue": "number",
+"getBooleanActionValue": "boolean",
+"getControlSwitch": "boolean",
+"getKeyName": "string",
+"getMouseMoveX": "number",
+"getMouseMoveY": "number",
+"getNumberActionValue": "number",
+"getRangeActionValue": "number",
+"isActionPressed": "boolean",
+"isAltPressed": "boolean",
+"isControllerButtonPressed": "boolean",
+"isCtrlPressed": "boolean",
+"isIdle": "boolean",
+"isKeyPressed": "boolean",
+"isMouseButtonPressed": "boolean",
+"isShiftPressed": "boolean",
+"isSuperPressed": "boolean",
+"registerAction": "nil",
+"registerActionHandler": "nil",
+"registerTrigger": "nil",
+"registerTriggerHandler": "nil",
+"setControlSwitch": "nil"
+}
+},
+"interfaces": {
+"extends": null,
+"fields": {
+"AI": "scriptsomwai",
+"Activation": "scriptsomwactivationhandlers",
+"AnimationController": "scriptsomwmechanicsanimationcontroller",
+"Camera": "scriptsomwcameracamera",
+"Combat": "scriptsomwcombatinterface_local",
+"Crimes": "scriptsomwcrimes",
+"ItemUsage": "scriptsomwusehandlers",
+"MWUI": "scriptsomwmwuiinit",
+"Projectiles": "scriptsomwmechanicsprojectiles",
+"Settings": "scriptsomwsettingsplayer",
+"SkillProgression": "scriptsomwskillhandlers",
+"SpellCasting": "scriptsomwspellcastinginterface_local",
+"UI": "scriptsomwui"
+},
+"fns": {
+"__index": "any"
+}
+},
+"markup": {
+"extends": null,
+"fields": {},
+"fns": {
+"decodeYaml": "any",
+"loadYaml": "any"
+}
+},
+"menu": {
+"extends": null,
+"fields": {
+"STATE": "STATE"
+},
+"fns": {
+"deleteGame": "nil",
+"getAllSaves": "table",
+"getCurrentSaveDir": "string",
+"getSaves": "table",
+"getState": "STATE",
+"loadGame": "nil",
+"newGame": "nil",
+"quit": "nil",
+"saveGame": "nil"
+}
+},
+"nearby": {
+"extends": null,
+"fields": {
+"COLLISION_TYPE": "COLLISION_TYPE",
+"activators": "ObjectList",
+"actors": "ObjectList",
+"containers": "ObjectList",
+"doors": "ObjectList",
+"items": "ObjectList",
+"players": "ObjectList"
+},
+"fns": {
+"asyncCastRenderingRay": "nil",
+"castNavigationRay": "Vector3",
+"castRay": "RayCastingResult",
+"castRenderingRay": "RayCastingResult",
+"findNearestNavMeshPosition": "Vector3",
+"findPath": "FIND_PATH_STATUS",
+"findRandomPointAroundCircle": "Vector3",
+"getObjectByFormId": "GameObject"
+}
+},
+"postprocessing": {
+"extends": null,
+"fields": {},
+"fns": {
+"getChain": "table",
+"load": "Shader"
+}
+},
+"storage": {
+"extends": null,
+"fields": {
+"LIFE_TIME": "LifeTime"
+},
+"fns": {
+"allGlobalSections": "table",
+"allPlayerSections": "table",
+"globalSection": "StorageSection",
+"playerSection": "StorageSection"
+}
+},
+"types": {
+"extends": null,
+"fields": {
+"Activator": "Activator",
+"Actor": "Actor",
+"Apparatus": "Apparatus",
+"Armor": "Armor",
+"BodyPart": "BodyPart",
+"Book": "Book",
+"Clothing": "Clothing",
+"Container": "Container",
+"Creature": "Creature",
+"Door": "Door",
+"ESM4Activator": "ESM4Activator",
+"ESM4Ammunition": "ESM4Ammunition",
+"ESM4Armor": "ESM4Armor",
+"ESM4Book": "ESM4Book",
+"ESM4Clothing": "ESM4Clothing",
+"ESM4Door": "ESM4Door",
+"ESM4Flora": "ESM4Flora",
+"ESM4Ingredient": "ESM4Ingredient",
+"ESM4ItemMod": "ESM4ItemMod",
+"ESM4Light": "ESM4Light",
+"ESM4Miscellaneous": "ESM4Miscellaneous",
+"ESM4MovableStatic": "ESM4MovableStatic",
+"ESM4Potion": "ESM4Potion",
+"ESM4Static": "ESM4Static",
+"ESM4StaticCollection": "ESM4StaticCollection",
+"ESM4Terminal": "ESM4Terminal",
+"ESM4Weapon": "ESM4Weapon",
+"Ingredient": "Ingredient",
+"Item": "Item",
+"LevelledCreature": "CreatureLevelledList",
+"Light": "Light",
+"Lockable": "LOCKABLE",
+"Lockpick": "Lockpick",
+"Miscellaneous": "Miscellaneous",
+"NPC": "NPC",
+"Player": "PLAYER",
+"Potion": "Potion",
+"Probe": "Probe",
+"Repair": "Repair",
+"Static": "Static",
+"Weapon": "Weapon"
+},
+"fns": {}
+},
+"ui": {
+"extends": null,
+"fields": {
+"ALIGNMENT": "ALIGNMENT",
+"CONSOLE_COLOR": "CONSOLE_COLOR",
+"CursorMode": "CursorMode",
+"TYPE": "TYPE",
+"layers": "Layers"
+},
+"fns": {
+"content": "Content",
+"create": "Element",
+"cursor": "CursorResource",
+"getCursor": "CursorResource",
+"getCursorMode": "CursorMode",
+"getCursorPosition": "Vector2",
+"getCursorVisible": "boolean",
+"getElements": "table",
+"printToConsole": "nil",
+"registerSettingsPage": "nil",
+"removeSettingsPage": "nil",
+"screenSize": "Vector2",
+"setConsoleMode": "nil",
+"setConsoleSelectedObject": "nil",
+"setCursor": "nil",
+"setCursorMode": "nil",
+"setCursorPosition": "nil",
+"setCursorVisible": "nil",
+"showMessage": "nil",
+"texture": "TextureResource",
+"updateAll": "nil"
+}
+},
+"util": {
+"extends": null,
+"fields": {
+"color": "COLOR",
+"transform": "TRANSFORM"
+},
+"fns": {
+"bitAnd": "number",
+"bitNot": "number",
+"bitOr": "number",
+"bitXor": "number",
+"box": "Box",
+"clamp": "number",
+"loadCode": "function",
+"makeReadOnly": "table",
+"makeStrictReadOnly": "table",
+"normalizeAngle": "number",
+"remap": "number",
+"round": "number",
+"vector2": "Vector2",
+"vector3": "Vector3",
+"vector4": "Vector4"
+}
+},
+"vfs": {
+"extends": null,
+"fields": {},
+"fns": {
+"fileExists": "boolean",
+"lines": "function",
+"open": "FileHandle",
+"pathsWithPrefix": "function",
+"type": "string"
+}
+},
+"world": {
+"extends": null,
+"fields": {
+"activeActors": "ObjectList",
+"cells": "table",
+"mwscript": "MWScriptFunctions",
+"players": "ObjectList",
+"vfx": "VFX"
+},
+"fns": {
+"advanceTime": "nil",
+"createObject": "GameObject",
+"createRecord": "any",
+"getCellById": "Cell",
+"getCellByName": "Cell",
+"getExteriorCell": "Cell",
+"getGameTime": "number",
+"getGameTimeScale": "number",
+"getObjectByFormId": "GameObject",
+"getObjectsByRecordId": "table",
+"getObjectsInRange": "table",
+"getPausedTags": "table",
+"getSimulationTime": "number",
+"getSimulationTimeScale": "number",
+"isWorldPaused": "boolean",
+"pause": "nil",
+"setGameTimeScale": "nil",
+"setSimulationTimeScale": "nil",
+"unpause": "nil"
+}
+}
+}
+}

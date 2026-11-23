@@ -27,7 +27,9 @@ impl Typed for LeveledItem {
                 b"NAME" => this.id = text(s),
                 b"DATA" => this.leveled_item_flags = u32_of(rec, s)?,
                 b"NNAM" => this.chance_none = u8_of(rec, s)?,
-                b"INDX" => this.items.reserve(u32_of(rec, s)? as usize),
+                // INDX is the file's word: at most one entry a subrecord can follow (a crafted
+                // 0xFFFFFFFF asked for 137 GB, and a refused allocation aborts the process).
+                b"INDX" => this.items.reserve((u32_of(rec, s)? as usize).min(rec.subs.len())),
                 b"INAM" => this.items.push((text(s), 0)),
                 b"INTV" => match this.items.last_mut() {
                     Some(item) => item.1 = u16_of(rec, s)?,
@@ -90,5 +92,37 @@ mod tests {
         rec.push(b"INTV", 1u16.to_le_bytes().to_vec());
         let e = LeveledItem::from_raw(&rec).unwrap_err();
         assert!(e.what.contains("LEVI::INTV where INAM was expected"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod forged_count {
+    use super::*;
+    use std::borrow::Cow;
+
+    /// `INDX` is the file's word: four billion entries in a record of four subrecords reads
+    /// as the entries that follow (the audit of 2026-11-23: the count went straight to
+    /// `reserve`, and a refused allocation aborts the process).
+    #[test]
+    fn a_forged_count_reads_as_what_follows() {
+        let sub = |t: &[u8; 4], d: &[u8]| Sub { tag: *t, data: Cow::Owned(d.to_vec()) };
+        for tag in [*b"LEVI", *b"LEVC"] {
+            let entry = if tag == *b"LEVI" { *b"INAM" } else { *b"CNAM" };
+            let rec = Record {
+                tag,
+                unknown: 0,
+                flags: 0,
+                subs: vec![sub(b"NAME", b"list\0"), sub(b"INDX", &u32::MAX.to_le_bytes()), sub(&entry, b"x\0"), sub(b"INTV", &3u16.to_le_bytes())],
+            };
+            if tag == *b"LEVI" {
+                let l = LeveledItem::from_raw(&rec).unwrap();
+                assert_eq!(l.items, vec![("x".to_string(), 3)]);
+                assert!(l.items.capacity() <= rec.subs.len());
+            } else {
+                let l = LeveledCreature::from_raw(&rec).unwrap();
+                assert_eq!(l.creatures, vec![("x".to_string(), 3)]);
+                assert!(l.creatures.capacity() <= rec.subs.len());
+            }
+        }
     }
 }

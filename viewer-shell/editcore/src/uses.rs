@@ -231,10 +231,13 @@ pub fn report(paths: &[PathBuf], record_type: &str, id: &str) -> Vec<Use> {
                 s.spawn(move || {
                     let mut got = Vec::new();
                     for (i, p) in paths.iter().enumerate().skip(t).step_by(n) {
-                        let one = std::fs::File::open(p)
-                            // SAFETY: the plugin is only read, and only while mapped here.
-                            .and_then(|f| unsafe { memmap2::Mmap::map(&f) })
-                            .and_then(|m| scan(&m, i, record_type, want, words));
+                        let one = crate::plugin_io::reading(|| {
+                            std::fs::File::open(p)
+                                // SAFETY: the plugin is only read, and only while mapped here; this
+                                // process writes plugins whole and not while a map is alive (`plugin_io`).
+                                .and_then(|f| unsafe { memmap2::Mmap::map(&f) })
+                                .and_then(|m| scan(&m, i, record_type, want, words))
+                        });
                         if let Ok(r) = one {
                             got.push((i, r));
                         }

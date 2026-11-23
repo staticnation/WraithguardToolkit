@@ -36,6 +36,11 @@ const MAX_POLYS: usize = 600_000;
 
 /// Decodes one LZ4 block (no frame) that should come to `size` bytes.
 pub fn lz4_block(src: &[u8], size: usize) -> Option<Vec<u8>> {
+    // `size` is the database's word: no block comes to more than 255 times its own length
+    // (LZ4's ceiling), so a larger one is not believed.
+    if size > src.len().saturating_mul(255).saturating_add(16) {
+        return None;
+    }
     let mut out: Vec<u8> = Vec::with_capacity(size);
     let mut i = 0usize;
     let len_ext = |i: &mut usize, mut n: usize| -> Option<usize> {
@@ -402,7 +407,8 @@ pub fn read_ground(b: &[u8]) -> Option<Ground> {
         let rows = c.u8()? as u32;
         c.take(8)?; // min, max
         let n = u64c(&mut c)?;
-        let mut values = Vec::with_capacity(n);
+        // At most the floats the rest of the blob holds (the count is the file's word).
+        let mut values = Vec::with_capacity(n.min(c.b.len().saturating_sub(c.p) / 4));
         for _ in 0..n {
             values.push(c.f32()?);
         }
@@ -738,6 +744,8 @@ mod tests {
         assert_eq!(lz4_block(&src, 9).as_deref(), Some(&b"ababababc"[..]));
         // A bad offset is refused, not a panic.
         assert!(lz4_block(&[0x10, b'a', 9, 0], 8).is_none());
+        // A size no block of this length can come to is not believed.
+        assert!(lz4_block(&[0x10, b'a', 9, 0], usize::MAX / 2).is_none());
     }
 
     fn input_bytes(scale: f32, tile: i32, agent: [f32; 3]) -> Vec<u8> {

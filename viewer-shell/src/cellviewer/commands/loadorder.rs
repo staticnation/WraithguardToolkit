@@ -142,6 +142,21 @@ pub(super) fn loadorder_export(args: String) -> Result<tauri::ipc::Response, Str
     let list = |k: &str| -> Option<Vec<String>> {
         a.get(k).and_then(|v| v.as_array()).map(|v| v.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
     };
+    // Security F5: asked before anything is written, so the page's second try after the
+    // person allows a path does not write the openmw.cfg twice. The openmw.cfg itself is
+    // rewritten in place when it is one (named so, and there); any other file the page
+    // names as it is one the person has to have chosen.
+    if let Some(p) = s("planFile") {
+        granted::check(&p)?;
+    }
+    if b("writeCfg") {
+        let cfg = s("cfg").unwrap_or_default();
+        let p = std::path::Path::new(&cfg);
+        let is_cfg = p.is_file() && p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("openmw.cfg"));
+        if !is_cfg {
+            granted::check(&cfg)?;
+        }
+    }
     let slot = LOADORDER.lock().unwrap_or_else(|p| p.into_inner());
     let got = slot.as_ref().ok_or("sort first: there is no plan to export")?;
     let ex = ExportArgs {
@@ -274,6 +289,7 @@ pub(super) fn loadorder_update_rules(rules: Vec<String>, stamp: String) -> Resul
 /// it replaces the file). The report's lines.
 #[tauri::command(async)]
 pub(super) fn loadorder_update_yml(path: String, stamp: String) -> Result<String, String> {
+    granted::check(&path)?;
     let count = |data: &[u8]| viewcore::ordercore::momw::parse_bytes(data).map(|e| e.len()).map_err(|e| e.0);
     let lines = lo_with_env(&stamp, |env| {
         viewcore::ordercore::updates::update_plugin_order_yml(std::path::Path::new(&path), None, LO_TIMEOUT, env, &Net, &count)
@@ -286,6 +302,7 @@ pub(super) fn loadorder_update_yml(path: String, stamp: String) -> Result<String
 /// `path`. The report's lines.
 #[tauri::command(async)]
 pub(super) fn loadorder_fetch_data_paths(path: String, list_name: String, stamp: String) -> Result<String, String> {
+    granted::check(&path)?;
     let host = lo_env_var("MOMW_API_HOST");
     let lines = lo_with_env(&stamp, |env| {
         viewcore::ordercore::updates::fetch_list_data_paths(std::path::Path::new(&path), &list_name, host.as_deref(), LO_TIMEOUT, env, &Net)
@@ -401,6 +418,10 @@ pub(super) fn loadorder_plain_write(
     stamp: String,
 ) -> Result<String, String> {
     use std::path::{Path, PathBuf};
+    // Security F5: the openmw.toml the page names is a file the person chose.
+    if let Some(to) = toml_to.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        granted::check(to)?;
+    }
     let (kind, _, _) = setup_spec(&cfg);
     let c = cf_setup(&cfg)?;
     // Only the plugins the install loads, each once: the order is the page's, after the person's moves.

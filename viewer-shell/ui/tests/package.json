@@ -5,9 +5,14 @@
   "scripts": {
     "boot": "node boot.js",
     "editor": "node editor/run.js",
-    "preview": "node --test --test-timeout=5000 preview_loading.test.js report_loading.test.js cache_races.test.js cellkey.test.js escape.test.js"
+    "preview": "node --test --test-timeout=5000 preview_loading.test.js report_loading.test.js cache_races.test.js cellkey.test.js escape.test.js",
+    "sinks": "node html_sinks.js"
   },
   "dependencies": {
     "jsdom": "^30.1.3"
+  },
+  "devDependencies": {
+    "eslint": "9.39.5",
+    "eslint-plugin-no-unsanitized": "4.1.5"
   }
 }

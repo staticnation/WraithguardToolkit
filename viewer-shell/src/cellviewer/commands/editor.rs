@@ -689,6 +689,11 @@ pub(super) fn editor_setup(state: State) -> Result<String, String> {
 #[tauri::command(async)]
 pub(super) fn editor_link(state: State, name: String, body: String) -> Result<String, String> {
     let links = EDITOR.lock().unwrap_or_else(|p| p.into_inner()).clone().ok_or_else(|| "The viewer's Editor is not open".to_string())?;
+    // Security F5: the patch goes where the person chose, or over a plugin that is there.
+    if name == "editBuild" {
+        let b: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+        granted::plugin_in_place(b.get("path").and_then(|v| v.as_str()).unwrap_or(""))?;
+    }
     let vfs = if name == "editVerify" { state.app().vfs.clone() } else { None };
     let exists = |path: &str| vfs.as_ref().is_some_and(|v| v.resolve(path).is_some());
     let file_exists: Option<&dyn Fn(&str) -> bool> = if vfs.is_some() { Some(&exists) } else { None };
@@ -770,7 +775,9 @@ pub(super) fn editor_preview_patch(cfg: String, path: String) -> Result<(), Stri
     let lines: Vec<String> = text.lines().map(str::to_string).collect();
     let lines = editcore::buildjob::with_extra_plugins(&lines, std::slice::from_ref(&target));
     let setup = cfg_path.with_file_name("wraithguard_preview_setup.cfg");
-    write_path_whole(&setup.to_string_lossy(), (lines.join("\n") + "\n").as_bytes())?;
+    // A name of the program's own, beside the openmw.cfg it was made from: not a path the
+    // page chose, so not one `granted` is asked about.
+    write_file_whole(&setup, (lines.join("\n") + "\n").as_bytes())?;
     let exe = self_exe()?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut args: Vec<String> = vec!["--cell-viewer".into(), "--openmw-cfg".into(), setup.to_string_lossy().into_owned()];

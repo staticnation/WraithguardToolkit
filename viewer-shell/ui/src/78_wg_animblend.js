@@ -146,16 +146,25 @@ const WgAnimBlend={
       const ob=oldBatches[i], nb=newBatches[i], op=ob && ob.part, np=nb && nb.part;
       if(!op || !np) continue;
       const ot=secs*(op._animSpeed||1)+(op._animShift||0);
-      // A skinned part: each bone's chain, where the old one has it now (mid-blend too).
-      if(op.skin && np.skin && op.skin.bones.length===np.skin.bones.length &&
-         op.skin.bones.every((b, k)=>(b.chain||[]).length===(np.skin.bones[k].chain||[]).length)){
-        const ob2=op._blend, of=ob2 && this.factor(ob2.B, secs);
-        np._blend={B, skin:op.skin.bones.map((b, k)=>animLinksAt(b.chain, ot, of!=null && ob2.skin? ob2.skin[k] : null, of))};
+      /* A skinned part: each bone where the old one has it now (mid-blend too). Its chain's
+         nodes one by one when the new animation moves the same ones; else - an idle's chain
+         and a walk's are the nodes each moves, and can be as long and still be others -
+         the bone's whole transform. Blending one node's pose into another node flung the
+         body's parts away for the blend's length (Static: "npcs disappear for a second when
+         they turn"). */
+      if(op.skin && np.skin && op.skin.bones.length===np.skin.bones.length){
+        const ob2=op._blend, of=ob2 && this.factor(ob2.B, secs), was=k=>of!=null && ob2.skin? ob2.skin[k] : null;
+        np._blend={B, skin:op.skin.bones.map((b, k)=>{
+          const nbone=np.skin.bones[k], w=was(k);
+          if(sameChain(b.chain, nbone.chain) && !(w && w.full)) return animLinksAt(b.chain, ot, w, of);
+          return {full:boneFullTS(b, ot, w, of)};
+        })};
         np._skinAt=null; any=true;
       }
-      // A rigid part under animated nodes: its chain, the same.
+      // A rigid part under animated nodes: its chain, when it is the same nodes. (Its shape is
+      // baked under the chain's last node, so another chain is another shape: no blend.)
       const oa=op.anim && op.anim.nodes, na=np.anim && np.anim.nodes;
-      if(oa && na && oa.length && oa.length===na.length){
+      if(oa && na && oa.length && sameChain(oa, na)){
         const ob3=ob._blend, of=ob3 && this.factor(ob3.B, secs);
         nb._blend={B, nodes:animLinksAt(oa, ot, of!=null? ob3.nodes : null, of)};
         any=true;

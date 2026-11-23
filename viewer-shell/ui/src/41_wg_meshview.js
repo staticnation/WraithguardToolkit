@@ -297,14 +297,14 @@ const WgMeshView={
     const edits=Object.values(this.pending||{}).sort((a,b)=>(a.op==='optimize')-(b.op==='optimize'));
     if(!edits.length){ this.status('no edits to save'); return; }
     const T=window.__TAURI__;
-    if(!T || !T.dialog || !T.core){ this.status('saving needs the Wraithguard viewer'); return; }
+    if(!T || !T.core){ this.status('saving needs the Wraithguard viewer'); return; }
     let out;
-    try{ out=await T.dialog.save({defaultPath:cur.edit.filename||'edited.nif', filters:[{name:'NIF mesh', extensions:['nif']}]}); }
+    try{ out=await Engine.pick('save',{defaultPath:cur.edit.filename||'edited.nif', filters:[{name:'NIF mesh', extensions:['nif']}]}); }
     catch(e){ this.status('error: '+e); return; }
     if(!out) return;
     this.status('saving…');
     try{
-      await T.core.invoke('mesh_save', {path:cur.path, edits:JSON.stringify(edits), out:String(out)});
+      await Engine.inv('mesh_save', {path:cur.path, edits:JSON.stringify(edits), out:String(out)});
       this.pending={};
       document.querySelectorAll('#mvFields .orirow.dirty').forEach(x=>x.classList.remove('dirty'));
       const ob=$('#mvOpt'); if(ob) ob.classList.remove('on');

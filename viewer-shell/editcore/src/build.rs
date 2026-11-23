@@ -1146,7 +1146,7 @@ pub fn write_patch(document: &[Value], target: &Path) -> Res<u64> {
         let _ = std::fs::create_dir_all(dir);
     }
     let bytes = patch_bytes(document)?;
-    std::fs::write(target, &bytes).map_err(|e| BuildError(format!("could not encode the patch natively: {e}")))?;
+    crate::plugin_io::write_whole(target, &bytes).map_err(|e| BuildError(format!("could not encode the patch natively: {e}")))?;
     Ok(bytes.len() as u64)
 }
 
@@ -1341,11 +1341,7 @@ pub fn run_patch(session: &crate::session::Session, job: &Job, dry_run: bool, sa
             std::fs::copy(&job.target, &backup).map_err(|e| BuildError(format!("the backup {} could not be written ({e}): {name} is not changed", backup.display())))?;
             line(format!("kept {name} as it was: {}", backup.display()), &mut result);
         }
-        let tmp = job.target.with_file_name(format!("{name}.wg-tmp"));
-        std::fs::write(&tmp, &bytes).and_then(|()| std::fs::rename(&tmp, &job.target)).map_err(|e| {
-            let _ = std::fs::remove_file(&tmp);
-            BuildError(format!("{name} could not be written: {e}"))
-        })?;
+        crate::plugin_io::write_whole(&job.target, &bytes).map_err(|e| BuildError(format!("{name} could not be written: {e}")))?;
         line(format!("wrote {} ({} bytes, {} records)", job.target.display(), bytes.len(), result.records + 1), &mut result);
         result.output = Some(job.target.clone());
         result.backup = Some(backup);

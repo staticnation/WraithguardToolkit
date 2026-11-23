@@ -544,13 +544,7 @@ pub fn languages_dir() -> Result<PathBuf, String> {
 /// finds — and comes back at once; the window is the person's from then on. Round 18as,
 /// the "Open folder" and "Open languages folder" buttons in Settings.
 pub fn show_folder(dir: &Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let program = "explorer";
-    #[cfg(target_os = "macos")]
-    let program = "open";
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let program = "xdg-open";
-    std::process::Command::new(program)
+    std::process::Command::new(file_browser())
         .arg(dir)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -558,6 +552,27 @@ pub fn show_folder(dir: &Path) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|e| crate::msg!("eng.open_failed", dir = dir.display().to_string(), err = e.to_string()))
+}
+
+/// The system's file browser by its full path (security audit F8): a bare name is looked
+/// for in the program's own folder first on Windows, so an `explorer.exe` put beside the
+/// program would have run instead. `%SystemRoot%\explorer.exe`, `/usr/bin/open`, and
+/// `xdg-open` where the system keeps it (the bare name only where it is elsewhere, as on
+/// NixOS, which has no `/usr/bin`).
+fn file_browser() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        root.join("explorer.exe")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        PathBuf::from("/usr/bin/open")
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        ["/usr/bin/xdg-open", "/bin/xdg-open", "/usr/local/bin/xdg-open"].iter().map(PathBuf::from).find(|p| p.is_file()).unwrap_or_else(|| PathBuf::from("xdg-open"))
+    }
 }
 
 fn override_dir() -> Option<PathBuf> {

@@ -1692,6 +1692,149 @@ fn write_text(path: String, text: String) -> Result<(), String> {
     write_path_whole(&path, text.as_bytes())
 }
 
+/* Security F5 (the second audit, 2026-11-23): where the page may have the program write.
+ *
+ * The page names the file for every export, every Save as and every output folder, and the
+ * commands used to write wherever it said. A page that is only showing a mod's text cannot
+ * name anything, but one that ran a script it should not have could have had this program
+ * write over a startup script or a settings file of the person's. So a write to a path the
+ * page names is taken only when the person chose that path, in a way the page cannot fake:
+ *
+ *   * a file or folder they picked in a file dialog this run - the dialog is opened from
+ *     Rust (`pick::path_pick`) and its answer is recorded here before the page sees it;
+ *   * a path the page names that they then allowed in the program's own message box
+ *     (`pick::path_allow`), which says the path in full - typed output folders and the
+ *     paths a page keeps from an earlier run come this way;
+ *   * the settings file the program was started with (`--extra` `settingsFile`), or the
+ *     one beside it.
+ *
+ * A refused write answers `WG_NOT_GRANTED:` and the path, and the page (`Engine.inv`)
+ * asks with the message box and tries once more. Paths are compared after `..` and links
+ * are taken out, and without case on Windows. Grants last until the program closes. */
+pub mod granted {
+    use std::path::{Component, Path, PathBuf};
+    use std::sync::Mutex;
+
+    /// What a refused write's message starts with; the path follows.
+    pub const REFUSED: &str = "WG_NOT_GRANTED:";
+
+    static FILES: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    static FOLDERS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    /// The path as it is on disk: absolute, `.` and `..` taken out, the links in the part
+    /// that exists followed, and in lower case on Windows.
+    pub fn norm(p: &Path) -> PathBuf {
+        let abs = if p.is_absolute() { p.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(p) };
+        let mut flat = PathBuf::new();
+        for c in abs.components() {
+            match c {
+                Component::ParentDir => {
+                    flat.pop();
+                }
+                Component::CurDir => {}
+                c => flat.push(c),
+            }
+        }
+        // The deepest part that exists, with its links followed; the rest put back on.
+        let mut head = flat.clone();
+        let mut tail = Vec::new();
+        let real = loop {
+            if let Ok(r) = std::fs::canonicalize(&head) {
+                let mut r = r;
+                for t in tail.iter().rev() {
+                    r.push(t);
+                }
+                break r;
+            }
+            match (head.file_name().map(|n| n.to_os_string()), head.parent().map(Path::to_path_buf)) {
+                (Some(n), Some(up)) => {
+                    tail.push(n);
+                    head = up;
+                }
+                _ => break flat,
+            }
+        };
+        if cfg!(windows) {
+            PathBuf::from(real.to_string_lossy().to_lowercase())
+        } else {
+            real
+        }
+    }
+
+    fn add(list: &Mutex<Vec<PathBuf>>, p: &Path) {
+        let n = norm(p);
+        let mut l = list.lock().unwrap_or_else(|e| e.into_inner());
+        if !l.contains(&n) {
+            l.push(n);
+        }
+    }
+
+    /// A file the person chose: it may be written.
+    pub fn file(p: &Path) {
+        add(&FILES, p)
+    }
+
+    /// A folder the person chose: anything in it may be written.
+    pub fn folder(p: &Path) {
+        add(&FOLDERS, p)
+    }
+
+    /// Whether the person chose this path, or a folder it is in. A picture beside a file
+    /// they chose, with its name (`NAME.png`), is theirs too: the cell report's view.
+    pub fn may_write(p: &Path) -> bool {
+        let n = norm(p);
+        let files = FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let png = n.extension().is_some_and(|e| e.eq_ignore_ascii_case("png"));
+        let companion = |f: &PathBuf| png && f.parent() == n.parent() && f.file_stem().is_some() && f.file_stem() == n.file_stem();
+        files.iter().any(|f| *f == n || companion(f)) || FOLDERS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|f| n.starts_with(f))
+    }
+
+    /// The path, when it may be written; otherwise the refusal the page asks about.
+    pub fn check(p: &str) -> Result<PathBuf, String> {
+        let p = p.trim();
+        if p.is_empty() {
+            return Err("no path was given".into());
+        }
+        let path = PathBuf::from(p);
+        if may_write(&path) {
+            Ok(path)
+        } else {
+            Err(format!("{REFUSED}{p}"))
+        }
+    }
+
+    /// A plugin written over in place (Remove / Rename Master, a bulk take, the Editor's
+    /// in-place build): one that is there, with a plugin's name. The writers read it as a
+    /// plugin before they write it, so nothing else gets this far; any other path the page
+    /// names is one the person has to have chosen.
+    pub fn plugin_in_place(p: &str) -> Result<PathBuf, String> {
+        let path = PathBuf::from(p.trim());
+        let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        if path.is_file() && matches!(ext.as_str(), "esp" | "esm" | "omwaddon" | "omwgame") {
+            Ok(path)
+        } else {
+            check(p)
+        }
+    }
+
+    /// What a refused run's message starts with: a program the page names (an external
+    /// tes3cmd, typed or kept in the settings file) is run only when the person picked it
+    /// in a dialog this run or allowed it in the message box.
+    pub const REFUSED_RUN: &str = "WG_NOT_GRANTED_RUN:";
+
+    /// The program, when the person chose it; otherwise the refusal the page asks about.
+    pub fn check_run(p: &str) -> Result<PathBuf, String> {
+        check(p).map_err(|e| e.replacen(REFUSED, REFUSED_RUN, 1))
+    }
+
+    /// For the tests: forget every grant.
+    #[cfg(test)]
+    pub fn clear() {
+        FILES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        FOLDERS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 
 /// Round 18r: where the mouse pointer is, and whether it can be seen.
 ///
@@ -1793,8 +1936,9 @@ fn write_file_whole(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> 
 }
 
 /// [`write_file_whole`] for a path the caller holds as a string.
+/// A path the page names, written whole - when the person chose it (`granted`).
 fn write_path_whole(path: &str, bytes: &[u8]) -> Result<(), String> {
-    write_file_whole(std::path::Path::new(path), bytes)
+    write_file_whole(&granted::check(path)?, bytes)
 }
 
 
@@ -2451,6 +2595,7 @@ fn mesh_inspect(path: String, state: State) -> Result<String, String> {
 /// failed write leaves nothing half done.
 #[tauri::command(async)]
 fn mesh_save(path: String, edits: String, out: String, state: State) -> Result<String, String> {
+    granted::check(&out)?;
     let v = { state.app().vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))? };
     let bytes = mesh_bytes(&v, &path)?;
     let edits: Vec<serde_json::Value> = serde_json::from_str(&edits).map_err(|e| e.to_string())?;
@@ -3029,6 +3174,11 @@ fn settings_write(settings_file: String, fields: String) -> Result<String, Strin
     let f: serde_json::Value = serde_json::from_str(&fields).map_err(|e| format!("the settings did not read: {e}"))?;
     let f = f.as_object().ok_or("the settings are not an object")?;
     let path = settings_path(&settings_file)?;
+    // Security F5: the one beside the program, or the one it was started with (granted at
+    // start-up, `mod.rs`); any other the person has to have chosen.
+    if path != settings_path("")? {
+        granted::check(&path.to_string_lossy())?;
+    }
     let s = toolscore::settings::write_fields(&path, f).map_err(|e| format!("{} could not be written: {e}", path.display()))?;
     Ok(serde_json::Value::Object(toolscore::settings::all_fields(&s)).to_string())
 }
@@ -3628,8 +3778,22 @@ fn lua_scene(ids: Vec<String>, state: State) -> Result<tauri::ipc::Response, Str
     Ok(tauri::ipc::Response::new(tb.done()))
 }
 
-/// Wraithguard: the Preview's OpenMW Lua (`viewcore::luarun`), one at a time.
-static LUA_RUN: std::sync::Mutex<Option<viewcore::luarun::Runner>> = std::sync::Mutex::new(None);
+/// Wraithguard: the Preview's OpenMW Lua (`viewcore::luarun`), one at a time - in a worker
+/// process (`viewcore::luaproc`, this program started again with `--lua-worker`) that is
+/// ended when a call runs past its time, wherever in the Lua it is (security, 2026-11-23:
+/// the Lua's own count hook does not reach into a native call).
+static LUA_RUN: std::sync::Mutex<Option<viewcore::luaproc::Proc>> = std::sync::Mutex::new(None);
+
+/// How long the Lua may take to start (every script read and run once), and each frame.
+const LUA_START_LIMIT: std::time::Duration = std::time::Duration::from_secs(90);
+const LUA_STEP_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// A worker with the Lua started in it.
+fn lua_worker(jit: Option<&std::path::Path>) -> Result<viewcore::luaproc::Proc, String> {
+    // The program's own file, not the AppImage around it (that would be unpacked again).
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    viewcore::luaproc::Proc::start(&exe, &["--lua-worker"], &[], jit, false, LUA_START_LIMIT)
+}
 
 /// Wraithguard: starts the Preview's OpenMW Lua on the install's own LuaJIT (Lua 5.4 where
 /// none is found): OpenMW's built-ins and the load order's scripts read, the global and
@@ -3660,13 +3824,13 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
         .map(|p| std::path::PathBuf::from(p.trim().trim_matches('"')));
     let resources = viewcore::luacore::findings::find_resources(cfg, chosen.as_deref());
     let jit = resources.as_deref().and_then(viewcore::luarun::find_luajit);
-    let mut run = viewcore::luarun::Runner::new(jit.as_deref(), false)?;
+    let mut run = lua_worker(jit.as_deref())?;
     let content = viewcore::luascan::content(order.as_deref());
     // The load order's numeric game settings, for `core.getGMST`.
     let gmst: Vec<(String, f32)> = state.app().world.as_ref().map(|w| w.gmst.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();
     let gmst_text: Vec<(String, String)> = state.app().world.as_ref().map(|w| w.gmst_text.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
     let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content, &off.unwrap_or_default(), &gmst, &gmst_text);
-    let answer = run.call("__wg_start", &start)?;
+    let answer = run.call("__wg_start", &start, LUA_START_LIMIT)?;
     let backend = run.backend.clone();
     *LUA_RUN.lock().map_err(|e| e.to_string())? = Some(run);
     *LUA_RESOURCES.lock().map_err(|e| e.to_string())? = resources.clone();
@@ -3698,7 +3862,12 @@ fn lua_run_step(frame: String, state: State) -> Result<String, String> {
     lua_collision(&frame, &state);
     let mut g = LUA_RUN.lock().map_err(|e| e.to_string())?;
     let run = g.as_mut().ok_or("OpenMW Lua is not running")?;
-    run.call("__wg_step", &frame)
+    let got = run.call("__wg_step", &frame, LUA_STEP_LIMIT);
+    // A worker that was stopped is let go: the next start makes a new one.
+    if !run.alive() {
+        *g = None;
+    }
+    got.map_err(|e| e.replacen(viewcore::luaproc::STOPPED, "", 1).trim().to_string())
 }
 
 /// Wraithguard: each mesh's collision triangles, read once while the Lua runs (`None`: the
@@ -4197,6 +4366,59 @@ fn window_box_text(b: &WindowBox) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod granted_tests {
+    use super::*;
+
+    /* One test, so the grants (which are the program's, not a test's) are not cleared
+       under another test running beside it. */
+    #[test]
+    fn only_what_the_person_chose_is_written() {
+        granted::clear();
+        let root = std::env::temp_dir().join(format!("wg-granted-{}", std::process::id()));
+        let out = root.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let s = |p: &std::path::Path| p.to_string_lossy().into_owned();
+
+        // Nothing chosen: refused, with the path for the page to ask about.
+        let report = root.join("report.md");
+        let e = write_text(s(&report), "x".into()).unwrap_err();
+        assert_eq!(e, format!("{}{}", granted::REFUSED, s(&report)));
+        assert!(!report.exists());
+
+        // Chosen: written; its picture beside it too, but nothing else of that name.
+        granted::file(&report);
+        write_text(s(&report), "x".into()).unwrap();
+        assert!(granted::may_write(&root.join("report.png")));
+        assert!(!granted::may_write(&root.join("report.bat")));
+        assert!(!granted::may_write(&root.join("other.md")));
+
+        // A folder: what is in it, not what `..` climbs out to.
+        granted::folder(&out);
+        assert!(granted::may_write(&out.join("a").join("b.nif")));
+        assert!(!granted::may_write(&out.join("..").join("escape.txt")));
+        assert!(granted::check(" ").is_err());
+
+        // A plugin written over in place is one that is there; any other name is asked about.
+        let esp = root.join("Mod.esp");
+        std::fs::write(&esp, b"TES3").unwrap();
+        assert!(granted::plugin_in_place(&s(&esp)).is_ok());
+        assert!(granted::plugin_in_place(&s(&root.join("New.esp"))).is_err());
+        assert!(granted::plugin_in_place(&s(&root.join("run.cmd"))).is_err());
+
+        // Backups: only what is named as one is deleted.
+        let bak = root.join("Mod.esp.preclean.bak");
+        std::fs::write(&bak, b"x").unwrap();
+        assert!(tools_backups_delete(vec![s(&esp), s(&bak)]).is_err());
+        assert!(esp.exists() && bak.exists());
+        assert_eq!(tools_backups_delete(vec![s(&bak)]), Ok(1));
+
+        granted::clear();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
 // Items follow (the command); the module sits beside what it tests.
 #[allow(clippy::items_after_test_module)]
 mod window_box_tests {
@@ -4340,6 +4562,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(App::default()))
         .invoke_handler(tauri::generate_handler![
+            // Security F5: the file dialogs, opened from Rust (`pick.rs`).
+            super::pick::path_pick,
+            super::pick::path_allow,
             window_set,
             connect_stage,
             editor_tags_bytes,

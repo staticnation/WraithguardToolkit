@@ -876,9 +876,9 @@ const WgTools={
   async saveReport(){
     const R=App.R; if(!R || !this.sc()){ toast('Load a cell first','warn',2500); return; }
     const T=window.__TAURI__;
-    if(!T || !T.dialog){ toast('Saving needs the Wraithguard viewer','warn',3000); return; }
+    if(!T || !T.core){ toast('Saving needs the Wraithguard viewer','warn',3000); return; }
     let out;
-    try{ out=await T.dialog.save({defaultPath:'cell-report.md', filters:[{name:'Markdown', extensions:['md']}]}); }
+    try{ out=await Engine.pick('save',{defaultPath:'cell-report.md', filters:[{name:'Markdown', extensions:['md']}]}); }
     catch(e){ toast(String(e),'err',4000); return; }
     if(!out) return;
     const png=String(out).replace(/\.md$/i,'')+'.png';

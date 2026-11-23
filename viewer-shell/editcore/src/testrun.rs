@@ -101,7 +101,15 @@ pub fn suffix_of(p: &Path) -> String {
 /// The OpenMW executable chosen before (`settings`'s `exe`), when it is still there.
 pub fn remembered_exe(file: &Path) -> Option<PathBuf> {
     let raw = load_settings(file).get("exe").and_then(Value::as_str).filter(|s| !s.is_empty()).map(PathBuf::from)?;
-    raw.is_file().then_some(raw)
+    (raw.is_file() && is_openmw(&raw)).then_some(raw)
+}
+
+/// Whether a path names OpenMW's executable: `openmw` (`openmw.exe` on Windows), in any case.
+/// Only such a file is started, whether the page gave the path or the settings file kept it
+/// (security audit F5, F8): a settings file, or a page, naming another program does not run it.
+pub fn is_openmw(p: &Path) -> bool {
+    let name = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if cfg!(windows) { name == "openmw.exe" } else { name == "openmw" || name == "openmw.exe" }
 }
 
 /// The OpenMW executable chosen, kept for the next test.
@@ -144,7 +152,7 @@ pub fn find_openmw(given: Option<&str>, settings: &Path) -> Option<PathBuf> {
         if path.is_dir() {
             path = path.join(exe_name());
         }
-        if path.is_file() {
+        if path.is_file() && is_openmw(&path) {
             remember_exe(settings, &path);
             return Some(path);
         }
@@ -285,6 +293,26 @@ pub fn setups_answer(settings: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    /// Only OpenMW is started (security audit F5, F8): a path the page gives, or the one the
+    /// settings file keeps, that names another program is not run.
+    #[test]
+    fn only_openmw_is_started() {
+        let d = std::env::temp_dir().join(format!("wg-testrun-only-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let ok = d.join(if cfg!(windows) { "openmw.exe" } else { "openmw" });
+        let bad = d.join(if cfg!(windows) { "cmd.exe" } else { "sh" });
+        std::fs::write(&ok, b"").unwrap();
+        std::fs::write(&bad, b"").unwrap();
+        let settings = d.join("settings.json");
+        assert!(super::is_openmw(&ok) && !super::is_openmw(&bad));
+        assert_eq!(super::find_openmw(Some(&bad.to_string_lossy()), &settings), None);
+        assert_eq!(super::find_openmw(Some(&d.to_string_lossy()), &settings).as_deref(), Some(ok.as_path()));
+        // A settings file edited to name another program: not taken.
+        super::remember_exe(&settings, &bad);
+        assert_eq!(super::remembered_exe(&settings), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     use super::*;
 
     #[test]

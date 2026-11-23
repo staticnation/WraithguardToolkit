@@ -76,7 +76,14 @@ pub(super) fn tools_backups_restore(pairs: Vec<(String, String)>) -> Result<Stri
 /// Wraithguard: backups deleted. Answers how many were.
 #[tauri::command(async)]
 pub(super) fn tools_backups_delete(paths: Vec<String>) -> Result<usize, String> {
-    Ok(toolscore::backups::delete(&paths.into_iter().map(PathBuf::from).collect::<Vec<_>>()))
+    // Security F5: only files whose names say they are backups (`backups::classify`, the
+    // list's own test) - the page names the paths, and this deletes them.
+    let named = |p: &PathBuf| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| toolscore::backups::classify(n).is_some());
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    if let Some(p) = paths.iter().find(|p| !named(p)) {
+        return Err(format!("{} is not a backup: nothing was deleted", p.display()));
+    }
+    Ok(toolscore::backups::delete(&paths))
 }
 
 /// Wraithguard: a plugin's masters, `[[name, size]]` (Remove / Rename Master's list).
@@ -93,6 +100,7 @@ pub(super) fn tools_masters(path: String) -> Result<String, String> {
 /// backup}`.
 #[tauri::command(async)]
 pub(super) fn tools_remove_master(path: String, master: String, dry_run: bool) -> Result<String, String> {
+    granted::plugin_in_place(&path)?;
     let (r, backup) = toolscore::masters::remove_master_file(std::path::Path::new(&path), &master, dry_run).map_err(|e| format!("{path}: {e}"))?;
     Ok(serde_json::json!({"master": r.master, "removed": r.removed, "dropped": r.references_dropped, "droppedByCell": r.dropped_by_cell,
                           "remapped": r.references_remapped, "remaining": r.remaining_masters, "backup": backup})
@@ -109,6 +117,7 @@ pub(super) fn tools_merge_master(mode: String, plugin: String, master: String, p
     use toolscore::mergemaster::{merge_into_master, merge_order, write_merged, MergeOptions};
     let _gate = scan_gate();
     let o = MergeOptions { remove_deleted, apply_moved_references: apply_moved, preserve_duplicate_references: keep_duplicates };
+    granted::check(&out)?;
     let out_path = std::path::Path::new(&out);
     for src in plugins.iter().chain([&plugin, &master]) {
         if !src.is_empty() && std::path::Path::new(src) == out_path {
@@ -129,6 +138,7 @@ pub(super) fn tools_merge_master(mode: String, plugin: String, master: String, p
 /// Answers `{renamed, remaining, backup}`.
 #[tauri::command(async)]
 pub(super) fn tools_rename_master(path: String, old: String, new_path: String) -> Result<String, String> {
+    granted::plugin_in_place(&path)?;
     let (r, backup) = toolscore::masters::rename_master_file(std::path::Path::new(&path), &old, std::path::Path::new(&new_path)).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({"renamed": r.renamed, "remaining": r.remaining_masters, "backup": backup}).to_string())
 }
@@ -299,6 +309,11 @@ pub(super) fn tools_tes3cmd(
         // Only a tes3cmd is run from a path the page names (security audit 2026-11-20, F5).
         if !exe.is_empty() && !toolscore::tes3cmd::looks_like_tes3cmd(&exe) {
             return Err(format!("'{exe}' is not a tes3cmd: its file name should start with tes3cmd."));
+        }
+        // And only one the person picked, or allowed when asked (security F5, 2026-11-23):
+        // the page names it, from a text box or the settings file.
+        if !exe.is_empty() {
+            granted::check_run(&exe)?;
         }
         // Not the folder holding openmw.cfg (F8): a file put there by anyone who can write to it
         // would run. One on PATH, `$MLOX_TES3CMD`, or the path given, as the user set them.

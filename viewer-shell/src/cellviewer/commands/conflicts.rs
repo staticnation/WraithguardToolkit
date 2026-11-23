@@ -199,6 +199,7 @@ pub(super) fn meshopt_write(cfg: String, opts: serde_json::Value, out_dir: Strin
     if out_dir.trim().is_empty() {
         return Err("name the folder the optimized meshes go to".into());
     }
+    granted::check(&out_dir)?;
     let _gate = scan_gate();
     let o = nb::Options::from_json(&opts);
     let mut cands = mo_candidates(&cfg, &o, &out_dir)?;
@@ -291,6 +292,7 @@ pub(super) fn meshcheck_write(cfg: String, opts: serde_json::Value, out_dir: Str
     if out_dir.trim().is_empty() {
         return Err("name the folder the repaired meshes go to".into());
     }
+    granted::check(&out_dir)?;
     let _gate = scan_gate();
     let mut cands = mo_candidates(&cfg, &mc_opts(&opts), &out_dir)?;
     if !paths.is_empty() {

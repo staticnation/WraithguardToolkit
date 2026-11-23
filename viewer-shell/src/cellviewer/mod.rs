@@ -32,6 +32,7 @@
 // licensed GPL-2.0 as a silo; everything else in this crate is MIT. See ui/LICENSE.
 
 mod commands;
+mod pick;
 
 use serde_json::{json, Value};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -109,7 +110,13 @@ pub fn run(args: &[String], context: tauri::Context<tauri::Wry>) -> i32 {
     if let Some(p) = flag(args, "--prefs") {
         std::env::set_var("WRAITHGUARD_VIEWER_PREFS", p);
     }
-    let init = format!("window.__WG_VIEW__ = {};", view_request(args));
+    let view = view_request(args);
+    // Security F5: the settings file the program was started with may be written (it is
+    // the person's, named by the Tk app that started this one, not by the page).
+    if let Some(f) = view.pointer("/extra/settingsFile").and_then(|v| v.as_str()).filter(|f| !f.trim().is_empty()) {
+        commands::granted::file(std::path::Path::new(f.trim()));
+    }
+    let init = format!("window.__WG_VIEW__ = {};", view);
     let own = if flag(args, "--openmw-cfg").is_none() { "Wraithguard" } else { "Cell Preview" };
     let title = flag(args, "--title").unwrap_or(own).to_string();
 

@@ -1,11 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "cellviewer",
-  "description": "The cell viewer invokes this app's commands, opens file and folder pickers, and drives its own title bar.",
+  "description": "The cell viewer invokes this app's commands, asks for file and folder pickers through its own commands (the page cannot open them itself), shows message boxes, and drives its own title bar.",
   "windows": ["cellviewer"],
   "permissions": [
     "core:default",
-    "dialog:default",
     "dialog:allow-ask",
     "dialog:allow-confirm",
     "dialog:allow-message",

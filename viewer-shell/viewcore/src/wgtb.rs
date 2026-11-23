@@ -146,7 +146,9 @@ pub fn read(b: &[u8]) -> Result<Vec<Table>, String> {
         return Err(format!("WGTB version {version}; this reads 1"));
     }
     let count = u32_at(&mut at)?;
-    let mut out = Vec::with_capacity(count as usize);
+    // At most a table for each 12 bytes left (the smallest a table can be: its name, its columns and
+    // its row count, each a length): the count is the bytes' word.
+    let mut out = Vec::with_capacity((count as usize).min(b.len().saturating_sub(at) / 12));
     for _ in 0..count {
         let name = str_at(&mut at)?;
         let cols = str_at(&mut at)?;
@@ -195,6 +197,25 @@ pub fn rows<'a>(tables: &'a [Table], name: &str) -> &'a [Vec<Val>] {
 
 #[cfg(test)]
 mod tests {
+    /// A count the bytes cannot hold is not believed: four billion tables, or rows, in a few
+    /// bytes ends in an error, not an allocation of that size.
+    #[test]
+    fn a_forged_count_is_an_error_not_an_allocation() {
+        let mut b = b"WGTB".to_vec();
+        b.extend(1u32.to_le_bytes());
+        b.extend(u32::MAX.to_le_bytes());
+        assert!(super::read(&b).is_err());
+        let mut t = b"WGTB".to_vec();
+        t.extend(1u32.to_le_bytes());
+        t.extend(1u32.to_le_bytes());
+        t.extend(1u32.to_le_bytes());
+        t.push(b'x');
+        t.extend(1u32.to_le_bytes());
+        t.push(b'u');
+        t.extend(u32::MAX.to_le_bytes());
+        assert!(super::read(&t).is_err());
+    }
+
     use super::*;
 
     #[test]

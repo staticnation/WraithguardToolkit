@@ -22,6 +22,7 @@ pub mod lod;
 pub mod layout;
 pub mod luascan;
 pub mod luarun;
+pub mod luaproc;
 pub mod mge;
 pub mod markers;
 pub mod mland;

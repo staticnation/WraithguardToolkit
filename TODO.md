@@ -7,27 +7,48 @@ Code and decisions only: what is waiting to be tried on Static's setup is not ke
 for `CHANGELOG.md`; a decision stays as one line where open work depends on it. Design notes that still guide open work:
 `viewer-shell/GLAM-PLAN.md`, `viewer-shell/TES3CMD-REWRITE.md`, `viewer-shell/GARDENFELL.md`.
 
-## Security audit (2026-11-20)
+## Security audit (2026-11-20, and the second of 2026-11-23)
 
-Done in 5.0.6: F1, F2 (Lua 5.4 tested; LuaJIT not run), F3, F4, F6, F9 (the checksums and `--locked` untested until a tag),
-and parts of F5 and F8 (see `CHANGELOG.md`). Left:
+Done in 5.0.6: every finding of both audits (see `CHANGELOG.md`): F1-F9, the second audit's 1-6 and its F5
+and F7, the innerHTML lint, LuaJIT tested in CI, the Lua in a worker process the program ends, and build
+provenance. `cargo audit`, `cargo deny check` and OSV-Scanner pass in CI as of 2026-11-23. Left, by choice
+or because it waits on something outside the code:
 
-- **F5, the IPC trust boundary:** a path or program given by the page is still taken as it is, apart from
-  tes3cmd. A write target should be one that came from a dialog this session or the saved settings, which
-  needs the dialogs' answers kept on the Rust side (they are made from the page); consider
-  `withGlobalTauri: false`.
-- **F7, memory-mapped plugins** (`editcore/src/uses.rs`, `session.rs`): not changed. Reading them in whole
-  costs the memory the maps save (the load order is hundreds of MB); the fix is to hold writers off while a
-  map is alive, or to map only with no write job running.
-- **F8, the rest:** executable paths in the settings file are trusted, and the file-manager helpers are
-  started by bare name.
-- **F9, the rest:** no build attestation (`actions/attest-build-provenance` needs its commit pinned and the
-  `id-token` and `attestations` permissions), no signing, and `dtolnay/rust-toolchain` is a commit of
-  `stable`, not a version. The WebView2 pin does nothing until `WEBVIEW2_FIXED_SHA256` is set.
-- **F6:** a lint rule (`eslint-plugin-no-unsanitized`, or an escaping tagged template) for the 296 `innerHTML`
-  sinks, and a UI test that loads plugins and records named with markup.
-- **F4:** the rule files come from a branch (`main`) of a third-party repository; pinning a commit is not done.
-- Run `cargo audit`, `cargo deny check` and `osv-scanner` (the audit could not).
+- **F4, kept by choice:** the rule files follow `main` of a third-party repository, not a pinned commit
+  (Static, 2026-11-23: new rules arrive without a release). What that trusts: whoever can push to that
+  branch decides what the sort and the warnings say. The rules are data (read by the YAML and rule
+  readers, never run), so the reach is wrong advice, not code.
+- **Attestation is in `workflows/`, not yet in `.github/workflows`** (copy it there; `.github` is not
+  edited from here). It attests public builds only (`!github.event.repository.private`); the builds are not
+  signed. The WebView2 pin does nothing until `WEBVIEW2_FIXED_SHA256` is set. The checksums and `--locked`
+  are untested until a tag.
+- **F5's edges:** a plugin written over in place is accepted when it exists and is named as a plugin (the
+  writers read it as one first); the Editor's preview setup is written beside the openmw.cfg the page names,
+  under the program's own name. Reads are not limited (the page names what to show).
+- **The innerHTML lint keeps its 205 known places** (`ui/tests/html_sinks.baseline.json`); they were read
+  as escaped or the page's own text, not proven so. A UI test that loads records named with markup is not
+  written.
+- **The Lua worker** has a time limit, not a memory one: a script's allocations in C are bounded by the
+  prelude's memory check between instructions and by the machine.
+- **MWSE in the Preview** runs main.lua's events, timers, config and the core tes3 calls; the rest of MWSE
+  (tes3ui menus, mobile actors' stats, the MCM, files, `mge`) answers "not run in the preview". Events
+  the Preview does not make (`keyDown`, `damage`, `menuEnter`...) are never fired.
+
+## Lua API coverage (Static 2026-11-23: "every call defined")
+
+- **OpenMW: done for the surface.** Every documented call is defined (`api_fill`, from
+  `lua_api/openmw.json`). Next: real behavior for what is only answered by type. In the packages a global
+  script requires, 39 module calls are (`WG_API_REPORT=1 cargo test -p viewcore every_documented`
+  lists them: `Debug` 10, `menu` 9, `world` 6, `util` 5, ...); the type tables (`types.Actor`, `NPC`,
+  `Item`...: 220 documented calls) and the player-only packages (`self`, `nearby`, `camera`, `input`,
+  `ui`, `ambient`) are not counted yet - the test runs a global script only.
+- **MWSE: done for the surface** (`lua_api/mwse.json`, from a local copy of MWSE-master, 2026-11-23:
+  re-run `tools/mwse_api_surface.py` on a newer one). Next: real behavior for more of `tes3` on the scene
+  (`tes3.getObject` for every record, not only what is drawn; `tes3.createReference`, `tes3.getCell`,
+  inventories, mobiles' stats from the records) and the events the Preview could make (`keyDown`,
+  `uiActivated` for its own windows, `combatStarted` from the AI). Most of MWSE reads and writes
+  Morrowind.exe's memory and can only ever be answered by type here. MWSE's source is GPL: only
+  names, types and the game's constants are taken, never code.
 
 ## Tools page
 
