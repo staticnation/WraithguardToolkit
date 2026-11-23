@@ -57,8 +57,58 @@ fn read_msg(input: &mut impl BufRead) -> Option<serde_json::Value> {
     }
 }
 
+/// How much memory the worker may take (Static 2026-11-23): with LuaJIT's compiler on, a compiled
+/// loop is past the prelude's memory check, so the process itself is capped. `WG_LUA_WORKER_MB`
+/// sets it otherwise (the tests). An allocation past it fails: Lua answers "not enough memory" to
+/// the script, and a failure outside Lua ends the worker, which the program reports as stopped.
+pub const MEMORY_CAP_MB: u64 = 2048;
+
+/// The worker's own memory capped at `mb`: the address space on Linux (`RLIMIT_AS`), the data
+/// segment elsewhere on Unix (`RLIMIT_DATA`; macOS does not hold mmap to it, so there the
+/// worker's deadline is what stops a runaway), and the process's committed memory on Windows
+/// (a Job object it puts itself in). False when the system refused.
+pub fn cap_memory(mb: u64) -> bool {
+    let bytes = mb.saturating_mul(1024 * 1024);
+    #[cfg(unix)]
+    {
+        #[cfg(target_os = "linux")]
+        let what = libc::RLIMIT_AS;
+        #[cfg(not(target_os = "linux"))]
+        let what = libc::RLIMIT_DATA;
+        let lim = libc::rlimit { rlim_cur: bytes as libc::rlim_t, rlim_max: bytes as libc::rlim_t };
+        // SAFETY: setrlimit reads the struct it is given and changes only this process's limit.
+        unsafe { libc::setrlimit(what, &lim) == 0 }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_PROCESS_MEMORY};
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        // SAFETY: a new unnamed job, its limit set from a struct of the right size, and this
+        // process put in it; the handle is kept for the process's life (the limit goes with it).
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return false;
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+            info.ProcessMemoryLimit = bytes as usize;
+            let set = SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info as *const _ as *const core::ffi::c_void, std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32);
+            set != 0 && AssignProcessToJobObject(job, GetCurrentProcess()) != 0
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = bytes;
+        false
+    }
+}
+
 /// The worker: the Lua, answering the program until its input ends. Returns the exit code.
 pub fn serve() -> i32 {
+    // Capped before any Lua runs (`MEMORY_CAP_MB`).
+    let mb = std::env::var("WG_LUA_WORKER_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(MEMORY_CAP_MB);
+    cap_memory(mb);
     let mut run: Option<Runner> = None;
     loop {
         let Some(m) = read_msg(&mut std::io::stdin().lock()) else { return 0 };
@@ -289,5 +339,37 @@ mod tests {
         let got = p.call("__wg_step", r#"{"dt":0.05,"objects":{"n1":{"id":"guard","tag":"NPC_","pos":[0,0,0],"cell":{"name":"","ext":true,"gx":0,"gy":0}},
             "w1":{"id":"ex_wall","tag":"STAT","pos":[0,500,100],"cell":{"name":"","ext":true,"gx":0,"gy":0}}}}"#, Duration::from_secs(30)).unwrap();
         assert!(got.contains(r#""text":"hit ex_wall 500 true 50""#), "{got}");
+    }
+
+    /// A script that eats memory in a loop the hook does not watch (the limit put far off) is
+    /// stopped by the worker's own cap, long before its deadline; the program goes on.
+    #[test]
+    fn a_script_that_eats_memory_is_stopped_by_the_worker_s_cap() {
+        let exe = std::env::current_exe().unwrap();
+        let jit = std::env::var("WG_LUAJIT").ok();
+        let mut p = Proc::start(
+            &exe,
+            &["--exact", "luaproc::tests::as_worker", "--include-ignored", "--nocapture", "--test-threads=1"],
+            &[("WG_LUA_WORKER_TEST", "1"), ("WG_LUA_WORKER_MB", "768")],
+            jit.as_deref().map(Path::new),
+            jit.is_none(),
+            Duration::from_secs(30),
+        )
+        .unwrap();
+        p.call("__wg_set_limits", "60,1000000000", Duration::from_secs(5)).unwrap();
+        let script = "local t = {} for i = 1, 100000 do t[i] = string.rep('x', 1048576) .. i end print('ate it all')";
+        let mut esc = String::from("\"");
+        crate::json::escape_into(script, &mut esc);
+        esc.push('"');
+        let start = format!(r#"{{"scripts":[{{"path":"scripts/t/eat.lua","flags":["GLOBAL"]}}],"sources":{{"scripts/t/eat.lua":{esc}}},"files":[],"weathers":["Clear"]}}"#);
+        let t0 = Instant::now();
+        let got = p.call("__wg_start", &start, Duration::from_secs(60));
+        assert!(t0.elapsed() < Duration::from_secs(40), "{:?}", t0.elapsed());
+        // On LuaJIT the script is told and the worker goes on; on Lua 5.4 the worker ends at the
+        // cap and the call says it was stopped. Either way the program is untouched.
+        match got {
+            Ok(a) => assert!(a.contains("not enough memory") && !a.contains("ate it all"), "{a}"),
+            Err(e) => assert!(e.starts_with(STOPPED), "{e}"),
+        }
     }
 }

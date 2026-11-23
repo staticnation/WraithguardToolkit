@@ -67,3 +67,11 @@ type_complexity = "allow"
 chunks_exact_to_as_chunks = "allow"
 # Index loops over x/y/z and r/g/b in maths code: clearer than zip/enumerate chains.
 needless_range_loop = "allow"
+
+# Wraithguard: the Lua worker's memory cap (src/luaproc.rs `cap_memory`): `setrlimit` on the
+# worker itself, and a Job object on Windows (both already in the build, through Tauri).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

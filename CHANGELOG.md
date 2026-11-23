@@ -128,6 +128,12 @@
   program now sends the worker what changed of the scene's collision ahead of each frame - each model's
   triangles once, the objects' placings as they move, the land of the 5 x 5 squares around the player
   once each - and the worker casts its rays itself. Test: `a_ray_in_the_worker_meets_what_the_program_sent`.
+- **The Lua worker's memory is capped** (`luaproc::cap_memory`, 2 GB): the address space on Linux
+  (`RLIMIT_AS`), the data segment elsewhere on Unix, and the process's committed memory on Windows (a Job
+  object the worker puts itself in). With LuaJIT's compiler on, a compiled loop is past the prelude's
+  memory check; past the cap, LuaJIT tells the script "not enough memory" and the worker goes on, and on
+  Lua 5.4 the worker ends and the Preview says the Lua stopped. macOS does not hold mmap to its limit:
+  there the deadline is what stops it. Test: `a_script_that_eats_memory_is_stopped_by_the_worker_s_cap`.
 
 ### Fixed
 

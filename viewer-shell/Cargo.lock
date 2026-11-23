@@ -5518,6 +5518,7 @@ dependencies = [
  "gardenfell-text",
  "gardenfell-world",
  "landcore",
+ "libc",
  "libloading 0.9.1",
  "luacore",
  "meshopt-port",
@@ -5528,6 +5529,7 @@ dependencies = [
  "serde_json",
  "symphonia",
  "tes3",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
