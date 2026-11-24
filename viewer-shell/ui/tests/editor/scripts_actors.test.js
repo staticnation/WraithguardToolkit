@@ -160,7 +160,9 @@ module.exports = async (t) => {
   tick(60, 0.05);
   const gx = S.posOf(S.inst.get('g1'))[0];
   t.ok(gx > 400 && gx < 500, 'three seconds in, the guard is partway: ' + Math.round(gx));
-  t.ok(Math.abs(S.rotOf(S.inst.get('g1'))[2] - Math.PI / 2) < 1e-6, 'and faces where it goes');
+  // It turns toward the goal over a few frames and walks the way it faces, so its line bends a
+  // little at the start: it faces the goal to within a hundredth of a radian.
+  t.ok(Math.abs(S.rotOf(S.inst.get('g1'))[2] - Math.PI / 2) < 0.01, 'and faces where it goes');
   tick(80, 0.05);
   const G = S.actors.get('g1');
   t.ok(G.ai.done && G.combat && G.combat.key === 'r1', 'arrived, the guard attacks the rat');

@@ -339,6 +339,14 @@
   go in, else to its left or right); the + under a Select or Sequence adds a step; double-click
   folds one away. Wheel zooms, dragging the background pans, Fit shows it all. SVG built with
   the DOM.
+- **Smoother actor movement in the Preview** (`73_wg_scripts.js` `stepTo`, `turned`, `go`, `face`):
+  an actor turns toward where it goes at a set rate (`TURN`, 8 radians a second) instead of
+  snapping round, and walks the way it faces, slowed while it still faces away, so it arcs into
+  a new heading rather than sliding sideways; it begins a corner a stride before the waypoint;
+  its pace eases up from still over a fifth of a second; its height eases over the floor's small
+  bumps (under `STEP_Z`, 8 units) instead of jittering, and still takes a stair or a ledge at
+  once; turning to face someone (a greeting, a fight) is at the same rate. Test:
+  `actors_smooth.test.js`.
 - **Graph views for dialogue and quests** (`83_wg_graph.js`, a tree drawn as a graph: boxes
   top-down, labelled branches, folding, wheel zoom, drag to pan, Fit). The Dialogue window's
   **Graph**: the selected topic's responses left to right in the order the engine tries them,

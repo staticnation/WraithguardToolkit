@@ -803,9 +803,14 @@ const WgScripts={
       A._routeAge=0;
     }
     if(moving) R.pts[R.pts.length-1]=dest.slice();
+    /* Its pace eases up to the walk or the run over a fifth of a second, and starts again from
+       still after it stood (Static 2026-11-23: "could still use optimization to be more fluid
+       and smooth"): no jump from standing to full stride. */
+    const sp=A._pace=Math.min(speed, (A._pace||0)+speed*5*dt);
     for(let n=0;n<64;n++){
       const last=R.pts.length===1;
-      const st=this.stepTo(A.t, R.pts[0], speed*dt, last? near : 48);
+      // A corner is taken early (a turn begun a stride before the point), not walked into.
+      const st=this.stepTo(A.t, R.pts[0], sp*dt, last? near : Math.max(48, sp*0.6));
       if(st==='blocked'){
         // Held by a wall or an object: a moment, then this leg is given up - a wanderer
         // picks somewhere else, anything else plans its way again.
@@ -814,31 +819,51 @@ const WgScripts={
         return false;
       }
       A._blockedT=0;
-      if(!st){ A._moved=true; return false; }
-      if(last){ A._route=null; A._moved=false; return true; }   // arrived: it stands (its idle, or one the AI plays)
+      if(!st){ A._moved=true; A._moving=true; return false; }
+      if(last){ A._route=null; A._moved=false; A._moving=false; A._pace=0; return true; }   // arrived: it stands (its idle, or one the AI plays)
       R.pts.shift();
     }
     return false;
   },
   /** An actor a step toward a point, facing it, on the ground; true once within `near`. */
+  /* Turning (Static 2026-11-23, smoother movement): an actor turns toward where it goes at
+     `TURN` radians a second - not at once - and walks the way it faces, slowed while it still
+     faces away (no sideways slide); its height eases over the floor's small bumps (the land's
+     and the collision surfaces' unevenness) rather than jittering, and takes a step - a stair,
+     a ledge - of more than `STEP_Z` at once. */
+  TURN:8, STEP_Z:8,
+  /** b - a, the short way round, in (-π, π]. */
+  angleTo(a, b){ const T=Math.PI*2; let d=((b-a)%T+T)%T; if(d>Math.PI) d-=T; return d; },
+  /** A yaw turned toward `want` by at most TURN·dt: [the new yaw, what is left to turn]. */
+  turned(yaw, want, dt){
+    const d=this.angleTo(yaw, want), m=this.TURN*Math.max(0, dt);
+    if(Math.abs(d)<=m) return [want, 0];
+    return [yaw+Math.sign(d)*m, Math.abs(d)-m];
+  },
   stepTo(t, goal, step, near){
     if(!goal) return true;
     const p=this.posOf(t), dx=goal[0]-p[0], dy=goal[1]-p[1], d=Math.hypot(dx, dy);
     if(d<=near) return true;
-    const s=Math.min(step, d-near*0.9);
+    const dt=this._dt>0? this._dt : 1/60;
+    const r=this.rotOf(t), [yaw, left]=this.turned(r[2], Math.atan2(dx, dy), dt);
+    r[2]=yaw;
+    // The way it faces, slowed by how far it still has to turn (still at a right angle or more).
+    const fx=Math.sin(yaw), fy=Math.cos(yaw), k=Math.max(0, Math.cos(Math.min(Math.PI/2, left)));
+    const s=Math.min(step*k, d-near*0.9);
+    if(!(s>0.01)){ this.place(t, {rot:r}); return false; }
     const o=(App._scene && App._scene.origin)||[0,0];
     /* What the walking camera collides with stops an actor too (71_wg_walk.js `aiBlocked`:
        the objects' collision shapes, at the knee and the chest): it stands, facing the way
        it meant to go, and `go` gives the leg up after a moment. */
-    if(typeof WgWalk==='object' && WgWalk.aiBlocked && t.key && WgWalk.aiBlocked([p[0]-o[0], p[1]-o[1], p[2]], dx/d*s, dy/d*s)){
-      const r=this.rotOf(t); r[2]=Math.atan2(dx, dy); this.place(t, {rot:r});
+    if(typeof WgWalk==='object' && WgWalk.aiBlocked && t.key && WgWalk.aiBlocked([p[0]-o[0], p[1]-o[1], p[2]], fx*s, fy*s)){
+      this.place(t, {rot:r});
       return 'blocked';
     }
-    p[0]+=dx/d*s; p[1]+=dy/d*s;
+    p[0]+=fx*s; p[1]+=fy*s;
     // Room: out of the other actors' way, and the walking player's (77_wg_ai.js).
     if(typeof WgAI==='object' && t.key) WgAI.room(t.key, p);
-    p[2]=this.floorAt(p, goal, s/d);
-    const r=this.rotOf(t); r[2]=Math.atan2(dx, dy);
+    const z0=p[2], z=this.floorAt(p, goal, s/d);
+    p[2]=Math.abs(z-z0)>this.STEP_Z? z : z0+(z-z0)*Math.min(1, dt*14);
     this.place(t, {pos:p, rot:r});
     return false;
   },
@@ -856,7 +881,7 @@ const WgScripts={
     if(gz!=null) return gz;
     return goal && goal[2]!=null && Math.abs(goal[2]-p[2])<400? p[2]+(goal[2]-p[2])*Math.min(1, frac) : p[2];
   },
-  face(t, at){ const p=this.posOf(t), r=this.rotOf(t); const z=Math.atan2(at[0]-p[0], at[1]-p[1]); if(Math.abs(r[2]-z)>0.05){ r[2]=z; this.place(t, {rot:r}); } },
+  face(t, at){ const p=this.posOf(t), r=this.rotOf(t); const z=Math.atan2(at[0]-p[0], at[1]-p[1]); if(Math.abs(this.angleTo(r[2], z))>0.05){ r[2]=this.turned(r[2], z, this._dt>0? this._dt : 1/60)[0]; this.place(t, {rot:r}); } },
   /** One swing of a fight, roughly as the game weighs it: the chance to hit is the
    *  attacker's skill and a fifth of its agility, less a fifth of the defender's; the blow is
    *  a creature's attack (up to its strongest) or what an NPC's strength and skill give a
