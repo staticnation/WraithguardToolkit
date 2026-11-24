@@ -98,10 +98,11 @@ const WgDial={
   GRAPH_COL:{topic:'#6f9cf0', response:'#c9a85c', orphan:'#e5534b', choice:'#c07de0', addtopic:'#6cb6ff', quest:'#c9a227', var:'#3fb950', item:'#9a9a9a'},
   async graph(topic){
     const box=this.box;
-    if(!topic){ box.innerHTML='<div class="hint">Choose a topic in the List view (or a link anywhere) to see its graph.</div>'; return; }
-    box.innerHTML='<div class="hint">Reading '+escHtml(topic)+'…</div>';
+    const say=t=>{ box.textContent=''; const h=document.createElement('div'); h.className='hint'; h.textContent=t; box.append(h); };
+    if(!topic){ say('Choose a topic in the List view (or a link anywhere) to see its graph.'); return; }
+    say('Reading '+topic+'…');
     let f;
-    try{ f=await this.E.ask('editDialogueFlow', {topic}); }catch(e){ box.innerHTML=this.err(e); return; }
+    try{ f=await this.E.ask('editDialogueFlow', {topic}); }catch(e){ say(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,'')); return; }
     this._last=f.id||topic;
     box.textContent='';
     const host=document.createElement('div'); box.append(host);
