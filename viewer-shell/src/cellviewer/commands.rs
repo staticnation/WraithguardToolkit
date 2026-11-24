@@ -3060,6 +3060,26 @@ fn ori_dialogue(id: String, state: State) -> Result<String, String> {
 /// "(x, y)"); anything else by the first reference to it (interiors by name, then the
 /// exterior by grid, so the answer is the same every time), with how many there are.
 /// `{kind:"int"|"ext", name, x, y, key, pos, count}`.
+/// Wraithguard: where the load order's scripts set a variable (`viewcore::search::writes`; Script
+/// Edit's "Where is it set?", Static 2026-11-24): `[{id, line, text}]`, at most 500.
+#[tauri::command(async)]
+fn script_writes(name: String, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let hits = viewcore::search::writes(w.script_texts.values().map(|(id, text)| (id, text)), &name);
+    let list: Vec<serde_json::Value> = hits.into_iter().take(500).map(|(id, line, text)| serde_json::json!({"id": id, "line": line, "text": text})).collect();
+    Ok(serde_json::Value::Array(list).to_string())
+}
+
+/// Wraithguard: records by part of their id, best first, for the Editor's command palette
+/// (`viewcore::search::ids`; Static 2026-11-24): `[{id, tag}]`, at most `limit` (40 without).
+#[tauri::command(async)]
+fn record_search(q: String, limit: Option<usize>, state: State) -> Result<String, String> {
+    let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
+    let hits = viewcore::search::ids(&w.record_where, &q, limit.unwrap_or(40).min(200));
+    let list: Vec<serde_json::Value> = hits.into_iter().map(|(id, tag)| serde_json::json!({"id": id, "tag": tag})).collect();
+    Ok(serde_json::Value::Array(list).to_string())
+}
+
 #[tauri::command(async)]
 fn find_record(tag: String, id: String, state: State) -> Result<String, String> {
     let w = { state.app().world.clone() }.ok_or_else(|| viewcore::msg!("eng.no_install"))?;
@@ -5088,6 +5108,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             tools_tes3cmd_undo,
             tools_merge_objects,
             find_record,
+            record_search,
+            script_writes,
             editor_records,
             editor_rows,
             editor_ref_names,

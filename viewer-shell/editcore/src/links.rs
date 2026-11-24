@@ -961,7 +961,15 @@ pub fn answer(ed: &mut Editor, name: &str, body: &str, ctx: &Ctx) -> Res<Answer>
             let founds: Vec<Found> = seen.values().flatten().cloned().collect();
             let missing: Vec<&String> = seen.iter().filter(|(_, f)| f.is_none()).map(|(k, _)| k).collect();
             let value = req.get("value").cloned().unwrap_or(Value::Null);
-            let mut out = ed.set_many(&founds, &path, &value);
+            // `op` "add" or "mul" with a number `by`: each record's own value changed by it
+            // (Static 2026-11-24, bulk edits by an amount); none, the one value set on all.
+            let op = req.get("op").and_then(Value::as_str).unwrap_or("set");
+            let mut out = if op == "set" {
+                ed.set_many(&founds, &path, &value)
+            } else {
+                let by = req.get("by").and_then(Value::as_f64).ok_or_else(|| "by is a number".to_string())?;
+                ed.change_many(&founds, &path, op, by)
+            };
             out["missing"] = json!(missing);
             Json(out)
         }

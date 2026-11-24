@@ -2092,6 +2092,292 @@
      "new": []
     }
    }
+  },
+  {
+   "name": "many records changed by an amount: each its own value, whole numbers kept whole, one step",
+   "plugins": [
+    {
+     "name": "Morrowind.esm",
+     "records": [
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "a",
+       "name": "A",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 1.0,
+        "value": 1,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "b",
+       "name": "B",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "weight": 2.0,
+        "value": 2,
+        "flags": ""
+       }
+      },
+      {
+       "type": "MiscItem",
+       "flags": "",
+       "id": "c",
+       "name": "C",
+       "script": "",
+       "mesh": "",
+       "icon": "",
+       "data": {
+        "value": 3,
+        "flags": ""
+       }
+      }
+     ]
+    }
+   ],
+   "ops": [
+    [
+     "change_many",
+     "MISC",
+     [
+      "a",
+      "b",
+      "c"
+     ],
+     "data.value",
+     "mul",
+     1.5
+    ],
+    [
+     "pending"
+    ],
+    [
+     "change_many",
+     "MISC",
+     [
+      "a",
+      "c"
+     ],
+     "data.value",
+     "add",
+     10
+    ],
+    [
+     "pending"
+    ],
+    [
+     "change_many",
+     "MISC",
+     [
+      "a",
+      "b",
+      "c"
+     ],
+     "data.weight",
+     "add",
+     1
+    ],
+    [
+     "undo"
+    ],
+    [
+     "pending"
+    ]
+   ],
+   "expect": {
+    "results": [
+     {
+      "changed": 3,
+      "failed": []
+     },
+     [
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 2
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "b",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 3
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "c",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 5
+        }
+       ]
+      }
+     ],
+     {
+      "changed": 2,
+      "failed": []
+     },
+     [
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 12
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "b",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 3
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "c",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 15
+        }
+       ]
+      }
+     ],
+     {
+      "changed": 2,
+      "failed": [
+       {
+        "id": "c",
+        "error": "c has no field data.weight"
+       }
+      ]
+     },
+     {
+      "done": true,
+      "what": [
+       "MISC a",
+       "MISC b"
+      ],
+      "undo": 2,
+      "redo": 1
+     },
+     [
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "a",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 12
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "b",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 3
+        }
+       ]
+      },
+      {
+       "tag": "MISC",
+       "type": "MiscItem",
+       "id": "c",
+       "whole": null,
+       "changes": [
+        {
+         "path": "data.value",
+         "value": 15
+        }
+       ]
+      }
+     ]
+    ],
+    "journal": {
+     "version": 1,
+     "whole": [],
+     "fields": [
+      {
+       "type": "MiscItem",
+       "key": "a",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "data.value",
+         "value": 12
+        }
+       ]
+      },
+      {
+       "type": "MiscItem",
+       "key": "b",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "data.value",
+         "value": 3
+        }
+       ]
+      },
+      {
+       "type": "MiscItem",
+       "key": "c",
+       "base": "Morrowind.esm",
+       "choices": [
+        {
+         "path": "data.value",
+         "value": 15
+        }
+       ]
+      }
+     ],
+     "refs": [],
+     "made": [],
+     "new": []
+    }
+   }
   }
  ]
 }

@@ -134,9 +134,11 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `82_wg_htn.js` | 115 KB | Tools → HTN AI: an actor's behaviour as an HTN domain for FluadHTN, from game blocks: the editor (list and graph, undo, templates, reusable parts), the check, the export for OpenMW and MWSE, and the Preview run (the page's planner, or the exported Lua on FluadHTN). |
 | `83_wg_graph.js` | 8 KB | A tree drawn as a graph (boxes, labelled branches, folding, zoom and pan): the Dialogue window's Graph and Tools → Journal's. |
 | `84_wg_views.js` | 6 KB | Camera views kept per cell (world units, `localStorage`) and put back; the 3D view saved as a PNG, clean of highlights and arrows on request. |
+| `85_wg_palette.js` | 10 KB | Ctrl+P: pages, tools, key actions, buttons on screen, saved views, cells and records by id, found by typing. |
+| `86_wg_editor_qol.js` | 16 KB | The Editor's back and forward, Pending's field-by-field diff with ↶ per field, Script Edit's Ctrl+Space and "Where is it set?", a response's placeholder check. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 157, and `pick.rs`: 2)
+## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 159, and `pick.rs`: 2)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
@@ -172,6 +174,7 @@ names a command that is not defined, or one is left unregistered.
 - **plugins**: `plugins_lenient` (Settings' "Read past unknown subrecords")
 - **ori**: `ori`, `ori_dialogue`
 - **find**: `find_record`
+- **record**: `record_search` (records by id, best first)
 - **editor**: `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs_bytes`, `editor_ref_names`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`, `editor_land_link`
 - **htn**: `htn_deps`, `htn_read`, `htn_export` (Tools → HTN AI)
 - **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`, `lua_deps`, `lua_check`, `lua_record`, `lua_settings_read`, `lua_settings_write`, `anim_blend_config`
@@ -194,7 +197,7 @@ names a command that is not defined, or one is left unregistered.
 - **asset**: `asset_providers`
 - **game**: `game_settings`
 - **scene**: `scene_scripts`
-- **script**: `script_texts`
+- **script**: `script_texts`, `script_writes` (each line that sets a variable)
 - **phys**: `phys_drop`
 - **dialogue**: `dialogue_state_from_save`
 - **walk**: `walk_player_from_save`
@@ -214,7 +217,7 @@ names a command that is not defined, or one is left unregistered.
 | `img.rs` | 1054 | DDS/TGA/BMP decoding and size caps, off the UI thread. |
 | `inspect.rs` | 552 | The object inspector's full help, read on demand from the plugin files. |
 | `lang.rs` | 582 | Language packs. |
-| `lib.rs` | 61 | Crate root; `init()` installs the G7 readers. |
+| `lib.rs` | 69 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
 | `luacheck.rs` | 347 | Tools → Lua mods: each Lua mod run on its own and what its scripts said sorted; what each script needs on with it (`deps`). |
 | `luafiles.rs` | 543 | The files a Lua mod reads (on demand, through the worker) and the settings the player saved (`player_storage.bin`, `global_storage.bin`): read for the scripts, and one value written back for Tools → Lua settings. |
@@ -235,6 +238,7 @@ names a command that is not defined, or one is left unregistered.
 | `rawrec.rs` | 271 | A raw plugin walker: records and subrecords as byte slices. |
 | `refkey.rs` | 38 | A reference's stable name: its plugin and index. |
 | `review.rs` | 169 | One mod's part in a cell: what it added, changed, moved and took away. |
+| `search.rs` | 120 | The Editor's records by id, best match first (the command palette, Script Edit's Ctrl+Space), and each script line that sets a variable. |
 | `usage.rs` | 186 | Where a mesh, texture or base record is used, cell by cell. |
 | `vfsindex.rs` | 396 | The overlay's file index, kept between connects. |
 | `weather.rs` | 89 | Gardenfell's weather, plus the setup's sound and weather fallbacks (openmw.cfg or Morrowind.ini). |

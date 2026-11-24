@@ -297,6 +297,14 @@ that plugin is kept byte for byte, and the plugin as it was is kept once as
 - **The Object Window.** Every record of the load order by type, with a filter (Ctrl+F),
   search by any field, sortable columns (id, name, model, the plugins that define it, how
   many are placed) and new records. **Patch only** narrows it to what the patch changes.
+  **Set a field on all of them** takes a value, or an amount: `+10`, `-10`, `*1.25`, `+20%`
+  change each record from its own value (whole numbers stay whole), one undo step for all.
+- **Ctrl+P, the command palette.** Type to find a page, a tool, a key action, a button on
+  screen, a saved view, a cell or any record by id, and Enter to run or open it.
+- **Back and forward** (Alt+Left, Alt+Right, or ◀ ▶ in the record dialog's title) through
+  the records and references opened.
+- **Pending › Diff** shows each changed field of a record: what the load order has, what the
+  patch writes, and ↶ to take back that one field. **Diff all** opens them all.
 - **The Cell View.** Every cell and the references in the one selected. Double-click to
   open a cell or go to a reference.
 - **Records and references.**
@@ -333,11 +341,15 @@ that plugin is kept byte for byte, and the plugin as it was is kept once as
     items). Click to open a response; double-click a topic or quest to draw it.
   - **Map**: the topics around one, zoomable.
   - **Flags**: every variable, quest index and item the dialogue reads or writes.
+  - A response's text is spell-checked as you type, and a `%name` that is neither a text
+    define (`%PCName`, `%PCRank`, `%Faction`…) nor a global variable, or an `@topic`
+    without its `#`, is named under it.
   - **In game**: a rehearsal with any NPC, in a cell you pick and a game state set by hand
     or from a save, with conditions you didn't set listed as assumed.
 - **Scripts and Lua.**
   - **Script Edit** checks MWScript as you type and compiles it the way the Construction
-    Set does.
+    Set does. Ctrl+Space completes a record id or one of the script's variables, and
+    **Where is it set?** lists every script line that sets the variable under the caret.
   - **The Lua panel** checks the load order's OpenMW Lua (Teal included), with charts of
     each script.
 - **Path grids**: select, drag, add, link with Ctrl+drag, delete.

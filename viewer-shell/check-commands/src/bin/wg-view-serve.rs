@@ -144,6 +144,8 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "viewer_profile_read" => Reply::Text(t::viewer_profile_read()?),
         "viewer_profile_write" => Reply::Text(t::viewer_profile_write(s(a, "text"))?),
         "find_record" => Reply::Json(t::find_record(s(a, "tag"), s(a, "id"), st())?),
+        "script_writes" => Reply::Json(t::script_writes(s(a, "name"), st())?),
+        "record_search" => Reply::Json(t::record_search(s(a, "q"), Some(u(a, "limit")).filter(|n| *n > 0), st())?),
         "editor_records" => Reply::Json(t::editor_records(s(a, "tag"), st())?),
         "editor_rows" => Reply::Bytes(t::editor_rows(s(a, "tag"), st())?.0),
         "editor_tags_bytes" => Reply::Bytes(t::editor_tags_bytes(st())?.0),

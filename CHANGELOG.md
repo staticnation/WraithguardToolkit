@@ -327,6 +327,27 @@
   camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
   orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
   the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **The Editor's batch** (Static 2026-11-24, "lets do all this"; `85_wg_palette.js`,
+  `86_wg_editor_qol.js`):
+  - **Ctrl+P, a command palette**: pages, every tool, the Editor's key actions, the buttons and
+    switches on screen, the cell's saved views, the load order's cells, and records by id
+    (`record_search`, new in `viewcore::search`: an id that starts with the words first, then one
+    with a part that does, then the rest, shortest first).
+  - **Back and forward** through the records and references opened (Alt+Left, Alt+Right, the ◀ ▶
+    in the record dialog's title).
+  - **Pending › Diff**, per record, and **Diff all**: each changed field, what the load order has
+    and what the patch writes, with ↶ to take back that field alone.
+  - **Bulk edits by an amount**: the Object Window's "Set a field on all of them" (and a cell typed
+    in its table with several selected) takes `+10`, `-10`, `*1.25`, `x2`, `+20%`; each record
+    changes from its own value, whole numbers stay whole, one undo step (editcore `change_many`,
+    `editSetMany` with `op` and `by`).
+  - **Script Edit**: Ctrl+Space completes a record id (quoted when it has a space) or the script's
+    own variable; **Where is it set?** lists each line of every script that sets the variable under
+    the caret (`script_writes`, comments left out).
+  - **A response's placeholders**: a `%name` that is neither one of the game's text defines nor a
+    global variable, and an `@` without its `#`, named under the text as you type (spelling is the
+    box's own spell check). Tests: `editor_qol.test.js`, editcore's case "many records changed by
+    an amount", viewcore `search`.
 - **"No visible geometry" only for what has none** (`10_preview.js` `isMarkerMesh`; Static 2026-11-24:
   "the mist and smoke are particle emitters, the other 3 are editor markers"): a mesh with particle
   systems, and an editor marker (`editormarker`, `marker_`), are no longer reported. Test, for this and

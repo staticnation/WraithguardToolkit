@@ -40,6 +40,9 @@ const WgKeys={
     {id:'reference', group:'Windows',  label:'Edit the selected reference',             def:['F3']},
     {id:'verify',    group:'Patch',    label:'Verify what the patch carries',           def:['Ctrl+Shift+V']},
     {id:'testRun',   group:'Patch',    label:'Test in OpenMW',                          def:['Ctrl+F5']},
+    {id:'palette',   group:'Windows',  label:'Command palette: find an action, tool, cell or record', def:['Ctrl+P']},
+    {id:'histBack',  group:'Windows',  label:'Back to the record opened before',         def:['Alt+ArrowLeft']},
+    {id:'histFwd',   group:'Windows',  label:'Forward again',                            def:['Alt+ArrowRight']},
     {id:'prefab',    group:'Patch',    label:'Prefabs under the pointer',               def:['Ctrl+Shift+P']},
   ],
   /** The pad's functions (49_wg_gamepad.js), each on a standard-mapping button. */

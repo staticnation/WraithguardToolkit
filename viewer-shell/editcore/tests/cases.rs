@@ -346,6 +346,10 @@ fn run_edit(case: &Value) -> Value {
                 let founds: Vec<_> = a[1].as_array().unwrap().iter().filter_map(|i| ed.find(&s(&a[0]), &s(i), None)).collect();
                 Ok(ed.set_many(&founds, &s(&a[2]), &a[3]))
             }
+            "change_many" => {
+                let founds: Vec<_> = a[1].as_array().unwrap().iter().filter_map(|i| ed.find(&s(&a[0]), &s(i), None)).collect();
+                Ok(ed.change_many(&founds, &s(&a[2]), &s(&a[3]), a[4].as_f64().unwrap()))
+            }
             "revert" => match ed.find(&s(&a[0]), &s(&a[1]), None) {
                 None => Ok(json!("not found")),
                 Some(f) => ed.revert(&f, a[2].as_str()).map(|()| json!("ok")),

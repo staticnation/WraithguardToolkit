@@ -446,18 +446,35 @@ Object.assign(WgEditor, {
     const path=await WgUI.askText('Set which field on '+ids.length+' records?', '', 'a field, e.g. data.value', fields.map(f=>f.path));
     if(!path) return null;
     const f=fields.find(x=>x.path===path);
-    const value=await WgUI.askText(path+' on '+ids.length+' records', f && f.value!=null? String(f.value) : '', 'the value', f && f.options && f.options.length? f.options : null);
+    const value=await WgUI.askText(path+' on '+ids.length+' records', f && f.value!=null? String(f.value) : '',
+      'a value; or +10, -10, *1.25, +20% to change each by that (=-10 sets -10)', f && f.options && f.options.length? f.options : null);
     if(value==null) return null;
-    return this.setMany(ids, path, value, tag);
+    const by=this.byAmount(value);
+    if(by) return this.setMany(ids, path, null, tag, by);
+    return this.setMany(ids, path, String(value).replace(/^\s*=\s*/, ''), tag);
+  },
+
+  /** A change by an amount, typed in place of a value (Static 2026-11-24, bulk edits):
+   *  "+10" and "-10" add, "*1.25" or "x1.25" multiplies, "+20%" and "-20%" by a percentage.
+   *  Null for a plain value (and for "=..." which sets exactly). */
+  byAmount(text){
+    const t=String(text||'').trim().replace(/\u2212/g, '-').replace(/[×]/g, '*');
+    let m=t.match(/^([+-])\s*(\d+(?:\.\d+)?|\.\d+)\s*%$/);
+    if(m) return {op:'mul', by:1+(m[1]==='-'? -1 : 1)*parseFloat(m[2])/100};
+    m=t.match(/^([+-])\s*(\d+(?:\.\d+)?|\.\d+)$/);
+    if(m) return {op:'add', by:(m[1]==='-'? -1 : 1)*parseFloat(m[2])};
+    m=t.match(/^[*xX]\s*(\d+(?:\.\d+)?|\.\d+)$/);
+    if(m) return {op:'mul', by:parseFloat(m[1])};
+    return null;
   },
 
   /** `editSetMany`: one value on many records, one step (Ctrl+Z puts all of them back). */
-  async setMany(ids, path, value, tag=this.tag){
+  async setMany(ids, path, value, tag=this.tag, by=null){
     let r;
-    try{ r=await this.ask('editSetMany', {tag, ids, path, value}); }
+    try{ r=await this.ask('editSetMany', by? {tag, ids, path, op:by.op, by:by.by} : {tag, ids, path, value}); }
     catch(e){ toast(String(e.message||e).replace(/^Wraithguard answered 400:\s*/,''),'err',6000); return null; }
     const left=(r.failed||[]).length+(r.missing||[]).length;
-    toast(path+' set on '+r.changed+' record'+(r.changed===1?'':'s')+(left? ' - '+left+' left as they were (see Messages)' : ''), left? 'warn' : 'ok', 4000);
+    toast(path+(by? ' changed' : ' set')+' on '+r.changed+' record'+(r.changed===1?'':'s')+(left? ' - '+left+' left as they were (see Messages)' : ''), left? 'warn' : 'ok', 4000);
     for(const f of r.failed||[]) if(typeof WgLog==='object') WgLog.add(f.id+': '+f.error, 'warn');
     await this.refreshPending();
     return r;
@@ -471,12 +488,16 @@ Object.assign(WgEditor, {
     const before=td.textContent;
     td.innerHTML='<input class="fld edCellIn" spellcheck="false">';
     const inp=td.firstChild; inp.value=before;
-    inp.title=ids.length>1? 'Enter: '+col.path+' on the '+ids.length+' selected records' : 'Enter: set '+col.path;
+    inp.title=(ids.length>1? 'Enter: '+col.path+' on the '+ids.length+' selected records' : 'Enter: set '+col.path)+
+      ' (+10, -10, *1.25 or +20% change each by that; =-10 sets -10)';
     const done=async ok=>{
       if(!inp.isConnected) return;
       const v=inp.value;
       td.textContent=before;
-      if(ok && v!==before) await this.setMany(ids, col.path, v, tag);
+      if(ok && v!==before){
+        const by=this.byAmount(v);
+        await (by? this.setMany(ids, col.path, null, tag, by) : this.setMany(ids, col.path, v.replace(/^\s*=\s*/, ''), tag));
+      }
     };
     inp.onkeydown=e=>{ e.stopPropagation(); if(e.key==='Enter') done(true); if(e.key==='Escape') done(false); };
     inp.onblur=()=>done(false);

@@ -42,6 +42,7 @@ pub mod profiles;
 pub mod refkey;
 pub mod renderer;
 pub mod review;
+pub mod search;
 pub mod toml;
 pub mod usage;
 pub mod vfs;

@@ -385,6 +385,51 @@ impl Editor {
         json!({"changed": changed, "failed": failed})
     }
 
+    /// One number changed by an amount on many records (Static 2026-11-24: bulk edits "+10",
+    /// "x1.25", "-20%"): each record's own value - what the patch would write now, the queued one
+    /// over the plugin's - added to (`op` "add") or multiplied by (`op` "mul") `by`, all in one
+    /// undo step. A whole number stays whole (rounded half away from zero). A record without the
+    /// field, or with something other than a number there, is left as it was and named.
+    pub fn change_many(&mut self, founds: &[Found], path: &str, op: &str, by: f64) -> Value {
+        let mut failed = Vec::new();
+        let mut plan: Vec<(&Found, Value)> = Vec::new();
+        for f in founds {
+            let view = self.view(f);
+            let cur = view["fields"].as_array().and_then(|a| a.iter().find(|x| x["path"] == path)).map(|x| {
+                if x.get("queued").is_some_and(|q| !q.is_null()) { x["queued"].clone() } else { x["value"].clone() }
+            });
+            let Some(cur) = cur else {
+                failed.push(json!({"id": f.key, "error": format!("{} has no field {path}", f.key)}));
+                continue;
+            };
+            let Some(n) = cur.as_f64() else {
+                failed.push(json!({"id": f.key, "error": format!("{path} is not a number on {}", f.key)}));
+                continue;
+            };
+            let r = match op {
+                "add" => n + by,
+                "mul" => n * by,
+                _ => {
+                    failed.push(json!({"id": f.key, "error": format!("no such change: {op}")}));
+                    continue;
+                }
+            };
+            let whole = cur.is_i64() || cur.is_u64();
+            plan.push((f, if whole { json!(r.round() as i64) } else { json!(r) }));
+        }
+        let mut changed = 0;
+        let _ = self.batch(|ed| {
+            for (f, v) in &plan {
+                match ed.set_field(f, path, v) {
+                    Ok(()) => changed += 1,
+                    Err(e) => failed.push(json!({"id": f.key, "error": e.0})),
+                }
+            }
+            Ok(())
+        });
+        json!({"changed": changed, "failed": failed})
+    }
+
     /// Drops the queued change to one field, or to the whole record.
     pub fn revert(&mut self, found: &Found, path: Option<&str>) -> Result<(), EditError> {
         if found.new {
