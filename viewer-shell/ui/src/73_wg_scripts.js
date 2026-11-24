@@ -229,7 +229,7 @@ const WgScripts={
   },
   /** One frame of every running script. */
   frame(dt){
-    this._dt=dt;
+    this._dt=dt; this._frameN++;
     const P=typeof WgPerf==='object'? WgPerf : null, t0=performance.now();
     for(const g of this.globalRun.values()) this.runOne(g, null);
     // A disabled object's script runs on (it is how a lamp turns itself back on).
@@ -291,17 +291,22 @@ const WgScripts={
   /** Each MWScript's errors, and its time a frame (ms, smoothed), by lowercased name (Static 2026-11-23). */
   mwErr:new Map(), mwCost:new Map(), _mwNow:new Map(),
   RETURN:{},
+  /* Static 2026-11-23 (the Preview's report: "MWScript 163.8 ms a frame"): `Return` is a value
+     handed back up the blocks, not a thrown one - most object scripts return early every frame
+     (`if ( MenuMode ) return`), and a throw per script per frame is costly. `block` answers
+     true when the script returned. */
   block(list, ctx){
     for(const s of list){
       if(++ctx.steps>20000) throw new Error('more than 20000 steps in one frame (a loop that never ends?)');
       switch(s.k){
         case 'set': this.assign(s.target, this.val(s.expr, ctx), ctx); break;
-        case 'if': for(const b of s.branches){ if(b.cond==null || this.val(b.cond, ctx)){ this.block(b.body, ctx); break; } } break;
-        case 'while': { let n=0; while(this.val(s.cond, ctx)){ if(++n>10000) throw new Error('a while loop ran 10000 times in one frame (line '+s.line+')'); this.block(s.body, ctx); } break; }
-        case 'return': throw this.RETURN;
+        case 'if': for(const b of s.branches){ if(b.cond==null || this.val(b.cond, ctx)){ if(this.block(b.body, ctx)) return true; break; } } break;
+        case 'while': { let n=0; while(this.val(s.cond, ctx)){ if(++n>10000) throw new Error('a while loop ran 10000 times in one frame (line '+s.line+')'); if(this.block(s.body, ctx)) return true; } break; }
+        case 'return': return true;
         case 'call': this.call(s, ctx); break;
       }
     }
+    return false;
   },
   num(v){ return typeof v==='number'? v : (+v||0); },
   val(e, ctx){
@@ -372,9 +377,15 @@ const WgScripts={
    *  first loaded reference of that id (as the game takes it). */
   firstOf(ref){
     if(!ref) return null;
-    for(const it of this.inst.values()) if(it.id===ref) return it;
-    return null;
+    // An index by id, made again when the scripted objects change (`_instV`, or their count):
+    // asked for every `ref->` of every script every frame, it was a walk over all of them.
+    if(this._firstV!==this._instV || this._firstN!==this.inst.size){
+      this._firstV=this._instV; this._firstN=this.inst.size; this._firstIx=new Map();
+      for(const it of this.inst.values()) if(!this._firstIx.has(it.id)) this._firstIx.set(it.id, it);
+    }
+    return this._firstIx.get(ref) || null;
   },
+  _instV:0,
   target(ref, ctx){
     if(!ref) return ctx.self;
     if(ref==='player') return {player:true};
@@ -383,22 +394,40 @@ const WgScripts={
     const r=this.refById(ref);
     return r? {key:r.key, id:ref, ref:r} : null;
   },
-  /** A reference of the scene by its key (an index kept per scene: the AI asks every frame). */
-  refByKey(key){
+  /** The scene's references by key and by id, and the interior holding each, made again
+   *  when the scene changes - another scene, or cells or references come or go (counted at
+   *  most once a frame). The scripts and the AI ask these for every object every frame. */
+  sceneIx(){
     const sc=App._scene;
-    if(this._keyIx!==sc){ this._keyIx=sc; this._byKey=new Map(); for(const c of (sc && sc.cells)||[]) for(const r of c.refs||[]) if(r && r.key) this._byKey.set(r.key, r); }
-    return this._byKey.get(key) || this.placed.find(p=>p.key===key) || null;
+    if(this._ixScene===sc && this._ixFrame===this._frameN) return this._ix;
+    let n=0; for(const c of (sc && sc.cells)||[]) n+=(c.refs||[]).length;
+    const sig=((sc && sc.cells)||[]).length+':'+n;
+    this._ixFrame=this._frameN;
+    if(this._ixScene===sc && this._ixSig===sig) return this._ix;
+    this._ixScene=sc; this._ixSig=sig;
+    const byKey=new Map(), byId=new Map(), cellOfKey=new Map();
+    for(const c of (sc && sc.cells)||[]) for(const r of c.refs||[]){
+      if(!r) continue;
+      if(r.key){ byKey.set(r.key, r); if(c.kind==='int') cellOfKey.set(r.key, c); }
+      const k=String(r.id).toLowerCase(); if(!byId.has(k)) byId.set(k, r);
+    }
+    return (this._ix={byKey, byId, cellOfKey});
+  },
+  _frameN:0,
+  /** A reference of the scene by its key (`sceneIx`: the AI asks every frame). */
+  refByKey(key){
+    return this.sceneIx().byKey.get(key) || this.placed.find(p=>p.key===key) || null;
   },
   refById(id){
-    const sc=App._scene;
-    for(const c of (sc && sc.cells)||[]) for(const r of c.refs||[]) if(String(r.id).toLowerCase()===id) return r;
-    return null;
+    // The first reference of each id (`sceneIx`).
+    return this.sceneIx().byId.get(id) || null;
   },
   refOf(t){
     if(!t || t.player) return null;
     if(t.ref) return t.ref;
-    const sc=App._scene;
-    for(const c of (sc && sc.cells)||[]) for(const r of c.refs||[]) if(r.key===t.key) return r;
+    // The scene's own reference by key (`refByKey`'s index; it was a walk over every reference,
+    // for every position a script or the AI asked for), else the one it was bound with.
+    if(t.key){ const r=this.sceneIx().byKey.get(t.key); if(r) return r; }
     return t._ref||null;
   },
   /** Where something stands now: its position as the scripts have left it. */
@@ -611,7 +640,8 @@ const WgScripts={
     const sc=App._scene, cells=(sc && sc.cells)||[];
     if(t && t.player){ const c=sc && sc.centre; return c && c.kind==='int'? String(c.name||'').toLowerCase() : ''; }
     const key=t && t.key;
-    for(const c of cells) if(c.kind==='int' && (c.refs||[]).some(r=>r.key===key)) return String(c.name||'').toLowerCase();
+    // Which interior holds it, by an index per scene (it was a walk over every reference).
+    { const c=key && this.sceneIx().cellOfKey.get(key); if(c) return String(c.name||'').toLowerCase(); }
     const it=key && this.inst.get(key); if(it && it.cell && !/^-?\d+,-?\d+$/.test(it.cell)) return it.cell;
     const p=key && this.placed.find(q=>q.key===key); if(p) return p.cell||'';
     const int=cells.find(c=>c.kind==='int');
@@ -1422,6 +1452,7 @@ const WgScripts={
     const sc=App._scene; if(!sc || !this.on) return;
     const refs=[];
     for(const c of sc.cells||[]) for(const r of c.refs||[]) if(r && r.id && !r.gc) refs.push([c, r]);
+    this._instV++;
     for(const [c, r] of refs){
       const id=String(r.id).toLowerCase(), s=this.objScript.get(id);
       if(!s || this.inst.has(r.key)) continue;
@@ -1498,7 +1529,7 @@ const WgScripts={
       }
     }
     if(rebuild) App._scene=null;
-    this.disabled.clear(); this.moved.clear(); this.anims.clear(); this.placed=[]; this.inst.clear(); this.globalRun.clear();
+    this.disabled.clear(); this.moved.clear(); this.anims.clear(); this.placed=[]; this.inst.clear(); this._instV++; this.globalRun.clear();
     for(const k of [...this.loops.keys()]) this.loopStop(k);
     this._globalsRead=false; this._asked=null; this._packed=null; this._warming=null; this._warmList=[]; this._warmWant=null; this.objScript.clear(); this.state.globals.clear(); this.state.journal.clear(); this._logged.clear(); this.log=[];
     this.actors.clear(); this.actorDefs.clear(); this.playing.clear(); this.topics.clear(); this.msg=null; this.drawMsg();

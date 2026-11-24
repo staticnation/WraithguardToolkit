@@ -42,13 +42,81 @@ pub fn deps(vfs: &Vfs, luajit: Option<&Path>) -> Value {
     let omw = vfs.resolve(OMW_FILE).is_some();
     let mwse_path = MWSE_FILES.iter().find(|p| vfs.resolve(p).is_some()).copied();
     let rubic0n = luajit.and_then(|p| std::fs::read(p).ok()).map(|b| is_rubic0n(&b));
+    let roots: Vec<PathBuf> = vfs.roots.iter().map(|r| r.dir.clone()).collect();
     json!({
         "omw": omw,
         "mwse": mwse_path.is_some(),
         "mwse_path": mwse_path,
         "luajit": luajit.map(|p| p.display().to_string()),
         "rubic0n": rubic0n,
+        // Why it may not be found (Static 2026-11-23: "its not detecting odaihtn").
+        "hint": if omw && mwse_path.is_some() { Value::Null } else { json!(why_missing(&roots)) },
     })
+}
+
+/// FluadHTN in data folders a customizations TOML adds but openmw.cfg does not have yet (Static
+/// 2026-11-23: "its in the customizations toml not the cfg"): `{omw, mwse}`, each the folder that
+/// holds that build, or null.
+pub fn in_toml(data: &[String]) -> Value {
+    let mut omw = None;
+    let mut mwse = None;
+    for d in data {
+        let dir = PathBuf::from(d.trim().trim_matches('"'));
+        if omw.is_none() && dir.join("scripts").join("sb_htn").join("interface.lua").is_file() {
+            omw = Some(dir.display().to_string());
+        }
+        if mwse.is_none() && (dir.join("MWSE").join("lib").join("sb_htn").join("interop.lua").is_file() || dir.join("MWSE").join("mods").join("sb_htn").join("interop.lua").is_file()) {
+            mwse = Some(dir.display().to_string());
+        }
+    }
+    json!({"omw": omw, "mwse": mwse})
+}
+
+/// Where FluadHTN's files are under the data folders that look like it, when they are not where
+/// the game looks: `sb_htn` folders found up to four levels into any data folder whose path
+/// names OdaiHTN, FluadHTN or HTN, said with the data= line that would make it load. When no
+/// data folder names it, that is said: the mod is not in the load order's data folders.
+pub fn why_missing(roots: &[PathBuf]) -> String {
+    let like = |p: &Path| {
+        let s = p.to_string_lossy().to_ascii_lowercase();
+        s.contains("odai") || s.contains("fluad") || s.contains("htn")
+    };
+    let mut found = Vec::new();
+    for root in roots.iter().filter(|r| like(r)) {
+        let mut stack = vec![(root.clone(), 0usize)];
+        while let Some((d, depth)) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+                if name == "sb_htn" {
+                    // Its parent should be `scripts` (OpenMW) or `MWSE/lib` (MWSE), right under the root.
+                    let rel = p.strip_prefix(root).map(|r| r.to_string_lossy().replace('\\', "/").to_ascii_lowercase()).unwrap_or_default();
+                    if rel != "scripts/sb_htn" && rel != "mwse/lib/sb_htn" && rel != "mwse/mods/sb_htn" && rel != "data files/mwse/lib/sb_htn" {
+                        let want = p.parent().and_then(|s| if s.file_name().is_some_and(|n| n.eq_ignore_ascii_case("scripts")) { s.parent() } else { None });
+                        found.push(match want {
+                            Some(w) => format!("{} is in {}, one folder too deep: the data= line should be {}", p.display(), root.display(), w.display()),
+                            None => format!("{} is under {}, not where the game looks (scripts/sb_htn for OpenMW, MWSE/lib/sb_htn for MWSE)", p.display(), root.display()),
+                        });
+                    } else if rel == "data files/mwse/lib/sb_htn" {
+                        found.push(format!("{} is in {}: the MWSE build goes in Morrowind's Data Files, or the data= line should end in Data Files", p.display(), root.display()));
+                    }
+                } else if depth < 4 {
+                    stack.push((p, depth + 1));
+                }
+            }
+        }
+    }
+    if !found.is_empty() {
+        return found.join("\n");
+    }
+    if roots.iter().any(|r| like(r)) {
+        return "A data folder names it, but no sb_htn folder is in it: is FluadHTN unpacked there?".into();
+    }
+    "No data folder of the load order is FluadHTN's: add its folder to openmw.cfg (a data= line), or enable it in your mod manager, then reload.".into()
 }
 
 /// Whether `rel` is a path below the export folder: relative, with no `..`, no drive, and no
@@ -122,6 +190,30 @@ mod tests {
     fn rubic0n_is_told_from_stock_luajit() {
         assert!(is_rubic0n(b"..LuaJIT 2.1..function table.removevalue(t, v)..table.copymissing.."));
         assert!(!is_rubic0n(b"..LuaJIT 2.1.1767980792..table.new..table.clear.."));
+    }
+
+    #[test]
+    fn a_misplaced_or_missing_fluadhtn_is_explained() {
+        let dir = std::env::temp_dir().join(format!("wg_why_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("OdaiHTN - The AI Framework - OMW");
+        std::fs::create_dir_all(root.join("OdaiHTN/scripts/sb_htn")).unwrap();
+        let why = why_missing(&[dir.join("Other"), root.clone()]);
+        assert!(why.contains("one folder too deep") && why.contains(&root.join("OdaiHTN").display().to_string()), "{why}");
+        assert!(why_missing(&[dir.join("Other")]).contains("No data folder"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fluadhtn_in_a_customizations_toml_only_is_found() {
+        let dir = std::env::temp_dir().join(format!("wg_toml_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("omw/scripts/sb_htn")).unwrap();
+        std::fs::write(dir.join("omw/scripts/sb_htn/interface.lua"), "return {}").unwrap();
+        let v = in_toml(&["C:/nowhere".into(), format!("\"{}\"", dir.join("omw").display())]);
+        assert_eq!(v["omw"], dir.join("omw").display().to_string());
+        assert!(v["mwse"].is_null());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

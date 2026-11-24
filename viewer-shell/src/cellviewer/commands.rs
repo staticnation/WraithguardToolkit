@@ -3963,6 +3963,31 @@ fn htn_deps(openmw: Option<String>, state: State) -> Result<String, String> {
     let jit = lua_resources(openmw, cfg).as_deref().and_then(viewcore::luarun::find_luajit);
     let mut v = viewcore::htn::deps(&vfs, jit.as_deref());
     v["openmw_setup"] = serde_json::Value::Bool(cfg.is_some());
+    /* Static 2026-11-23: "its in the customizations toml not the cfg". The data folders the
+       customizations TOML (the Load order page's, from Wraithguard's settings) adds, which the
+       MOMW configurator writes into openmw.cfg: FluadHTN found there is said to be on its way. */
+    let toml = settings_path("")
+        .ok()
+        .map(|p| toolscore::settings::read(&p))
+        .and_then(|s| s.get("customizations").and_then(|x| x.as_str()).map(str::to_string))
+        .filter(|p| !p.trim().is_empty());
+    if let Some(path) = toml {
+        let data: Vec<String> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| viewcore::ordercore::inputs::customizations(&t).ok())
+            .map(|c| c.data.iter().map(|d| d.value.clone()).collect())
+            .unwrap_or_default();
+        let mut t = viewcore::htn::in_toml(&data);
+        t["path"] = serde_json::Value::String(path);
+        let omw = v["omw"].as_bool().unwrap_or(false);
+        if !omw && t["omw"].is_string() {
+            v["hint"] = serde_json::Value::String(format!(
+                "FluadHTN is in your customizations TOML ({}) but not in openmw.cfg yet: run the MOMW configurator (or Export on the Load order page) so openmw.cfg gets its data= line, then reload.",
+                t["omw"].as_str().unwrap_or("")
+            ));
+        }
+        v["toml"] = t;
+    }
     Ok(v.to_string())
 }
 

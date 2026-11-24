@@ -312,6 +312,14 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **HTN AI: FluadHTN found when it is not loaded yet** (`htn::in_toml`, `htn::why_missing`,
+  `htn_deps`): the setup check also reads the customizations TOML set in Wraithguard's settings, and
+  when FluadHTN's OpenMW build is in one of its data folders but openmw.cfg has no data= line for it
+  yet, the chip reads "in customizations.toml, not openmw.cfg yet" (not ✗) and says to run the MOMW
+  configurator (or Export on the Load order page) and reload. When FluadHTN is in neither, a data
+  folder that looks like FluadHTN's with `sb_htn` one folder too deep is pointed out with the data=
+  line it needs. Tests: `fluadhtn_in_a_customizations_toml_only_is_found`,
+  `a_misplaced_or_missing_fluadhtn_is_explained`, and the page's chip in `htn.test.js`.
 - **HTN AI: run on FluadHTN in the Preview** (`luarun::start_with_extra`, `lua_run_start`'s
   `extra`, `WgLua.extra`): "Run on FluadHTN" adds the exported OpenMW Lua to the Preview's Lua
   for the chosen actor alone, on the FluadHTN the load order has, and reads its planner's own
@@ -339,6 +347,16 @@
   go in, else to its left or right); the + under a Select or Sequence adds a step; double-click
   folds one away. Wheel zooms, dragging the background pans, Fit shows it all. SVG built with
   the DOM.
+- **MWScript in the Preview about nine times faster on a big scene** (`73_wg_scripts.js`; Static
+  2026-11-23, the Preview's report: MWScript 163.8 ms a frame, worst 606 ms, over Balmora with 615
+  plugins). Four lookups walked every object or every reference each time a script asked: `ref->`
+  (`firstOf`, every scripted object), a reference by key (`refOf`, which every position and every
+  AI step asks), by id (`refById`) and the interior holding one (`cellOf`); they are indexes now
+  (`sceneIx`, made again when the scene changes or cells and references come or go, counted at
+  most once a frame). And `Return`, which most object scripts reach every frame, is handed back up
+  the blocks instead of thrown. Measured on 6,000 scripted objects: 89 ms a frame before, 7.4 ms
+  after, and it now grows with the scene instead of with its square. The AI's steps use the same
+  lookups. Test: `scripts_index.test.js`.
 - **Smoother actor movement in the Preview** (`73_wg_scripts.js` `stepTo`, `turned`, `go`, `face`):
   an actor turns toward where it goes at a set rate (`TURN`, 8 radians a second) instead of
   snapping round, and walks the way it faces, slowed while it still faces away, so it arcs into

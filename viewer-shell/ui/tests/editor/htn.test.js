@@ -216,4 +216,10 @@ module.exports = async (t) => {
   await H.exportMod();
   const ex = sent.find(s => s[0] === 'htn_export');
   t.ok(ex && ex[1].folder === 'D:\\Mods\\Guard' && ex[1].files.some(f => f[0] === 'scripts/wg_htn_guard/actor.lua'), 'Export sends the files to the folder picked');
+
+  // FluadHTN in the customizations TOML but not openmw.cfg yet: said so, with the engine's hint.
+  H.deps = { omw: false, mwse: false, rubic0n: true, toml: { omw: 'D:\\Mods\\OdaiHTN', mwse: null, path: 'C:/MOMW/customizations.toml' }, hint: 'FluadHTN is in your customizations TOML (D:\\Mods\\OdaiHTN) but not in openmw.cfg yet: run the MOMW configurator' };
+  H.drawDeps();
+  const dt = d.getElementById('tlHtnDeps').textContent;
+  t.ok(/in customizations\.toml, not openmw\.cfg yet/.test(dt) && /run the MOMW configurator/.test(dt) && !/✗ FluadHTN \(OpenMW\)/.test(dt), 'a TOML-only FluadHTN is pending, not missing: ' + dt);
 };

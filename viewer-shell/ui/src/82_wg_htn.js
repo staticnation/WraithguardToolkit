@@ -1133,12 +1133,16 @@ const WgHtn={
     if(!D){ box.append('Checking what the export needs…'); return; }
     if(D.error){ box.append('Load a setup to check FluadHTN and Rubic0n ('+D.error+').'); return; }
     const d=this.doc||{engines:{}};
+    const tomlOmw=!D.omw && D.toml && D.toml.omw;
     if(d.engines.omw){
-      chip(D.omw, 'FluadHTN (OpenMW)', D.omw? 'scripts/sb_htn/interface.lua is in the data folders' : 'Install FluadHTN\'s OpenMW build: '+this.NEXUS_FLUADHTN);
+      chip(D.omw? true : tomlOmw? null : false, 'FluadHTN (OpenMW)'+(tomlOmw? ': in customizations.toml, not openmw.cfg yet' : ''),
+        D.omw? 'scripts/sb_htn/interface.lua is in the data folders' : tomlOmw? 'Found in '+D.toml.omw+' (from '+D.toml.path+'); openmw.cfg gets it when the configurator runs' : 'Install FluadHTN\'s OpenMW build: '+this.NEXUS_FLUADHTN);
       chip(D.rubic0n==null? null : D.rubic0n, 'Rubic0n', D.rubic0n? 'OpenMW loads Rubic0n\'s LuaJIT ('+D.luajit+')' : D.luajit? 'OpenMW loads the stock LuaJIT ('+D.luajit+'); FluadHTN\'s OpenMW build needs Rubic0n: '+this.NEXUS_RUBIC0N : 'No OpenMW install was found to look at (Settings: OpenMW folder)');
     }
     if(d.engines.mwse) chip(D.mwse, 'FluadHTN (MWSE)', D.mwse? D.mwse_path : 'Install FluadHTN\'s MWSE build: '+this.NEXUS_FLUADHTN);
     box.append(this.btn('Check again', ()=>this.loadDeps()));
+    // Why it was not found, when the engine can tell (a TOML not applied yet, a folder one too deep).
+    if(D.hint && ((d.engines.omw && !D.omw) || (d.engines.mwse && !D.mwse))){ const h=this.el('div', 'hint', D.hint); h.style.cssText='white-space:pre-wrap;margin-top:3px'; box.append(h); }
   },
 
   /* The tree: each node a row - what it is, its name, its conditions in short - the domain
