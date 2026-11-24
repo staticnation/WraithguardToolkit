@@ -312,6 +312,16 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **HTN AI: choose FluadHTN's folder** (`htn::chosen_omw`, `chosen_mwse`, `omw_sources`,
+  `deps_chosen`; `htn_deps`'s `fluadOmw`/`fluadMwse`; `lua_run_start`'s `extra.fluadDir`):
+  clicking a FluadHTN chip on the HTN AI page picks that build's folder, kept on this machine
+  (× forgets it) and sent with every check. Any level of it does: the data folder, `scripts`
+  or `scripts/sb_htn` inside it, or the archive's folder that holds it; for MWSE, Data Files,
+  a folder with `MWSE/lib/sb_htn`, or `sb_htn` itself. Found there, the chip is ✓; when the
+  folder is not a data folder of the load order the page says the game loads it only from a
+  data= line, and "Run on FluadHTN" takes its Lua from there. A folder without the build is
+  said so. Tests: `a_chosen_folder_is_found_at_whatever_level_was_picked`, and the chip, the
+  kept folder and × in `htn.test.js`.
 - **CI: the boot checks no longer hang** (`ui/tests/boot.js`): since 2026-11-23 CI builds the
   headless engine with `--release` (`target/release/wg-view-serve`) and the boot check started
   `target/serve/wg-view-serve` only. The spawn failed into the catch-all handler and every

@@ -3848,7 +3848,16 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
        2026-11-23): `{files: [[path, text]...], scripts: [[path, [flags]]...], tableExt}`. */
     let start = match extra.as_ref().filter(|e| e.is_object()) {
         Some(e) => {
-            let files: Vec<(String, String)> = e["files"].as_array().map(|a| a.iter().filter_map(|f| Some((f.get(0)?.as_str()?.to_string(), f.get(1)?.as_str()?.to_string()))).collect()).unwrap_or_default();
+            let mut files: Vec<(String, String)> = e["files"].as_array().map(|a| a.iter().filter_map(|f| Some((f.get(0)?.as_str()?.to_string(), f.get(1)?.as_str()?.to_string()))).collect()).unwrap_or_default();
+            /* FluadHTN from a folder chosen on the HTN page that is not a data folder of the load
+               order (Static 2026-11-24): its Lua, before the mod's own files. */
+            if let Some(d) = e["fluadDir"].as_str().filter(|d| !d.trim().is_empty()) {
+                if let Some(root) = viewcore::htn::chosen_omw(std::path::Path::new(d.trim())) {
+                    let mut all = viewcore::htn::omw_sources(&root);
+                    all.append(&mut files);
+                    files = all;
+                }
+            }
             let scripts: Vec<(String, Vec<String>)> = e["scripts"]
                 .as_array()
                 .map(|a| a.iter().filter_map(|f| Some((f.get(0)?.as_str()?.to_string(), f.get(1)?.as_array()?.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()))).collect())
@@ -3954,14 +3963,17 @@ fn lua_deps(openmw: Option<String>, state: State) -> Result<String, String> {
 /// setup has it - FluadHTN's OpenMW and MWSE builds in the data folders, and Rubic0n's LuaJIT in
 /// the OpenMW install (`viewcore::htn::deps`).
 #[tauri::command(async)]
-fn htn_deps(openmw: Option<String>, state: State) -> Result<String, String> {
+fn htn_deps(openmw: Option<String>, fluad_omw: Option<String>, fluad_mwse: Option<String>, state: State) -> Result<String, String> {
     let (vfs, order) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
     };
     let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
     let jit = lua_resources(openmw, cfg).as_deref().and_then(viewcore::luarun::find_luajit);
-    let mut v = viewcore::htn::deps(&vfs, jit.as_deref());
+    // Static 2026-11-24: the folders chosen on the page (clicking a FluadHTN chip), if any.
+    let pick = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(std::path::PathBuf::from);
+    let (po, pm) = (pick(&fluad_omw), pick(&fluad_mwse));
+    let mut v = viewcore::htn::deps_chosen(&vfs, jit.as_deref(), po.as_deref(), pm.as_deref());
     v["openmw_setup"] = serde_json::Value::Bool(cfg.is_some());
     /* Static 2026-11-23: "its in the customizations toml not the cfg". The data folders the
        customizations TOML (the Load order page's, from Wraithguard's settings) adds, which the

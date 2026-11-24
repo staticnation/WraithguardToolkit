@@ -7,7 +7,7 @@ const { page, EDITOR, source } = require('./harness');
 
 module.exports = async (t) => {
   const sent = [];
-  const p = page({ modules: EDITOR, engine: (c, a) => { sent.push([c, a]); if (c === 'htn_deps') return { omw: true, mwse: false, luajit: 'C:/OpenMW/lua51.dll', rubic0n: false }; if (c === 'htn_export') return a.files.map(f => 'X/' + f[0]); return {}; }, answer: () => ({}) });
+  const p = page({ modules: EDITOR, engine: (c, a) => { sent.push([c, a]); if (c === 'htn_deps') return { omw: true, mwse: false, luajit: 'C:/OpenMW/lua51.dll', rubic0n: false }; if (c === 'htn_export') return a.files.map(f => 'X/' + f[0]); if (c === 'path_pick') return 'E:\\OpenMW\\Mods\\custom\\OdaiHTN'; return {}; }, answer: () => ({}) });
   const { w } = p;
   const d = w.document;
   w.toast = () => {};
@@ -226,5 +226,19 @@ module.exports = async (t) => {
   d.body.querySelector('#tlHtnDeps') && H.drawDeps();
   const ds = d.getElementById('tlHtnDeps').textContent;
   t.ok(/✓ FluadHTN \(OpenMW\)/.test(ds) && /reconnect the install/.test(ds), 'on disk only: found, and the reconnect said: ' + ds);
+  // Static 2026-11-24: clicking the FluadHTN chip chooses its folder, kept and sent with every check.
+  H.deps = { omw: false, mwse: false, rubic0n: true };
+  H.drawDeps();
+  const omwChip = [...d.querySelectorAll('#tlHtnDeps .chip')].find(c => /FluadHTN \(OpenMW\)/.test(c.textContent));
+  t.ok(omwChip && omwChip.onclick && /Click to choose its folder/.test(omwChip.title), 'the OpenMW chip chooses a folder: ' + (omwChip && omwChip.title));
+  sent.length = 0;
+  await H.chooseFluad('omw');
+  const chk = sent.find(x => x[0] === 'htn_deps');
+  t.ok(chk && chk[1].fluadOmw && chk[1].fluadOmw === H.fluadDir('omw'), 'picked, kept, and sent with the check: ' + JSON.stringify(chk && chk[1]));
+  sent.length = 0; await H.loadDeps();
+  t.ok(sent.find(x => x[0] === 'htn_deps')[1].fluadOmw === chk[1].fluadOmw, 'remembered for the next check');
+  t.ok([...d.querySelectorAll('#tlHtnDeps button')].some(b => b.textContent === '×'), 'and it can be forgotten');
+  H.forgetFluad('omw');
+  t.ok(!H.fluadDir('omw'), 'forgotten');
   t.ok(/in customizations\.toml, not openmw\.cfg yet/.test(dt) && /run the MOMW configurator/.test(dt) && !/✗ FluadHTN \(OpenMW\)/.test(dt), 'a TOML-only FluadHTN is pending, not missing: ' + dt);
 };

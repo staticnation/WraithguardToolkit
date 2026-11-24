@@ -87,6 +87,133 @@ pub fn deps(vfs: &Vfs, luajit: Option<&Path>) -> Value {
     })
 }
 
+/* Static 2026-11-24: "still not detecting it, maybe when we click on buttons next to check we
+   can set path?" - the folder chosen on the page, for each build. Whatever level of it was
+   picked: the data folder itself, `scripts` or `scripts/sb_htn` inside it (one or two too
+   deep), or the archive's own folder that holds it (one too high). */
+
+/// The data folder of FluadHTN's OpenMW build that `p` is, or is in, or holds.
+pub fn chosen_omw(p: &Path) -> Option<PathBuf> {
+    let name = |q: &Path, n: &str| q.file_name().is_some_and(|x| x.eq_ignore_ascii_case(n));
+    let mut c = vec![p.to_path_buf()];
+    if name(p, "scripts") { c.extend(p.parent().map(Path::to_path_buf)); }
+    if name(p, "sb_htn") { c.extend(p.parent().and_then(Path::parent).map(Path::to_path_buf)); }
+    if let Ok(rd) = std::fs::read_dir(p) {
+        let mut kids: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|q| q.is_dir()).collect();
+        kids.sort();
+        c.extend(kids);
+    }
+    c.into_iter().find(|r| r.join(OMW_FILE).is_file())
+}
+
+/// The folder of FluadHTN's MWSE build that `p` is, or is in, or holds, and the file found in
+/// it: a data folder (`MWSE/lib/sb_htn`), Morrowind's `Data Files`, or `sb_htn` itself.
+pub fn chosen_mwse(p: &Path) -> Option<(PathBuf, String)> {
+    let mut c = vec![p.to_path_buf()];
+    for up in p.ancestors().skip(1).take(3) { c.push(up.to_path_buf()); }
+    if let Ok(rd) = std::fs::read_dir(p) {
+        let mut kids: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|q| q.is_dir()).collect();
+        kids.sort();
+        c.extend(kids);
+    }
+    for r in c {
+        // As MWSE spells its folder, and in lower case (a case-sensitive disk).
+        for f in MWSE_FILES {
+            for spelt in [f.replacen("mwse/", "MWSE/", 1), f.to_string()] {
+                if r.join(&spelt).is_file() {
+                    return Some((r, f.to_string()));
+                }
+            }
+        }
+        if r.file_name().is_some_and(|x| x.eq_ignore_ascii_case("sb_htn")) && r.join("interop.lua").is_file() {
+            return Some((r.clone(), r.join("interop.lua").display().to_string()));
+        }
+    }
+    None
+}
+
+/// Every Lua file of the OpenMW build under `root`, as the Preview's sources take them
+/// (`scripts/sb_htn/...`, '/' between the parts): what a chosen folder that is not a data
+/// folder of the load order gives the run on FluadHTN.
+pub fn omw_sources(root: &Path) -> Vec<(String, String)> {
+    let base = root.join("scripts").join("sb_htn");
+    let mut out = Vec::new();
+    let mut stack = vec![base.clone()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")) && out.len() < 400 {
+                let Ok(rel) = p.strip_prefix(root) else { continue };
+                let rel = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect::<Vec<_>>().join("/");
+                if let Ok(t) = std::fs::read_to_string(&p) {
+                    out.push((rel, t));
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// `deps`, with the folders chosen on the page taken in: a build found there counts as found,
+/// and the page is told when the chosen folder is not one the game loads.
+pub fn deps_chosen(vfs: &Vfs, luajit: Option<&Path>, omw_dir: Option<&Path>, mwse_dir: Option<&Path>) -> Value {
+    let mut v = deps(vfs, luajit);
+    let roots: Vec<PathBuf> = vfs.roots.iter().map(|r| r.dir.clone()).collect();
+    let loaded = |d: &Path| roots.iter().any(|r| same_dir(r, d));
+    let mut notes: Vec<String> = Vec::new();
+    if let Some(p) = omw_dir {
+        match chosen_omw(p) {
+            Some(r) => {
+                if !v["omw"].as_bool().unwrap_or(false) || !loaded(&r) {
+                    v["omw"] = json!(true);
+                    v["omw_chosen"] = json!(r.display().to_string());
+                }
+                if !loaded(&r) {
+                    notes.push(format!("FluadHTN (OpenMW) from the folder you chose, {}: the Preview runs it from there, but the game loads it only from a data= line in openmw.cfg (add the folder there, or through your mod manager).", r.display()));
+                }
+            }
+            None => notes.push(format!("The folder chosen for FluadHTN (OpenMW), {}, has no scripts/sb_htn/interface.lua in it, or in a folder just inside it.", p.display())),
+        }
+    }
+    if let Some(p) = mwse_dir {
+        match chosen_mwse(p) {
+            Some((r, f)) => {
+                v["mwse"] = json!(true);
+                v["mwse_path"] = json!(f);
+                v["mwse_chosen"] = json!(r.display().to_string());
+            }
+            None => notes.push(format!("The folder chosen for FluadHTN (MWSE), {}, has no MWSE/lib/sb_htn/interop.lua.", p.display())),
+        }
+    }
+    if v["omw"].as_bool().unwrap_or(false) && v["mwse"].as_bool().unwrap_or(false) && notes.is_empty() && v["stale"].as_array().is_none_or(|a| a.is_empty()) {
+        v["hint"] = Value::Null;
+    } else if !notes.is_empty() {
+        let mut all = notes;
+        // What `deps` said still stands where it is about the other build or a stale list.
+        if let Some(h) = v["hint"].as_str() {
+            for line in h.lines() {
+                if !line.starts_with("A data folder names it") && !line.starts_with("No data folder") { all.push(line.to_string()); }
+            }
+        }
+        v["hint"] = json!(all.join("\n"));
+    }
+    v
+}
+
+/// Two folder paths naming the same folder (case and separators aside on Windows).
+fn same_dir(a: &Path, b: &Path) -> bool {
+    let f = |p: &Path| {
+        let s = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().replace('\\', "/");
+        let s = s.trim_end_matches('/').to_string();
+        if cfg!(windows) { s.to_lowercase() } else { s }
+    };
+    f(a) == f(b)
+}
+
 /// FluadHTN in data folders a customizations TOML adds but openmw.cfg does not have yet (Static
 /// 2026-11-23: "its in the customizations toml not the cfg"): `{omw, mwse}`, each the folder that
 /// holds that build, or null.
@@ -263,6 +390,39 @@ mod tests {
         assert!(hint.contains("older than it") && !hint.contains("no sb_htn folder"), "{hint}");
         // In place, there is nothing to say about where it is.
         assert_eq!(why_missing(std::slice::from_ref(&root)), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_chosen_folder_is_found_at_whatever_level_was_picked() {
+        // Static 2026-11-24: "maybe when we click on buttons next to check we can set path?"
+        let dir = std::env::temp_dir().join(format!("wg_chosen_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("Archive").join("OdaiHTN");
+        std::fs::create_dir_all(root.join("scripts/sb_htn/Utils")).unwrap();
+        std::fs::write(root.join("scripts/sb_htn/interface.lua"), "return {}").unwrap();
+        std::fs::write(root.join("scripts/sb_htn/Utils/Stack.lua"), "return 1").unwrap();
+        for picked in [root.clone(), root.join("scripts"), root.join("scripts/sb_htn"), dir.join("Archive")] {
+            assert_eq!(chosen_omw(&picked), Some(root.clone()), "{}", picked.display());
+        }
+        assert_eq!(chosen_omw(&dir.join("nowhere")), None);
+        let src = omw_sources(&root);
+        assert_eq!(src.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), ["scripts/sb_htn/Utils/Stack.lua", "scripts/sb_htn/interface.lua"]);
+        // Not a data folder of the load order: found, and said so.
+        let vfs = Vfs::with_roots(&[("Other".to_string(), dir.join("Other"))]);
+        let v = deps_chosen(&vfs, None, Some(&root), None);
+        assert_eq!(v["omw"], true);
+        assert_eq!(v["omw_chosen"], root.display().to_string());
+        assert!(v["hint"].as_str().unwrap_or("").contains("only from a data= line"), "{v}");
+        let bad = deps_chosen(&vfs, None, Some(&dir.join("nowhere")), None);
+        assert_eq!(bad["omw"], false);
+        assert!(bad["hint"].as_str().unwrap_or("").contains("has no scripts/sb_htn/interface.lua"), "{bad}");
+        // The MWSE build: Data Files, its MWSE/lib/sb_htn, or sb_htn itself.
+        let df = dir.join("Data Files");
+        std::fs::create_dir_all(df.join("MWSE/lib/sb_htn")).unwrap();
+        std::fs::write(df.join("MWSE/lib/sb_htn/interop.lua"), "return {}").unwrap();
+        assert_eq!(chosen_mwse(&df).map(|x| x.0), Some(df.clone()));
+        assert!(chosen_mwse(&df.join("MWSE/lib/sb_htn")).is_some());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

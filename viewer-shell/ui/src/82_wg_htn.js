@@ -757,9 +757,22 @@ const WgHtn={
       this._exported=String(dir); this.draw();
     }catch(e){ toast(String(e && e.message || e), 'err', 6000); }
   },
+  /* Static 2026-11-24: "maybe when we click on buttons next to check we can set path?" -
+     FluadHTN's folder for each build, chosen by clicking its chip, kept on this machine. */
+  FLUAD_KEYS:{omw:'wgFluadOmw', mwse:'wgFluadMwse'},
+  fluadDir(k){ try{ return localStorage.getItem(this.FLUAD_KEYS[k])||''; }catch(_){ return ''; } },
+  async chooseFluad(k){
+    let p=null;
+    try{ p=await Engine.pick('open', {directory:true, defaultPath:this.fluadDir(k)||undefined, title:k==='omw'? 'FluadHTN\'s OpenMW folder (the one with scripts\\sb_htn)' : 'FluadHTN\'s MWSE folder (Data Files, or the one with MWSE\\lib\\sb_htn)'}); }
+    catch(e){ toast(String(e && e.message || e), 'err', 4000); return; }
+    if(!p) return;
+    try{ localStorage.setItem(this.FLUAD_KEYS[k], String(p)); }catch(_){ }
+    await this.loadDeps();
+  },
+  forgetFluad(k){ try{ localStorage.removeItem(this.FLUAD_KEYS[k]); }catch(_){ } this.loadDeps(); },
   async loadDeps(){
     let dir=''; try{ dir=localStorage.getItem('wgOpenMWDir')||''; }catch(_){ }
-    try{ this.deps=await Engine.call('htn_deps', {openmw:dir||null}); if(typeof this.deps==='string') this.deps=JSON.parse(this.deps); }
+    try{ this.deps=await Engine.call('htn_deps', {openmw:dir||null, fluadOmw:this.fluadDir('omw')||null, fluadMwse:this.fluadDir('mwse')||null}); if(typeof this.deps==='string') this.deps=JSON.parse(this.deps); }
     catch(e){ this.deps={error:String(e && e.message || e)}; }
     this.drawDeps();
   },
@@ -826,7 +839,8 @@ const WgHtn={
     this.run={mode:'fluad', key, t, A, doc:d, ws:d.state.map(v=>+v.init||0), plan:[], curName:'', log:[], clock:0, status:'', _drawAt:0};
     this.say('Running "'+d.name+'" on FluadHTN, on '+a.id);
     if(tableExt) this.say('Rubic0n\'s table functions are supplied by the Preview: OpenMW itself needs Rubic0n installed to run this');
-    WgLua.extra={files, scripts:[[dir+'actor.lua', ['NPC', 'CREATURE']], [dir+'player.lua', ['PLAYER']]], tableExt};
+    WgLua.extra={files, scripts:[[dir+'actor.lua', ['NPC', 'CREATURE']], [dir+'player.lua', ['PLAYER']]], tableExt,
+                 fluadDir:this.deps.omw_chosen||null};   // FluadHTN from a chosen folder that is not a data folder
     await WgLua.start();
     this.drawRun();
   },
@@ -1129,21 +1143,28 @@ const WgHtn={
   drawDeps(){
     const box=$('#tlHtnDeps'); if(!box) return;
     box.textContent='';
-    const D=this.deps, chip=(ok, text, title)=>{ const s=this.el('span', 'chip', (ok===true? '✓ ' : ok===false? '✗ ' : '? ')+text); if(title) s.title=title; s.style.opacity=ok===false? '1' : '.85'; if(ok===false) s.style.color='var(--warn, #d8a14a)'; box.append(s, ' '); };
+    const D=this.deps, chip=(ok, text, title, pick)=>{
+      const s=this.el('span', 'chip', (ok===true? '✓ ' : ok===false? '✗ ' : '? ')+text); if(title) s.title=title;
+      s.style.opacity=ok===false? '1' : '.85'; if(ok===false) s.style.color='var(--warn, #d8a14a)';
+      // A FluadHTN chip chooses that build's folder (Static 2026-11-24).
+      if(pick){ s.style.cursor='pointer'; s.title=(title? title+'\n' : '')+'Click to choose its folder'+(this.fluadDir(pick)? ' (now: '+this.fluadDir(pick)+')' : ''); s.onclick=()=>this.chooseFluad(pick); }
+      box.append(s, ' ');
+      if(pick && this.fluadDir(pick)){ const x=this.btn('×', ()=>this.forgetFluad(pick), 'Forget the folder chosen for it: '+this.fluadDir(pick)); x.style.padding='0 5px'; box.append(x, ' '); }
+    };
     if(!D){ box.append('Checking what the export needs…'); return; }
     if(D.error){ box.append('Load a setup to check FluadHTN and Rubic0n ('+D.error+').'); return; }
     const d=this.doc||{engines:{}};
     const tomlOmw=!D.omw && D.toml && D.toml.omw;
     if(d.engines.omw){
       chip(D.omw? true : tomlOmw? null : false, 'FluadHTN (OpenMW)'+(tomlOmw? ': in customizations.toml, not openmw.cfg yet' : ''),
-        D.omw? 'scripts/sb_htn/interface.lua is in the data folders' : tomlOmw? 'Found in '+D.toml.omw+' (from '+D.toml.path+'); openmw.cfg gets it when the configurator runs' : 'Install FluadHTN\'s OpenMW build: '+this.NEXUS_FLUADHTN);
+        D.omw_chosen? 'From the folder you chose: '+D.omw_chosen : D.omw? 'scripts/sb_htn/interface.lua is in the data folders' : tomlOmw? 'Found in '+D.toml.omw+' (from '+D.toml.path+'); openmw.cfg gets it when the configurator runs' : 'Install FluadHTN\'s OpenMW build: '+this.NEXUS_FLUADHTN, 'omw');
       chip(D.rubic0n==null? null : D.rubic0n, 'Rubic0n', D.rubic0n? 'OpenMW loads Rubic0n\'s LuaJIT ('+D.luajit+')' : D.luajit? 'OpenMW loads the stock LuaJIT ('+D.luajit+'); FluadHTN\'s OpenMW build needs Rubic0n: '+this.NEXUS_RUBIC0N : 'No OpenMW install was found to look at (Settings: OpenMW folder)');
     }
-    if(d.engines.mwse) chip(D.mwse, 'FluadHTN (MWSE)', D.mwse? D.mwse_path : 'Install FluadHTN\'s MWSE build: '+this.NEXUS_FLUADHTN);
+    if(d.engines.mwse) chip(D.mwse, 'FluadHTN (MWSE)', D.mwse_chosen? 'From the folder you chose: '+D.mwse_chosen : D.mwse? D.mwse_path : 'Install FluadHTN\'s MWSE build: '+this.NEXUS_FLUADHTN, 'mwse');
     box.append(this.btn('Check again', ()=>this.loadDeps()));
     // Why it was not found, when the engine can tell (a TOML not applied yet, a folder one too deep).
     // And when it was found on disk only: the file list kept for its folder is older than it.
-    if(D.hint && ((d.engines.omw && !D.omw) || (d.engines.mwse && !D.mwse) || (D.stale && D.stale.length))){ const h=this.el('div', 'hint', D.hint); h.style.cssText='white-space:pre-wrap;margin-top:3px'; box.append(h); }
+    if(D.hint && ((d.engines.omw && !D.omw) || (d.engines.mwse && !D.mwse) || (D.stale && D.stale.length) || D.omw_chosen || D.mwse_chosen || this.fluadDir('omw') || this.fluadDir('mwse'))){ const h=this.el('div', 'hint', D.hint); h.style.cssText='white-space:pre-wrap;margin-top:3px'; box.append(h); }
   },
 
   /* The tree: each node a row - what it is, its name, its conditions in short - the domain
