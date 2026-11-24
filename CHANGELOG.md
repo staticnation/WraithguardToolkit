@@ -312,6 +312,16 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **NPCs climb stairs again** (`73_wg_scripts.js` `stepTo`, `CLIMB_LAG`; `71_wg_walk.js`
+  `aiBlocked`; Static 2026-11-24: "npcs seem to get stuck on stairs? one step and then they
+  stop"). Two faults. The eased height (the smoother movement of 2026-11-23) trailed a rising
+  floor by up to STEP_Z, and the knee probe, measured from those trailing feet, met the stairs
+  as a wall; going up it now trails by 2 units at most (going down it still eases). And the
+  knee probe reached a whole half-width and the step ahead, where 45-degree stairs are already
+  above the knee; it reaches half the width now, and the chest probe, which still reaches all of
+  it, stops the body short of a wall. Test (`actors_smooth.test.js`, against the walk's own
+  `aiFloor` and `aiBlocked` with exact ray answers): a ramp and stairs of 16, walking and
+  running, at 60 and 20 frames a second, climbed with no frame held; a wall still stops it.
 - **HTN AI: choose FluadHTN's folder** (`htn::chosen_omw`, `chosen_mwse`, `omw_sources`,
   `deps_chosen`; `htn_deps`'s `fluadOmw`/`fluadMwse`; `lua_run_start`'s `extra.fluadDir`):
   clicking a FluadHTN chip on the HTN AI page picks that build's folder, kept on this machine

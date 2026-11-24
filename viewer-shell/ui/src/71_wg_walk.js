@@ -221,9 +221,15 @@ const WgWalk={
     this.watch(at, this._ai);
     const W=this._ai._world; if(!W) return false;
     const d=[dx/l, dy/l, 0];
-    for(const z of [o[2]+WALK.step+4, o[2]+WALK.eye*0.6]){
-      const h=this.rayIn(W, [o[0], o[1], z], d, l+WALK.radius);
-      if(h && h.t<l+WALK.radius) return true;
+    /* The knee ray reaches half the body ahead, the chest ray all of it (Static 2026-11-24:
+       NPCs stopped on stairs after a step). A stair of 45 degrees rises as far as it runs, so
+       a knee ray a whole half-width (29) and the step ahead found the stairs two treads up
+       above the knee and called them a wall; half that sees the next tread, which the floor
+       (`aiFloor`) climbs. A wall stands above the knee and the chest both, and the chest ray
+       still stops the body its half-width short of it. */
+    for(const [z, reach] of [[o[2]+WALK.step+4, l+WALK.radius/2], [o[2]+WALK.eye*0.6, l+WALK.radius]]){
+      const h=this.rayIn(W, [o[0], o[1], z], d, reach);
+      if(h && h.t<reach) return true;
     }
     return false;
   },

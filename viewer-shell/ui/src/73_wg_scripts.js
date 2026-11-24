@@ -861,7 +861,7 @@ const WgScripts={
      faces away (no sideways slide); its height eases over the floor's small bumps (the land's
      and the collision surfaces' unevenness) rather than jittering, and takes a step - a stair,
      a ledge - of more than `STEP_Z` at once. */
-  TURN:8, STEP_Z:8,
+  TURN:8, STEP_Z:8, CLIMB_LAG:2,
   /** b - a, the short way round, in (-π, π]. */
   angleTo(a, b){ const T=Math.PI*2; let d=((b-a)%T+T)%T; if(d>Math.PI) d-=T; return d; },
   /** A yaw turned toward `want` by at most TURN·dt: [the new yaw, what is left to turn]. */
@@ -894,6 +894,11 @@ const WgScripts={
     if(typeof WgAI==='object' && t.key) WgAI.room(t.key, p);
     const z0=p[2], z=this.floorAt(p, goal, s/d);
     p[2]=Math.abs(z-z0)>this.STEP_Z? z : z0+(z-z0)*Math.min(1, dt*14);
+    /* Going up it trails the floor by `CLIMB_LAG` at most (Static 2026-11-24: "npcs seem to get
+       stuck on stairs? one step and then they stop"): eased on its own, the height fell up to
+       STEP_Z behind a rising stair or ramp, and the knee probe (71_wg_walk.js `aiBlocked`),
+       measured from those trailing feet, met the stairs ahead as a wall. */
+    if(z>p[2]+this.CLIMB_LAG) p[2]=z-this.CLIMB_LAG;
     this.place(t, {pos:p, rot:r});
     return false;
   },
