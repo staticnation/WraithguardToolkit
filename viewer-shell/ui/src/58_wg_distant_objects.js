@@ -60,7 +60,9 @@ const WgDistantObjects={
     /* No further than ten rings past the loaded ones, however far the land goes: a long
        draw distance on a big install is hundreds of thousands of references, and the page
        closed for want of memory (Static, 2026-10-13). The engine keeps a budget as well. */
-    const radius=Math.min((typeof WgDistant==='object')? WgDistant.radius(rings) : rings+8, rings+10);
+    // Wraithguard: with the Preview's Light GPU, half as far past the loaded rings.
+    const reach=(App.R && App.R.lightGpu)? 5 : 10;
+    const radius=Math.min((typeof WgDistant==='object')? WgDistant.radius(rings) : rings+8, rings+reach);
     const key=[centre.gx,centre.gy,rings,radius,origin[0],origin[1],this.mode,
                (typeof GameData!=='undefined' && GameData.sig)||''].join(',');
     if(key===this._key) return;

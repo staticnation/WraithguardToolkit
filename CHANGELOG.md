@@ -312,6 +312,28 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **Light GPU** (Preview › Scene; `26_water.js`, `06_gl.js` `LIGHT_REFL_MIN`, `58_wg_distant_objects.js`;
+  Static 2026-11-24: one switch for a weak GPU): the water's reflection at a quarter of the screen
+  (half before) and without parts under 160 units (a cup, a bottle, a small rock: a few pixels of a
+  small, blurred picture), 2x multisampling instead of 4x, and distant objects 5 rings past the loaded
+  ones instead of 10. Off by default; saved as `light_gpu`; the Report says which.
+- **Occlusion culling for the reflection and the ground** (`29_wg_occlusion.js` `_occView`,
+  `_occCaptureRefl`): each view keeps its own read-back - the reflection's depth is a texture now, read
+  back after it is drawn and tested from the mirrored eye (its objects were 63 ms of Static's UHD
+  frame) - and the ground's chunks are tested in both. **Walking actors no longer switch it off**: a
+  script's move of a part under 256 units no longer drops the read-back (`OCC_MOVE_BIG`; Static's
+  report, a read-back 28 frames old with the Scripts on - every actor's step had dropped it).
+- **Camera views and screenshots** (`84_wg_views.js`, Preview › Links & export › Views): save where the
+  camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
+  orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
+  the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **"No visible geometry" only for what has none** (`10_preview.js` `isMarkerMesh`; Static 2026-11-24:
+  "the mist and smoke are particle emitters, the other 3 are editor markers"): a mesh with particle
+  systems, and an editor marker (`editormarker`, `marker_`), are no longer reported. Test, for this and
+  the three above: `preview_views.test.js` (views per cell and put back, the clean frame, a read-back
+  per view and dropped on a big move, the markers).
+- **TODO: the workflows** - `subset sort\workflows` and `.github/workflows` match (Static 2026-11-24);
+  the lines saying the attestation and the pins waited to be copied are corrected.
 - **HTN AI: Wander and the other AI steps work in the Preview's run on FluadHTN**
   (`82_wg_htn.js`; Static 2026-11-24: `actor.lua:33: attempt to index field 'AI' (a nil value)`).
   The exported mod's actions are OpenMW's AI packages (`I.AI`), which OpenMW's built-in scripts

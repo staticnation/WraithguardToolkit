@@ -140,9 +140,11 @@ see, never a plugin.
 - **The panel's groups:**
   - **Cell**: the cell, its textures and reloading.
   - **Light & sky**: the hour, weather and sun.
-  - **Scene**: draw distance, distant land and objects, grass, and **Occlusion culling**
-    (on by default): what stands wholly behind a building or a hill is not drawn, judged
-    from the last frame's depth.
+  - **Scene**: draw distance, distant land and objects, grass, **Occlusion culling** (on
+    by default: what stands wholly behind a building or a hill is not drawn, in the view and
+    in the water's reflection, judged from the last frames' depth) and **Light GPU** (for a
+    weak or built-in GPU: a smaller reflection without small objects, less multisampling,
+    distant objects half as far).
   - **Water**, and **Effects**: MGE XE's water, ambient occlusion, bloom, depth of field,
     shadows and rain ripples.
   - **Review a mod**: the loaded cells with one mod's part marked, or with that mod left
@@ -154,6 +156,8 @@ see, never a plugin.
     measuring tape, cell borders.
   - **Links & export**: the spot as an OpenMW console line, a report bundle with a
     screenshot, where a mesh, texture or record is used, and a plugin's cells on the map.
+    **Views** keeps camera spots per cell to jump back to, and **Screenshot…** saves the 3D
+    view as a PNG, optionally without highlights and arrows.
 - **Scripts** runs the scene's MWScript and OpenMW Lua against a game state you control:
   the hour, date, globals, journal and what the player carries, set by hand or **From a
   save…**.

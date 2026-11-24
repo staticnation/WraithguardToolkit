@@ -160,6 +160,8 @@ const WgTools={
         '<div class="wgBtns">'+
           '<button class="btn sm" id="wgCopySpot" title="Copy OpenMW console lines that put you here, facing the way the camera faces - paste them in the game\'s console (the ` key)">Copy spot for OpenMW</button>'+
           '<button class="btn sm" id="wgReport" title="Save a report for a mod author: a screenshot, and the cell, coordinates, the object you inspected and every plugin that touches the place">Save report…</button></div>'+
+        this.row('Views','<span class="hint">Camera spots kept for this cell, and screenshots</span>','Save where the camera stands and come back to it; save the 3D view as a picture')+
+        '<div id="wgViews"></div>'+
         this.row('Where used','<div style="display:flex;gap:4px;width:100%"><select class="fld" id="wgUseKind" style="width:auto"><option value="mesh">Mesh</option><option value="texture">Texture</option><option value="id">Record id</option></select>'+
           '<input class="fld" id="wgUseName" placeholder="x\\ex_rock_01.nif" style="flex:1;min-width:0"></div>','Every cell and room where a mesh, a texture (on objects and on the ground) or a base record is used')+
         '<div class="wgBtns"><button class="btn sm" id="wgUseGo">Find</button></div>'+
@@ -168,6 +170,7 @@ const WgTools={
         '<div class="wgBtns"><button class="btn sm" id="wgPlugGo">Show on map</button></div>';
       $('#wgCopySpot').onclick=()=>this.copySpot();
       $('#wgReport').onclick=()=>this.saveReport();
+      if(typeof WgViews==='object') WgViews.draw();   // 84_wg_views.js
       $('#wgUseGo').onclick=()=>this.whereUsed($('#wgUseKind').value, $('#wgUseName').value);
       $('#wgUseName').onkeydown=e=>{ if(e.key==='Enter') this.whereUsed($('#wgUseKind').value, $('#wgUseName').value); };
       $('#wgPlugGo').onclick=()=>{ const v=$('#wgPlugCells').value; if(v && typeof WgCoverage==='object') WgCoverage.showPlugin(v); };

@@ -56,6 +56,21 @@ const WALK={eye:116, walk:150, run:300, gravity:686, jump:400, step:34, radius:2
    `cargo tauri dev` rebuilds the page first (18fi); by hand it is `node build.js` in
    page-source - the app loads the built `ui/index.html`, not this file. */
 const FLY_BOOST=4;
+/* Wraithguard: the Preview's "Light GPU" switch (Static 2026-11-24, Intel UHD: the reflection's
+   objects 63 ms and the scene's 67 ms of a 260 ms frame). In the reflection, a part smaller
+   than this (its largest extent, units: a cup, a bottle, a small rock) is left out - its
+   reflection is a few pixels of a quarter-size, blurred picture. */
+const LIGHT_REFL_MIN=160;
+/* Wraithguard: a part larger than this (units) that a script moves drops the occlusion read-back
+   (`moveInstance`): an actor's parts are smaller, a gate or a platform is not. */
+const OCC_MOVE_BIG=256;
+/** A mesh part's largest extent (cached on it). */
+function partExtent(p){
+  if(p._ext!=null) return p._ext;
+  const v=p.pos||[]; let lo0=Infinity,lo1=Infinity,lo2=Infinity,hi0=-Infinity,hi1=-Infinity,hi2=-Infinity;
+  for(let i=0;i<v.length;i+=3){ const x=v[i],y=v[i+1],z=v[i+2]; if(x<lo0)lo0=x; if(x>hi0)hi0=x; if(y<lo1)lo1=y; if(y>hi1)hi1=y; if(z<lo2)lo2=z; if(z>hi2)hi2=z; }
+  return (p._ext=v.length? Math.max(hi0-lo0, hi1-lo1, hi2-lo2) : 0);
+}
 
 /** The tint for ground painted "grass here whatever else says", as the shader wants it.
  *
@@ -2790,6 +2805,7 @@ class Renderer{
        minimised) - the last two hold whatever the option says. See `_loop`. */
     this.pauseStill=false;
     this.occlusion=true;   // Wraithguard: 29_wg_occlusion.js; the Preview's "Occlusion culling" switch
+    this.lightGpu=false;   // Wraithguard: the Preview's "Light GPU" switch (LIGHT_REFL_MIN, 26_water.js)
     this._hold=false; this._holdWhy='';
     /* Round 18fj: the frame cap - the most frames a second the loop will draw, or 0
        for as many as the screen offers. A frame that comes due early is put off to the
@@ -4378,7 +4394,12 @@ class Renderer{
     if(!b || !b.live) return false;
     // WebGL takes a typed array only: a plain one throws (and every move was lost with it).
     if(b.mb){ const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, b.mb); gl.bufferSubData(gl.ARRAY_BUFFER, k*48, m instanceof Float32Array? m : new Float32Array(m)); }
-    this._occEdits=(this._occEdits|0)+1;   // Wraithguard: the depth read back before the move is stale (29_wg_occlusion.js)
+    /* Wraithguard: a big thing moved makes the depth read back before it stale (29_wg_occlusion.js).
+       Only a big one (Static 2026-11-24, a read-back 28 frames old with the Scripts on): every
+       walking actor came through here each frame, so the read-back was dropped all the time and
+       the culling barely ran. An actor is thin, and a block keeps its furthest pixel, so where
+       one stood a frame ago hides next to nothing; a gate or a platform a script moves does. */
+    if(!(b.part && partExtent(b.part)<=OCC_MOVE_BIG)) this._occEdits=(this._occEdits|0)+1;
     this.dirty=true;
     return true;
   }
@@ -4605,13 +4626,15 @@ class Renderer{
     }
     const P=parts.size;
     const partCount=new Int32Array(P), partOff=new Int32Array(P), partMid=new Float32Array(P*3);
+    const partSize=new Float32Array(P);   // Wraithguard: its largest extent, for Light GPU's reflection
     for(const [p,s] of parts){ partCount[s.id]=s.count; partOff[s.id]=s.ibase*4;
       /* Round 18dq: the part's own bound centre in the mesh's space, for the see-through
          sort - the middle of its vertices' box, which is what NetImmerse's world bound
          and OSG's bounding sphere both sit at for a shape. */
       const v=p.pos; let lo0=Infinity,lo1=Infinity,lo2=Infinity,hi0=-Infinity,hi1=-Infinity,hi2=-Infinity;
       for(let i=0;i<v.length;i+=3){ const x=v[i],y=v[i+1],z=v[i+2]; if(x<lo0)lo0=x; if(x>hi0)hi0=x; if(y<lo1)lo1=y; if(y>hi1)hi1=y; if(z<lo2)lo2=z; if(z>hi2)hi2=z; }
-      const o=s.id*3; if(v.length){ partMid[o]=(lo0+hi0)/2; partMid[o+1]=(lo1+hi1)/2; partMid[o+2]=(lo2+hi2)/2; } }
+      const o=s.id*3; if(v.length){ partMid[o]=(lo0+hi0)/2; partMid[o+1]=(lo1+hi1)/2; partMid[o+2]=(lo2+hi2)/2;
+        partSize[s.id]=Math.max(hi0-lo0, hi1-lo1, hi2-lo2); p._ext=partSize[s.id]; } }
     /* 5. On the GPU. */
     const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
     const bufs=[];
@@ -4645,7 +4668,7 @@ class Renderer{
     gl.activeTexture(gl.TEXTURE0);
     const multi=(!this.noMultiDraw && this._mdraw)? this._mdraw : null;
     this._groups={src:list, vao, bufs, instTex, all, solid:all.filter(g=>!seeThrough(g)), clear:all.filter(g=>seeThrough(g)),
-                  runBox, runBase, runN, runPart, partCount, partOff, partMid, runs:R, parts:P, inst:ninst,
+                  runBox, runBase, runN, runPart, partCount, partOff, partMid, partSize, runs:R, parts:P, inst:ninst,
                   /* Round 18dg: what the far-to-near sort of the see-through instances
                      reads - the instance matrices as uploaded - and what it writes each
                      frame (`_sortClear`). */
@@ -4659,10 +4682,11 @@ class Renderer{
    *  Cached on the view matrix: the opaque and the translucent phase of one frame look
    *  through the same one, the reflection through its own. Round 18cs: the bake runs
    *  too, neighbours merged into one index range. */
-  _cullGroups(G,planes,VP,clipZ,far,eye,occ){
-    occ=occ||null;
-    if(G.cullVP===VP && G.cullFar===(far||0) && G.cullOcc===occ) return;
-    G.cullVP=VP; G.cullFar=far||0; G.cullOcc=occ;
+  _cullGroups(G,planes,VP,clipZ,far,eye,occ,minSize){
+    occ=occ||null; minSize=minSize||0;
+    if(G.cullVP===VP && G.cullFar===(far||0) && G.cullOcc===occ && G.cullMin===minSize) return;
+    G.cullVP=VP; G.cullFar=far||0; G.cullOcc=occ; G.cullMin=minSize;
+    const ps=G.partSize;
     /* Round 18hi: and past the room's view distance (`uViewFade`): a run whose box is
        wholly further than the distance from the eye has no fragment the shader would
        keep, so it is skipped before the draw. The nearest point of the box to the eye,
@@ -4698,6 +4722,7 @@ class Renderer{
       let vis=0, inst=0, lastPart=-1, lastEnd=-1;
       const dc=g.dcount, dof=g.doff, din=g.dinst, dbs=g.dbase, dpt=g.dpart;
       for(let r=g.r0;r<g.r1;r++){
+        if(minSize && ps && ps[rp[r]]<minSize) continue;   // Wraithguard: Light GPU's reflection leaves small things out
         if(!seen(rb,r*6)) continue;
         const part=rp[r], base=rbase[r], n=rn[r];
         if(vis && lastPart===part && lastEnd===base){ din[vis-1]+=n; lastEnd+=n; }
@@ -9329,10 +9354,13 @@ class Renderer{
       this._shReset(g);
       let blendOn=null, t0=undefined, t1=undefined, unit=0;
       const onUnit=(u)=>{ if(unit!==u){ unit=u; gl.activeTexture(gl.TEXTURE0+u); } };
+      // Wraithguard: and a chunk wholly behind what was drawn (29_wg_occlusion.js), in its pass's view.
+      const occC=this._occFor? this._occFor(VP, reflect? 'refl' : 'main') : null;
       for(const ch of this.cellChunks){
         // Round 18cs: only the chunks on screen. Nine layers a chunk, and never culled.
         // 18ct: and in the reflection, none wholly under the water line.
         if(ch.box3 && (!this._boxInView(planes,ch.box3) || (curClip!=null && (curClipMode===2? ch.box3[2]>curClip : ch.box3[5]<curClip)))) continue;
+        if(occC && ch.box3 && occC.hidden(ch.box3,0)) continue;
         gl.bindVertexArray(ch.vao);
         // inner = the cell's own sub-cells, border = the ring copied from its neighbours
         const inner=ch.inner||16, total=ch.total||inner;
@@ -9613,7 +9641,7 @@ class Renderer{
        it back: Robin's GPU clock put the grass at 9.4 ms for 16.6 M triangles - bound by
        the triangles, not by the shading the early rejections would have saved - and the
        sort's second pass over the runs was page time for nothing. Batch order, as built. */
-    const occG=(!reflect && this._occFor)? this._occFor(VP) : null;   // Wraithguard: 29_wg_occlusion.js
+    const occG=this._occFor? this._occFor(VP, reflect? 'refl' : 'main') : null;   // Wraithguard: 29_wg_occlusion.js
     for(const b of this.batches){
       if(!b.n || !b.hold || !b.hold.it) continue;
       if(b.box && !this._boxInView(gplanes,b.box)) continue;
@@ -9740,7 +9768,8 @@ class Renderer{
       if(G && G.all.length){
         gl.activeTexture(gl.TEXTURE0+INST_UNIT); gl.bindTexture(gl.TEXTURE_2D,G.instTex); gl.activeTexture(gl.TEXTURE0);
         this._cullGroups(G,planes,VP, reflect? pass.clipZ : null, +o.viewFar||0, curEye,
-                         (!reflect && this._occFor)? this._occFor(VP) : null);
+                         this._occFor? this._occFor(VP, reflect? 'refl' : 'main') : null,
+                         (reflect && this.lightGpu)? LIGHT_REFL_MIN : 0);
         gl.bindVertexArray(G.vao);
         /* Round 18cs: two programs - the bakes' (one index range a group, no uniform
            between) and the runs' (by instance). Round 18ct: the runs first, then the
@@ -9810,10 +9839,12 @@ class Renderer{
          were a garbage-collector pause every few frames, felt as a hitch. */
       /* Wraithguard: the occlusion test for the batches drawn on their own, the same one
          the groups use (29_wg_occlusion.js); the main view only. */
-      const occL=(!reflect && this._occFor)? this._occFor(VP) : null;
+      const occL=this._occFor? this._occFor(VP, reflect? 'refl' : 'main') : null;
       const runAt=this._runAt||(this._runAt=new Int32Array(256));
       const runN=this._runN||(this._runN=new Int32Array(256));
       const drawStatic=b=>{
+        // Wraithguard: Light GPU's reflection leaves small things out (see LIGHT_REFL_MIN).
+        if(reflect && this.lightGpu && b.part && partExtent(b.part)<LIGHT_REFL_MIN) return;
         this._ensureVao(b);   // 18cr: built on first use for what draws on its own
         this._meshTex(st,b);
         this._meshMode(st,b,true);

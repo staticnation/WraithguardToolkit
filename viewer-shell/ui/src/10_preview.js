@@ -640,6 +640,12 @@ function animAlphaAt(anim, secs, fallback){
 }
 
 /** The engine's mesh payload (`GDN2`, see `preview::mesh_bytes`) into `rec`. */
+/** An editor marker's mesh (EditorMarker.nif, tr_editormarker_npc.nif, marker_*.nif ...):
+    drawn by the Construction Set, invisible in the game. */
+function isMarkerMesh(path){
+  const f=String(path||'').replace(/\\/g,'/').split('/').pop().toLowerCase();
+  return /editormarker|^marker_|_marker\./.test(f);
+}
 function decodeMesh(ab,rec){
   const dv=new DataView(ab);
   if(dv.byteLength<33 || dv.getUint32(0,true)!==0x324e4447){   // "GDN2"
@@ -1059,7 +1065,11 @@ function decodeMesh(ab,rec){
     }
     if(x1>=x0) rec.visAabb={x0,y0,z0,x1,y1,z1};
   }
-  if(!rec.parts.length)
+  /* Only a mesh with nothing at all to show. A particle emitter (chimney smoke, mist) has no
+     triangles of its own and draws its particles, and an editor marker is invisible in the game
+     by design (Static 2026-11-24: "the mist and smoke are particle emitters, the other 3 are
+     editor markers"): neither is a placeholder. */
+  if(!rec.parts.length && !(rec.particles && rec.particles.length) && !isMarkerMesh(rec.path))
     App.loadLog.push({k:'w', t:T('report.no_geometry',{path:rec.path})});
   return rec;
 }

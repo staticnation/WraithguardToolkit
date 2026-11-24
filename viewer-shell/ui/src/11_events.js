@@ -333,6 +333,11 @@ function boot(){
   { const e=$('#p_pause'); if(e){ const apply=()=>{ if(App.R){ App.R.pauseStill=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
   // Wraithguard: occlusion culling (29_wg_occlusion.js).
   { const e=$('#p_occl'); if(e){ const apply=()=>{ if(App.R){ App.R.occlusion=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
+  // Wraithguard: Light GPU - the targets are made again at their new sizes on the next frame,
+  // and the distant objects fetched again at their new reach.
+  { const e=$('#p_lightgpu'); if(e){ const apply=()=>{ if(!App.R) return; const was=!!App.R.lightGpu; App.R.lightGpu=e.checked; App.R.dirty=true;
+      if(was!==e.checked && typeof WgDistantObjects==='object'){ WgDistantObjects._key=null; WgDistantObjects.refresh(App.R).catch(()=>{}); } };
+    e.onchange=apply; apply(); } }
   /* Gardenfell 18fj's frame-cap switch is not here: Wraithguard's Settings has the cap
      (38_wg_viewport.js, `opts.fpsCap`), and the renderer paces by it (06_gl.js). */
   /* Wraithguard: distant land (57_wg_distant.js). The switch shows what is drawn - the
@@ -1800,6 +1805,7 @@ function openLog(){
                     n(R._drawnInst||0)+' instances — the rest was culled'});
     /* Wraithguard: what the occlusion culling left out (29_wg_occlusion.js), of the runs
        the frustum kept, in the last view it tested. */
+    line({k:'ok', t:'Light GPU: '+(R.lightGpu? 'on - the reflection at a quarter of the screen without parts under '+LIGHT_REFL_MIN+' units, 2x multisampling, distant objects half as far' : 'off')});
     { const st=R._occStat;
       line({k:'ok', t: R.occlusion===false? 'occlusion culling: off'
         : !st? 'occlusion culling: on, nothing tested yet (it needs a frame drawn offscreen and read back)'

@@ -18,8 +18,8 @@ or because it waits on something outside the code:
   (Static, 2026-11-23: new rules arrive without a release). What that trusts: whoever can push to that
   branch decides what the sort and the warnings say. The rules are data (read by the YAML and rule
   readers, never run), so the reach is wrong advice, not code.
-- **Attestation is in `workflows/`, not yet in `.github/workflows`** (copy it there; `.github` is not
-  edited from here). It attests public builds only (`!github.event.repository.private`); the builds are not
+- **Attestation is in `.github/workflows/build-app.yml`** (`subset sort\workflows` and `.github/workflows`
+  match, checked 2026-11-24). It attests public builds only (`!github.event.repository.private`); the builds are not
   signed. The WebView2 pin does nothing until `WEBVIEW2_FIXED_SHA256` is set. The checksums and `--locked`
   are untested until a tag.
 - **F5's edges:** a plugin written over in place is accepted when it exists and is named as a plugin (the
@@ -124,13 +124,12 @@ master is told by its extension everywhere; the master check only notes a header
   or activator a script moves (they still step, a few times a second).
 
 - **The Preview on a weak GPU** (Static's report, 2026-11-24: Intel UHD, Balmora with 615 plugins,
-  260 ms of GPU a frame). Occlusion culling (`29_wg_occlusion.js`) covers the main view's objects, the
-  batches drawn on their own and the grass; **its effect is not measured yet** - the Report's
-  "occlusion culling" line and the GPU's "objects" pass with it on and off. Left: the reflection pass
-  (63 ms of it there: its camera is under the water, and the main view's depth says nothing for it;
-  a read-back of its own would), distant objects (`58_wg_distant_objects.js`, not tested against
-  the read-back), and the ground's chunks. The OpenMW Lua round trip (median 23-37 ms, worst 2-3 s)
-  is off the frame but makes scripted actors answer late.
+  260 ms of GPU a frame). Done since: occlusion culling for the scene, the reflection (a read-back of
+  its own), the ground's chunks and the grass (distant objects are in the material groups, so they are
+  covered), and the Light GPU switch. **Not measured yet on the UHD**: the GPU's "reflection: objects"
+  and "objects" passes with each on and off. On Static's RTX 3060 (Seyda Neen) the culling hid 130 of
+  422 runs on screen. The OpenMW Lua round trip (median 23-132 ms, worst 0.4-3 s) is off the frame but
+  makes scripted actors answer late.
 - **HTN AI's "Run on FluadHTN"** has run on the Nexus builds here (OpenMW with Rubic0n, MWSE); not yet
   in Static's own Preview on his install.
 
@@ -206,8 +205,7 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   from the release page; the AppImage is `Wraithguard_Toolkit-x86_64.AppImage` from 5.0.5), then
   open the merge request.
 - AppImage catalog PR (`appimage.github.io#11424`): the asset is `Wraithguard_Toolkit-x86_64.AppImage`
-  from 5.0.5 (the catalog wants no "linux" in the name; `build-app.yml` changed in
-  `subset sort\workflows`, to copy into `.github/workflows`). Left: the PR's data file, if it names
+  from 5.0.5 (the catalog wants no "linux" in the name; `build-app.yml` names it so). Left: the PR's data file, if it names
   the asset. The window keeps the program's own themes (dark by default on a light system; decided
   2026-11-17), so the catalog's warning about it stands.
 - gtk-0.18-patches (`viewer-shell/Cargo.toml` `[patch.crates-io]`). Each Tauri release: is
@@ -215,10 +213,8 @@ interiors 9-10 s, tables 3-4 s), the file index 0.7-2.1 s from its saved copy.
   two patch lines and archive the repository. Tauri also pins string_cache 0.9 and jsonptr 0.7
   (Aikido: waiting on upstream): recheck each Tauri release. Last rechecked with Tauri 2.12.7
   (2026-11-18): `webkit2gtk`, string_cache 0.9 and jsonptr 0.7 are all still there.
-- Actions re-pinned 2026-11-17 in `subset sort\workflows`, to copy into `.github/workflows`:
-  checkout 7.0.1, upload-artifact 7.0.2, cache 6.1.0, setup-node 7.1.0 (all were Node 24 already;
-  the new majors are their move to ES modules, and checkout 7's block on fork PRs is for
-  `pull_request_target` and `workflow_run`, which no workflow here uses). Check the first CI run.
+- Actions: `ci.yml` pins checkout 6.1.0 and setup-node 5.0.0 (the "CI fixes" of 2026-11-23 took
+  them back from the 7.x pins of 2026-11-17); `subset sort\workflows` and `.github/workflows` match.
 - The dependency audit (`audit.yml`) runs weekly: a new advisory fails it on a Monday with nothing
   changed here.
 - Held by others' pins (2026-11-17): generic-array 0.14.7 (`crypto-common` 0.1.7 takes `=0.14.7`,

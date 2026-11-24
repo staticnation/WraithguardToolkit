@@ -29,6 +29,7 @@ const PrevSettings={
     ['underwater','#p_under','bool'],   // round 18dt
     ['pauseStill','#p_pause','bool'],   // round 18fh
     ['occlusion','#p_occl','bool'],     // Wraithguard: 29_wg_occlusion.js
+    ['lightGpu','#p_lightgpu','bool'],  // Wraithguard: the Light GPU switch
     ['sounds','#p_sounds','bool'], ['soundVolume','#p_sndvol','num'],   // SOUND.md step 2
     ['soundEffects','#p_sndfx','num'], ['music','#p_music','bool'], ['musicVolume','#p_musvol','num'],   // step 3
     ['soundScripts','#p_sndscripts','bool'],
@@ -131,6 +132,7 @@ const PrevSettings={
       ['underwater',!!+o.underwater],   // round 18dt
       ['pause_still',!!+o.pauseStill],  // round 18fh
       ['occlusion_culling',o.occlusion==null? true : !!+o.occlusion],   // Wraithguard: on unless switched off
+      ['light_gpu',!!+o.lightGpu],      // Wraithguard: off unless switched on
       ['dof',!!+o.dof],                 // round 18dy
       ['bloom',!!+o.bloom],             // Wraithguard: 42_wg_bloom.js
       ['shadows',!!+o.shadows],         // round 18ee
@@ -386,6 +388,7 @@ const PrevSettings={
                                ['underwater','#p_under','bool'],
                                ['pause_still','#p_pause','bool'],   // round 18fh
                                ['occlusion_culling','#p_occl','bool'],   // Wraithguard
+                               ['light_gpu','#p_lightgpu','bool'],       // Wraithguard
                                ['dof','#p_dof','bool'],
                                ['bloom','#p_bloom','bool'],
                                ['shadows','#p_shadows','bool'],

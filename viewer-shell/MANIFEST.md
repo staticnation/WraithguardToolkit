@@ -64,7 +64,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `26_water.js` | 72 KB | MGE XE water (waves, reflection blur, tint, surf, sewer waves, the bundled wave volume) and sunshafts. *GPL port.* |
 | `28_particles.js` | 32 KB | NIF particle systems (flames, mist, waterfalls). |
 | `29_ssao.js` | 37 KB | Ambient occlusion (SSAO, or SSGI). *GPL port.* |
-| `29_wg_occlusion.js` | 17 KB | Occlusion culling: the main view's depth read back a frame or two late in 8-pixel blocks (furthest depth each), reprojected to the camera now, and the runs, the batches drawn on their own and the grass's cell runs wholly behind it skipped (Preview › Scene). |
+| `29_wg_occlusion.js` | 17 KB | Occlusion culling: the main view's depth read back a frame or two late in 8-pixel blocks (furthest depth each), reprojected to the camera now, and the runs, the batches drawn on their own, the grass's cell runs and the ground's chunks wholly behind it skipped; a read-back per view (the scene, the reflection) (Preview › Scene). |
 | `33_fxaa.js` | 10 KB | FXAA antialiasing. |
 | `34_outline.js` | 9 KB | Outline highlight for picked and highlighted objects. |
 | `35_underwater.js` | 19 KB | Underwater effects. *GPL port.* |
@@ -133,6 +133,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `81_wg_luasettings.js` | 8 KB | Tools → Lua settings: the settings OpenMW keeps for Lua mods (`player_storage.bin`, `global_storage.bin`), one value changed at a time, the file written only when it reads back as meant. |
 | `82_wg_htn.js` | 115 KB | Tools → HTN AI: an actor's behaviour as an HTN domain for FluadHTN, from game blocks: the editor (list and graph, undo, templates, reusable parts), the check, the export for OpenMW and MWSE, and the Preview run (the page's planner, or the exported Lua on FluadHTN). |
 | `83_wg_graph.js` | 8 KB | A tree drawn as a graph (boxes, labelled branches, folding, zoom and pan): the Dialogue window's Graph and Tools → Journal's. |
+| `84_wg_views.js` | 6 KB | Camera views kept per cell (world units, `localStorage`) and put back; the 3D view saved as a PNG, clean of highlights and arrows on request. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 157, and `pick.rs`: 2)

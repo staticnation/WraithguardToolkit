@@ -684,11 +684,12 @@ Object.assign(Renderer.prototype,{
   _waterTargets(){
     const gl=this.gl, W=this.cv.width, H=this.cv.height;
     const t=this._wt;
-    if(t && t.W===W && t.H===H) return t;
+    const light=!!this.lightGpu;   // Wraithguard: the Preview's "Light GPU" (fewer samples, a smaller reflection)
+    if(t && t.W===W && t.H===H && t.light===light) return t;
     if(t){
       for(const k of ['sceneFB','resolveFB','reflFB','shaftA','shaftB']) try{ gl.deleteFramebuffer(t[k]); }catch(_){ }
-      for(const k of ['colRB','depRB','reflDepRB']) try{ gl.deleteRenderbuffer(t[k]); }catch(_){ }
-      for(const k of ['colTex','depTex','reflTex','shaftATex','shaftBTex']) try{ gl.deleteTexture(t[k]); }catch(_){ }
+      for(const k of ['colRB','depRB']) try{ gl.deleteRenderbuffer(t[k]); }catch(_){ }
+      for(const k of ['colTex','depTex','reflTex','reflDepTex','shaftATex','shaftBTex']) try{ gl.deleteTexture(t[k]); }catch(_){ }
     }
     /* Wraithguard: the depth is a 32-bit float, not DEPTH_COMPONENT24. On Linux (WebKitGTK
        over OpenGL, and the Steam Deck's AMD driver, whose hardware has no 24-bit depth of
@@ -701,8 +702,8 @@ Object.assign(Renderer.prototype,{
     const DEPTH=gl.DEPTH_COMPONENT32F;
     let depthMax=4;
     try{ const s=gl.getInternalformatParameter(gl.RENDERBUFFER,DEPTH,gl.SAMPLES); if(s && s.length) depthMax=s[0]; }catch(_){ }
-    const samples=Math.min(4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
-    const n={W,H,samples};
+    const samples=Math.min(light? 2 : 4, gl.getParameter(gl.MAX_SAMPLES)||0, depthMax);
+    const n={W,H,samples,light};
     // The scene, multisampled, so the grass keeps its soft edges.
     n.sceneFB=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.sceneFB);
     n.colRB=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,n.colRB);
@@ -729,13 +730,18 @@ Object.assign(Renderer.prototype,{
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,n.depTex,0);
     // The reflection, half size: a shimmer needs no more.
-    n.RW=Math.max(1,W>>1); n.RH=Math.max(1,H>>1);
+    n.RW=Math.max(1,W>>(light? 2 : 1)); n.RH=Math.max(1,H>>(light? 2 : 1));   // a quarter of the screen with Light GPU
     n.reflFB=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.reflFB);
     n.reflTex=tex2(gl.RGBA,gl.RGBA8,gl.UNSIGNED_BYTE,n.RW,n.RH);
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,n.reflTex,0);
-    n.reflDepRB=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,n.reflDepRB);
-    gl.renderbufferStorage(gl.RENDERBUFFER,DEPTH,n.RW,n.RH);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,n.reflDepRB);
+    /* Wraithguard: its depth a texture, not a renderbuffer, so the occlusion culling can read
+       it back (29_wg_occlusion.js `_occCaptureRefl`): the reflection's objects were 63 ms of
+       Static's frame. Single-sampled as before, so nothing else about it changes. */
+    n.reflDepTex=tex2(gl.DEPTH_COMPONENT,DEPTH,gl.FLOAT,n.RW,n.RH);
+    gl.bindTexture(gl.TEXTURE_2D,n.reflDepTex);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,n.reflDepTex,0);
     n.ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
     // Two half-size ping-pong targets for the sunshafts (round 16).
     n.shaftA=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,n.shaftA);
@@ -973,6 +979,7 @@ Object.assign(Renderer.prototype,{
        plane.d += 0.5 * WaterWaveHeight), so a trough still reflects what stands above it. */
     const wDrop=this.wavesOn()? 0.5*this.waveHeightNow() : 0;
     drawScene(VPR,eyeR,{reflect:true,clipZ:belowEye? wz+0.5 : wz-0.5-wDrop,clipMode:belowEye? 2 : 1,target:[c.tx,c.ty,2*wz-c.tz],rect:wr||null});
+    if(this._occCaptureRefl) this._occCaptureRefl(T,VPR,P);   // Wraithguard: its own read-back (29_wg_occlusion.js)
     }
 
     // 2. The scene, for real, multisampled.

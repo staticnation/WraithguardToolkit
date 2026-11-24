@@ -38,7 +38,10 @@
    not the near one; an unknown block hides nothing; a box that reaches behind the eye
    is always drawn. A read-back is dropped when the groups are rebuilt, when an object is
    moved in the editor (`moveInstance` bumps `_occEdits`), and after 30 frames.
-   The reflection and the shadow passes do not use it: their eyes are elsewhere.
+   The reflection has a read-back of its own (2026-11-24: its objects were 63 ms of Static's
+   frame), its depth taken after it is drawn and tested from the mirrored eye; the main
+   view's says nothing for it. The ground's chunks are tested too. The shadow passes do not
+   use it: their light is orthographic, and a sun's eye sees what the camera does not.
    ===================================================================================== */
 
 const OCC_DIV=8;          // the read-back is the view in blocks of this many pixels a side
@@ -200,12 +203,20 @@ const Occ={
 };
 
 Object.assign(Renderer.prototype,{
+  /** One view's read-back state: `main` (the scene) or `refl` (the water's reflection, from
+   *  the eye's mirror image; 2026-11-24, its 63 ms on Static's frame). */
+  _occView(key){
+    const all=this._occV||(this._occV={});
+    return all[key]||(all[key]={pend:[], src:null, last:null, cov:null, D:null});
+  },
   /** The view this frame tests its runs against, or null when there is nothing current
    *  to test with (off, nothing read back yet, the scene changed since, too old). */
-  _occFor(VP){
-    if(this.occlusion===false){ this._occSrc=null; this._occCov=null; return null; }
-    this._occPoll();
-    const s=this._occSrc;
+  _occFor(VP, key){
+    key=key||'main';
+    if(this.occlusion===false){ this._occV=null; return null; }
+    const S=this._occView(key);
+    this._occPoll(S);
+    const s=S.src;
     if(!s || s.G!==this._groups || s.edits!==(this._occEdits|0) || (this._occN|0)-s.f>OCC_KEEP) return null;
     /* The Report's counts are a whole frame's, over every view built in it: kept in one
        tally, handed over and restarted when the frame count moves (it moves at capture). */
@@ -214,29 +225,44 @@ Object.assign(Renderer.prototype,{
       if(T.frame>=0 && T.tested) this._occStat={tested:T.tested, hidden:T.hid, lag:T.lag};
       T.frame=this._occN|0; T.tested=0; T.hid=0;
     }
-    T.lag=(this._occN|0)-s.f;
-    let c=this._occCov;
-    if(!(c && c.src===s && Occ_same(c.VP,VP))){ c=this._occCov=Occ.build(s, VP, this.nearFar()[0]); c.tally=T; }
+    if(key==='main') T.lag=(this._occN|0)-s.f;
+    let c=S.cov;
+    if(!(c && c.src===s && Occ_same(c.VP,VP))){ c=S.cov=Occ.build(s, VP, this.nearFar()[0]); c.tally=T; }
     return c;
   },
   /** After the main view's opaque phase: its depth, cut to blocks, asked to be read back. */
   _occCapture(T,VP,P){
+    // The scene is multisampled: its depth is resolved into T.depTex first.
+    this._occN=(this._occN|0)+1;
+    this._occTake('main', {W:T.W, H:T.H, depTex:T.depTex, back:T.sceneFB,
+      resolve:()=>{ const gl=this.gl; gl.bindFramebuffer(gl.READ_FRAMEBUFFER,T.sceneFB);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,T.resolveFB);
+        gl.blitFramebuffer(0,0,T.W,T.H,0,0,T.W,T.H,gl.DEPTH_BUFFER_BIT,gl.NEAREST); }}, VP, P);
+  },
+  /** After the reflection is drawn: its depth (a texture of its own) the same way. */
+  _occCaptureRefl(T,VP,P){
+    if(!T.reflDepTex) return;
+    const gl=this.gl;
+    this._occTake('refl', {W:T.RW, H:T.RH, depTex:T.reflDepTex, back:T.reflFB}, VP, P);
+    gl.viewport(0,0,T.RW,T.RH);
+  },
+  _occTake(key, view, VP, P){
     if(this.occlusion===false) return;
     const gl=this.gl;
     if(typeof gl.fenceSync!=='function' || !P || P[11]!==-1) return;   // a perspective view only: its w is the distance
-    this._occN=(this._occN|0)+1;
-    this._occPoll();
-    const pend=this._occPend||(this._occPend=[]);
+    const S=this._occView(key);
+    this._occPoll(S);
+    const pend=S.pend;
     if(pend.length>=2) return;   // the GPU is behind: no more copies queued
-    const G=this._groups, edits=this._occEdits|0, last=this._occLast;
+    const G=this._groups, edits=this._occEdits|0, last=S.last;
     if(last && last.G===G && last.edits===edits && Occ_same(last.VP,VP) && this._occN-last.f<OCC_EVERY) return;
-    const W=T.W, H=T.H, OW=Math.ceil(W/OCC_DIV), OH=Math.ceil(H/OCC_DIV);
-    let D=this._occT;
+    const W=view.W, H=view.H, OW=Math.ceil(W/OCC_DIV), OH=Math.ceil(H/OCC_DIV);
+    let D=S.D;
     if(!D || D.OW!==OW || D.OH!==OH){
       if(D){ try{ gl.deleteFramebuffer(D.fb); gl.deleteTexture(D.tex); for(const b of D.free) gl.deleteBuffer(b); }catch(_){ } }
       for(const r of pend){ try{ gl.deleteSync(r.sync); gl.deleteBuffer(r.pbo); }catch(_){ } }
       pend.length=0;
-      D=this._occT={OW, OH, free:[]};
+      D=S.D={OW, OH, free:[]};
       D.tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,D.tex);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,OW,OH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
@@ -248,18 +274,15 @@ Object.assign(Renderer.prototype,{
         gl.bufferData(gl.PIXEL_PACK_BUFFER,OW*OH*4,gl.STREAM_READ); D.free.push(b); }
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);
     }
-    if(!D.ok || !D.free.length){ gl.bindFramebuffer(gl.FRAMEBUFFER,T.sceneFB); return; }
+    if(!D.ok || !D.free.length){ gl.bindFramebuffer(gl.FRAMEBUFFER,view.back); return; }
     if(!this.progOccDown) this.progOccDown=this._prog(VS_OCC_DOWN,FS_OCC_DOWN);
-    // The depth so far, resolved (SSAO may have done it already; it is cheap to repeat).
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER,T.sceneFB);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,T.resolveFB);
-    gl.blitFramebuffer(0,0,W,H,0,0,W,H,gl.DEPTH_BUFFER_BIT,gl.NEAREST);
+    if(view.resolve) view.resolve();
     // Cut to blocks.
     gl.bindFramebuffer(gl.FRAMEBUFFER,D.fb);
     gl.viewport(0,0,OW,OH);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE); gl.depthMask(false);
     const pr=this.progOccDown; gl.useProgram(pr.p);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,T.depTex);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,view.depTex);
     gl.uniform1i(pr.u.uDepth,0);
     gl.uniform2i(pr.u.uSize,W,H);
     gl.bindVertexArray(this._occVao||(this._occVao=gl.createVertexArray()));
@@ -272,17 +295,17 @@ Object.assign(Renderer.prototype,{
     gl.readPixels(0,0,OW,OH,gl.RGBA,gl.UNSIGNED_BYTE,0);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);
     const sync=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);
-    pend.push({sync, pbo, W, H, OW, OH, VP:Float64Array.from(VP), p10:P[10], p14:P[14], G, edits, f:this._occN});
-    this._occLast={VP:Float32Array.from(VP), G, edits, f:this._occN};
-    // Handed back as found: the scene's framebuffer, its viewport, the depth test on.
-    gl.bindFramebuffer(gl.FRAMEBUFFER,T.sceneFB);
+    pend.push({sync, pbo, W, H, OW, OH, VP:Float64Array.from(VP), p10:P[10], p14:P[14], G, edits, f:this._occN|0});
+    S.last={VP:Float32Array.from(VP), G, edits, f:this._occN|0};
+    // Handed back as found: the view's framebuffer, its viewport, the depth test on.
+    gl.bindFramebuffer(gl.FRAMEBUFFER,view.back);
     gl.viewport(0,0,W,H);
     gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
   },
-  /** Whichever read-backs the GPU has finished, the newest kept. */
-  _occPoll(){
-    const pend=this._occPend; if(!pend || !pend.length) return;
-    const gl=this.gl, D=this._occT;
+  /** Whichever of a view's read-backs the GPU has finished, the newest kept. */
+  _occPoll(S){
+    const pend=S && S.pend; if(!pend || !pend.length) return;
+    const gl=this.gl, D=S.D;
     while(pend.length){
       const r=pend[0];
       if(gl.getSyncParameter(r.sync,gl.SYNC_STATUS)!==gl.SIGNALED) break;
@@ -292,8 +315,8 @@ Object.assign(Renderer.prototype,{
       gl.getBufferSubData(gl.PIXEL_PACK_BUFFER,0,bytes);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);
       if(D && D.OW===r.OW && D.OH===r.OH) D.free.push(r.pbo); else gl.deleteBuffer(r.pbo);
-      this._occSrc={w:Occ.decode(bytes,r.p10,r.p14), W:r.W, H:r.H, VP:r.VP, p10:r.p10, p14:r.p14,
-                    G:r.G, edits:r.edits, f:r.f, inv:null};
+      S.src={w:Occ.decode(bytes,r.p10,r.p14), W:r.W, H:r.H, VP:r.VP, p10:r.p10, p14:r.p14,
+             G:r.G, edits:r.edits, f:r.f, inv:null};
     }
   }
 });

@@ -2989,6 +2989,7 @@ function cellButtonLabel(){
 }
 
 function syncCellButton(){
+  if(typeof WgViews==='object') WgViews.draw();   // Wraithguard: this cell's saved views (84_wg_views.js)
   const b=$('#cellPick'); if(!b) return;
   b.textContent=cellButtonLabel();
   /* Round 9 item 7: the button keeps the column's width and trims a long label with an
