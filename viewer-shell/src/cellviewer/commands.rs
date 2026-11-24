@@ -5044,6 +5044,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             loadorder_compute,
             loadorder_export,
             loadorder_plain_sort,
+            loadorder_why,
             loadorder_plain_write,
             loadorder_plain_restore_dates,
             setup_runs,

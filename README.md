@@ -220,6 +220,18 @@ to adjust, and untick one to leave it out. A box on each list's header finds row
 Your own mods are marked, and plugins with a master problem are marked too. **Sort data
 paths** also places the `data=` folders your mods add.
 
+**Why here?** (or double-click a plugin) says what put a plugin where it is: whether it is
+on the curated list or one of yours (and where it came from), the plugin it was placed
+right after or before, every rule block that names it (the file and line, what it puts
+before and after it, and which of those the order doesn't follow), its masters and whether
+each loads before it, and the rules refused for it. Every plugin named is a link to its own
+answer.
+
+**Snapshots** keeps the order on the page by name. One is also kept on its own before each
+Sort and after each Export that writes (the last 10). **Compare** lists what was added,
+taken out, ticked on or off, and moved since; **Restore** puts an older order back on the
+page for Export to write. Snapshots are kept per `openmw.cfg`, on this machine.
+
 **The warnings**, beside the orders, filtered by kind:
 
 | Kind | What it says |
@@ -279,6 +291,10 @@ Which plugins change the same things, and who wins.
 - **Map.** The record conflicts on the world grid, colored by how many, or one plugin's
   own.
 - **Report** and **CSV…** save the scan.
+- **Reviewed marks.** Click the ○ beside a record or file to mark it reviewed (✓). When
+  another plugin or folder comes to touch it, the mark turns to ↻, changed since you
+  reviewed it. The lists show everything, only what you haven't reviewed, the reviewed, or
+  the changed; **Mark shown reviewed** marks the whole list as filtered.
 
 Everything queued goes to the same patch the Editor builds.
 

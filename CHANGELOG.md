@@ -327,6 +327,23 @@
   camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
   orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
   the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **The Load order and Conflicts batch** (Static 2026-11-24, "lets do all this"; `88_wg_lo_qol.js`,
+  `ordercore::why`, `loadorder_why`):
+  - **Why here?** (the button over content=, or double-click a plugin): where it loads and between
+    which plugins; on the curated list or one of yours, and from where; the plugin the sort placed
+    it right after or before (or the hint that pulled it); every rule block naming it, read again
+    with its file and line (`rules::blocks_with_lines`), the installed plugins it puts before and
+    after, and those the order has on the other side; its header masters, each with whether it
+    loads before it; the refused rules naming it. Each plugin named is a link to its own answer.
+    After a plain sort, the plugin's file is found through the setup's own folders.
+  - **Snapshots**: the page's order kept by name, per openmw.cfg; one kept on its own before each
+    Sort and after each Export that writes (the last 10 of those, 40 in all). Compare lists added,
+    taken out, ticked on, ticked off, and moved (what is left once the longest run still in the
+    same order is set aside, so one plugin moving is one, not fifty); Restore puts the order on the
+    page, a plugin it lacked kept at the end, off.
+  - **Reviewed marks** on Conflicts' records and files, each with the plugins (or folders) it had
+    when marked; a record another plugin comes to touch shows ↻, changed since. The lists filter by
+    them; Mark shown reviewed and Clear marks. Tests: `lo_qol.test.js`, ordercore `why`.
 - **The Land view's batch** (Static 2026-11-24, "lets do all this"; `87_wg_land_qol.js`):
   - **Mirror**: each dab laid again across a north-south line, an east-west line, or four ways,
     round the loaded cell's middle or a center clicked; the lines drawn over the ground. Not the

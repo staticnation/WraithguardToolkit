@@ -248,7 +248,7 @@ fn missing_file_error(e: &io::Error, path: &str) -> Result<String, PlanError> {
 
 /// The rule files a `--rules` entry names: itself if a file, else its `*.txt` files, sorted as
 /// `sorted(path.glob("*.txt"))` sorts them on this system.
-fn rule_files(entry: &str) -> Vec<PathBuf> {
+pub(crate) fn rule_files(entry: &str) -> Vec<PathBuf> {
     let path = PathBuf::from(entry);
     if path.is_file() {
         return vec![path];
@@ -272,7 +272,7 @@ fn rule_files(entry: &str) -> Vec<PathBuf> {
 }
 
 /// A rule file's text as `read_text(encoding="utf-8-sig", errors="replace")` gives it.
-fn rule_text(path: &Path) -> Result<String, PlanError> {
+pub(crate) fn rule_text(path: &Path) -> Result<String, PlanError> {
     let bytes = fs::read(path).map_err(|_| PlanError::Unsupported)?;
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
     Ok(String::from_utf8_lossy(bytes).into_owned())

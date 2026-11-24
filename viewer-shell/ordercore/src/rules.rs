@@ -221,6 +221,17 @@ fn is_qualifier(line: &str) -> bool {
 ///
 /// `wraithguard.rules.parser.parse_mlox_text` is the reference.
 pub fn parse_text(raw: &str) -> Parsed {
+    let (found, skipped) = parse_lines(raw);
+    Parsed { blocks: found.into_iter().map(|(b, _)| b).collect(), skipped }
+}
+
+/// The ordering blocks with the line each header is on (1 for the first), as
+/// [`parse_text`] reads them: for saying which rule put a plugin where it is.
+pub fn blocks_with_lines(raw: &str) -> Vec<(Block, usize)> {
+    parse_lines(raw).0
+}
+
+fn parse_lines(raw: &str) -> (Vec<(Block, usize)>, usize) {
     let text = splitlines(raw).into_iter().map(strip_comment).collect::<Vec<_>>().join("\n");
     // Where each header starts and ends: only a line's first byte can start one.
     let mut found: Vec<(usize, usize, usize)> = Vec::new();
@@ -233,7 +244,7 @@ pub fn parse_text(raw: &str) -> Parsed {
     }
     let mut blocks = Vec::new();
     let mut skipped = 0;
-    for (i, &(k, _start, end)) in found.iter().enumerate() {
+    for (i, &(k, start, end)) in found.iter().enumerate() {
         let kind = match k {
             0 => Kind::Order,
             1 => Kind::NearStart,
@@ -261,10 +272,11 @@ pub fn parse_text(raw: &str) -> Parsed {
             }
         }
         if !names.is_empty() {
-            blocks.push(Block { kind, names });
+            let line = text[..start].bytes().filter(|&c| c == b'\n').count() + 1;
+            blocks.push((Block { kind, names }, line));
         }
     }
-    Parsed { blocks, skipped }
+    (blocks, skipped)
 }
 
 #[cfg(test)]

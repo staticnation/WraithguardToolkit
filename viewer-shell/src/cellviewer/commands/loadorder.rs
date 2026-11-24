@@ -126,6 +126,52 @@ pub(super) fn loadorder_compute(args: String) -> Result<tauri::ipc::Response, St
     }
 }
 
+/// Wraithguard: "Why is this plugin here?" (Static 2026-11-24). `name` the plugin, `order` the
+/// page's order as it stands, `rules` the rule files, `cfg` the setup (for finding the plugin's
+/// file when the last run was the plain sort). Answers `{name, at, rules: [{file, line, kind,
+/// names, before, after, broken}], masters: [{name, at}] | null (file not found), mine, curated,
+/// origin, anchor: {how, other} | null, refused: [text]}` (`ordercore::why`).
+#[tauri::command(async)]
+pub(super) fn loadorder_why(name: String, order: Vec<String>, rules: Vec<String>, cfg: String) -> Result<String, String> {
+    use viewcore::ordercore::why;
+    let low = name.to_lowercase();
+    let at = order.iter().position(|n| n.to_lowercase() == low);
+    let hits = why::rule_hits(&name, &order, &why::read_rule_files(&rules));
+    let rules_json: Vec<serde_json::Value> = hits
+        .iter()
+        .map(|h| serde_json::json!({"file": h.file, "line": h.line, "kind": h.kind, "names": h.names, "before": h.before, "after": h.after, "broken": h.broken}))
+        .collect();
+    let slot = LOADORDER.lock().unwrap_or_else(|p| p.into_inner());
+    let got = slot.as_ref();
+    // The plugin's file: through the last MOMW run's folders, else the setup's own.
+    let mut path = got.and_then(|g| viewcore::ordercore::inputs::PluginIndex::build(&g.scan_dirs).find(&name).map(std::path::Path::to_path_buf));
+    if path.is_none() && !cfg.is_empty() {
+        if let Ok(c) = cf_setup(&cfg) {
+            path = plain_index(&c).find(&name).map(std::path::Path::to_path_buf);
+        }
+    }
+    let masters: Option<Vec<serde_json::Value>> =
+        path.map(|p| why::masters_at(&p, &order).into_iter().map(|m| serde_json::json!({"name": m.name, "at": m.at})).collect());
+    let (mine, curated, origin, anchor, refused) = match got {
+        Some(g) => {
+            let mine = g.plan.subset.iter().any(|s| s.to_lowercase() == low);
+            let curated = g.plan.curated_set.iter().any(|s| s.to_lowercase() == low);
+            let anchor = g.plan.custom_anchors.get(&low).map(|(how, other)| serde_json::json!({"how": how, "other": other}));
+            let refused: Vec<String> = g
+                .report
+                .items
+                .iter()
+                .filter(|i| i.warning == Some("rule_conflict") && i.names.iter().any(|n| n.to_lowercase() == low))
+                .map(|i| i.text.trim().to_string())
+                .collect();
+            (mine, curated, g.subset_origins.get(&low).cloned(), anchor, refused)
+        }
+        None => (false, false, None, None, Vec::new()),
+    };
+    Ok(serde_json::json!({"name": name, "at": at, "rules": rules_json, "masters": masters, "mine": mine, "curated": curated,
+        "origin": origin, "anchor": anchor, "refused": refused, "sorted": got.is_some()}).to_string())
+}
+
 /// Wraithguard: export the last sort (`ordercore::plan::export`). `args`: JSON with `cfg`,
 /// `writeCfg`, `emitToml`, `dryRun`, `noBackup`, `sortDataPaths`, `listName`, `stamp`,
 /// `finalOrder` / `dataOrder` (the panels' enabled entries; null: the plan's),

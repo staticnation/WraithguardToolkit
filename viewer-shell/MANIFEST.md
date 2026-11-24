@@ -13,7 +13,7 @@ viewer (`GARDENFELL.md`). Sizes and counts are as of the last regeneration of th
 | `src/cellviewer/` | The window, its launch arguments, and `commands.rs` with `commands/` (the Conflicts, Tools, Load order, Merge Lands and Help pages' commands, a file each): every command the page calls (below); `pick.rs`, the file dialogs and the write-permission box, opened from Rust | MIT |
 | `viewcore/` | The viewer engine: the install, the merged world, meshes, textures, sound | MIT |
 | `editcore/` | The Editor: plugins as records, the queue and journal, edits, search, the Use Report, dialogue, MWScript, Verify, the patch build, Test in OpenMW; Merge objects (TES3Merge's merge) | MIT |
-| `ordercore/` | The load order: openmw.cfg, mlox rules, the sort and export, MOMW lists, rule authoring, cells and references resolved as the game does | MIT |
+| `ordercore/` | The load order: openmw.cfg, mlox rules, the sort and export, MOMW lists, rule authoring, cells and references resolved as the game does, why a plugin sits where it does (`why`) | MIT |
 | `conflictcore/` | Conflicts: records, fields, resources, meshes, textures, the map; the mesh editor and draw order; the Mesh optimizer and Check meshes over a load order | MIT |
 | `toolscore/` | The tools: Lint, Save Check, masters, Backups, tes3cmd, settings and Setup, the Help renderer | MIT |
 | `landcore/` | Merge Lands and its settings files; the Land view's encoder (not a workspace member) | MIT |
@@ -137,9 +137,10 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `85_wg_palette.js` | 10 KB | Ctrl+P: pages, tools, key actions, buttons on screen, saved views, cells and records by id, found by typing. |
 | `86_wg_editor_qol.js` | 16 KB | The Editor's back and forward, Pending's field-by-field diff with ↶ per field, Script Edit's Ctrl+Space and "Where is it set?", a response's placeholder check. |
 | `87_wg_land_qol.js` | 40 KB | The Land view's mirror, color pick, road or path, painting by rules, heightmap PNG out and in, and the strokes list with Back to before this. |
+| `88_wg_lo_qol.js` | 21 KB | Load order's Why here? and snapshots (compare, restore); Conflicts' reviewed marks. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 159, and `pick.rs`: 2)
+## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 160, and `pick.rs`: 2)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
@@ -181,7 +182,7 @@ names a command that is not defined, or one is left unregistered.
 - **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`, `lua_deps`, `lua_check`, `lua_record`, `lua_settings_read`, `lua_settings_write`, `anim_blend_config`
 - **wg**: `wg_post`, `wg_save_edited` (the page tests' seam to a stand-in host; nothing serves them since 5.0)
 - **scan**: `scan_cache_warm`
-- **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`, `loadorder_plain_sort`, `loadorder_plain_write`, `loadorder_plain_restore_dates`
+- **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`, `loadorder_plain_sort`, `loadorder_plain_write`, `loadorder_plain_restore_dates`, `loadorder_why`
 - **meshopt**: `meshopt_analyse`, `meshopt_write`, `meshopt_progress`
 - **meshcheck**: `meshcheck_scan`, `meshcheck_write` (progress is `meshopt_progress`)
 - **conflicts**: `conflicts_scan`, `conflicts_fields`, `conflicts_land_surfaces`, `conflicts_resources`, `conflicts_texture`, `conflicts_report`, `conflicts_csv`, `conflicts_patch`, `conflicts_by_plugin`, `conflicts_plugin_group`, `conflicts_verdicts`, `conflicts_plugin_bulk`, `conflicts_plugin_bulk_apply`
