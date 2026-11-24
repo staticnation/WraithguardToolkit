@@ -554,6 +554,13 @@ plus their own dependencies. Each is used unmodified, from crates.io.
   **[chrono](https://github.com/chronotope/chrono)** - the `wraithguard` command line's
   arguments and its clock (`viewer-shell/cli`).
 
+**FluadHTN is a dependency of the mods Tools → HTN AI exports, not part of Wraithguard.**
+[FluadHTN](https://www.nexusmods.com/morrowind/mods/52111) (formerly OdaiHTN, by Safebox) is not
+included, copied or changed: the exported mods `require` the copy the player installs from its page,
+and on OpenMW use [Rubic0n](https://www.nexusmods.com/morrowind/mods/58557)'s LuaJIT (MIT), which
+the player installs too. The page's Preview planner is Wraithguard's own, written from how HTN
+planning and FluadHTN's documentation describe it; none of FluadHTN's code is in it.
+
 **OpenMW's Lua storage files are read, not OpenMW's code.** `player_storage.bin` and
 `global_storage.bin` (the settings OpenMW keeps for Lua mods) are read by
 `viewer-shell/viewcore/src/luafiles.rs` from their byte layout; nothing of OpenMW's source is in it.

@@ -3937,6 +3937,44 @@ fn lua_deps(openmw: Option<String>, state: State) -> Result<String, String> {
     Ok(viewcore::luacheck::deps(&a.sources, &reg, &builtins).to_string())
 }
 
+/// Wraithguard: Tools → HTN AI (Static 2026-11-23): what an exported mod needs and whether the
+/// setup has it - FluadHTN's OpenMW and MWSE builds in the data folders, and Rubic0n's LuaJIT in
+/// the OpenMW install (`viewcore::htn::deps`).
+#[tauri::command(async)]
+fn htn_deps(openmw: Option<String>, state: State) -> Result<String, String> {
+    let (vfs, order) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
+    };
+    let cfg = order.as_deref().filter(|p| viewcore::luascan::is_openmw_cfg(p));
+    let jit = lua_resources(openmw, cfg).as_deref().and_then(viewcore::luarun::find_luajit);
+    let mut v = viewcore::htn::deps(&vfs, jit.as_deref());
+    v["openmw_setup"] = serde_json::Value::Bool(cfg.is_some());
+    Ok(v.to_string())
+}
+
+/// Wraithguard: an HTN domain the person picked (`*.wghtn.json`), read back.
+#[tauri::command(async)]
+fn htn_read(path: String) -> Result<String, String> {
+    let p = granted::check(&path)?;
+    Ok(viewcore::htn::read_domain(&p)?.to_string())
+}
+
+/// Wraithguard: the mod Tools → HTN AI made, written into the folder the person picked:
+/// `files` is `[[relative path, text]...]`, each below that folder (`viewcore::htn::write_mod`).
+#[tauri::command(async)]
+fn htn_export(folder: String, files: serde_json::Value) -> Result<String, String> {
+    let dir = granted::check(&folder)?;
+    let list: Vec<(String, String)> = files
+        .as_array()
+        .ok_or("no files were given")?
+        .iter()
+        .filter_map(|f| Some((f.get(0)?.as_str()?.to_string(), f.get(1)?.as_str()?.to_string())))
+        .collect();
+    let out = viewcore::htn::write_mod(&dir, &list)?;
+    Ok(serde_json::json!(out.iter().map(|p| p.display().to_string()).collect::<Vec<_>>()).to_string())
+}
+
 #[tauri::command(async)]
 fn lua_check(openmw: Option<String>, state: State) -> Result<String, String> {
     use std::collections::BTreeMap;
@@ -4918,6 +4956,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_deps,
             lua_settings_read,
             lua_settings_write,
+            htn_deps,
+            htn_read,
+            htn_export,
             lua_record,
             lua_run_step,
             lua_run_stop,

@@ -14,6 +14,7 @@ module.exports = async (t) => {
   w.eval(source('src/61_wg_tools.js'));
   w.eval(source('src/80_wg_luacheck.js').replace(/^const WgLuaCheck=/m, 'var WgLuaCheck='));
   w.eval(source('src/81_wg_luasettings.js').replace(/^const WgLuaSettings=/m, 'var WgLuaSettings='));
+  w.eval(source('src/82_wg_htn.js').replace(/^const WgHtn=/m, 'var WgHtn='));
   const T = w.WgToolsPage;
   T.build();
   const root = w.document.getElementById('wgTL');

@@ -13,6 +13,7 @@ pub mod coverage;
 pub mod distant;
 pub mod esp;
 pub mod rawrec;
+pub mod htn;
 pub mod img;
 pub mod inspect;
 pub mod json;

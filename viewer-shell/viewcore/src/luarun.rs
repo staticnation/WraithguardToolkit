@@ -864,6 +864,15 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
             }
         }
         mwse = mwse_mains(&files).into_iter().filter(|k| !is_off(off, k)).collect();
+        // MWSE/lib: the libraries mods `require` (MWSE puts it on the package path; FluadHTN's
+        // MWSE build lives there) - sources only, never started on their own.
+        for k in vfs.list("mwse/lib/", &[".lua"]).into_iter().take(3000).map(|p| p.replace('\\', "/").to_ascii_lowercase()) {
+            if !sources.contains_key(&k) {
+                if let Some(t) = read_script(vfs, None, &k) {
+                    sources.insert(k, t);
+                }
+            }
+        }
     }
     let files: Vec<String> = vfs.list("music/", &[".mp3", ".wav", ".ogg", ".flac"]);
     use crate::json::{escape_into, string_array, J};
@@ -1880,6 +1889,44 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
     /// An OpenMW mod's data folder run on the survey's scene, its `.omwscripts` as registered and
     /// OpenMW's built-ins from `res` (a `resources` folder): the start's answer and three steps'.
     fn openmw_mod_answers(root: &std::path::Path, res: Option<&std::path::Path>) -> Vec<String> {
+        let steps = [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#.to_string(), r#"{"dt":1.0}"#.to_string(), r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#.to_string()];
+        openmw_mod_run(root, res, &steps)
+    }
+
+    /// A library in MWSE/lib is found by `require`, as MWSE puts it on the package path (FluadHTN's
+    /// MWSE build is `MWSE/lib/sb_htn`, required as `sb_htn.interop`; Static 2026-11-23).
+    #[test]
+    fn an_mwse_mod_requires_a_library_in_mwse_lib() {
+        let esc = |t: &str| {
+            let mut e = String::from("\"");
+            crate::json::escape_into(t, &mut e);
+            e.push('"');
+            e
+        };
+        let start = format!(
+            r#"{{"scripts":[],"sources":{{"mwse/mods/wg/lib/main.lua":{},"mwse/lib/wglib/util.lua":{}}},"mwse":["mwse/mods/wg/lib/main.lua"],"files":[],"weathers":["Clear"]}}"#,
+            esc("local u = require('wglib.util') mwse.log('lib says %s', u.v)"),
+            esc("return { v = 'hello' }")
+        );
+        let mut r = runner();
+        let a = r.call("__wg_start", &start).unwrap();
+        assert!(a.contains("lib says hello"), "{a}");
+    }
+
+    /// Not a check of its own: a mod Tools → HTN AI exported (`WG_OMW_MOD`, with FluadHTN's OpenMW
+    /// build beside it) run for 30 ticks of a tenth of a second, the scene's objects sent in the
+    /// first so their local scripts attach, as the Preview sends them. Prints one `WGDUMP` line.
+    #[test]
+    #[ignore]
+    fn survey_htn_export() {
+        let Ok(root) = std::env::var("WG_OMW_MOD") else { return };
+        let res = std::env::var("WG_OMW_RES").ok().map(std::path::PathBuf::from);
+        let mut steps = vec![r#"{"dt":0.05,"objects":{"k1":{"id":"wg_box","tag":"CONT","pos":[0,0,0]},"k2":{"id":"fargoth","tag":"NPC_","pos":[300,0,0]},"k3":{"id":"mudcrab","tag":"CREA","pos":[600,0,0]}}}"#.to_string()];
+        steps.extend(std::iter::repeat_n(r#"{"dt":0.1}"#.to_string(), 30));
+        println!("WGDUMP [{}]", openmw_mod_run(std::path::Path::new(&root), res.as_deref(), &steps).join(","));
+    }
+
+    fn openmw_mod_run(root: &std::path::Path, res: Option<&std::path::Path>, steps: &[String]) -> Vec<String> {
         let root = root.to_path_buf();
         let (mut sources, mut list) = (String::new(), Vec::new());
         let mut seen: Vec<(String, Vec<String>)> = Vec::new();
@@ -1958,7 +2005,7 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         let mut r = runner();
         r.call("__wg_set_limits", "5,262144").unwrap();
         let mut out = vec![r.call("__wg_start", &start).unwrap_or_else(|e| format!("\"START {}\"", e.to_string().replace('"', "'")))];
-        for step in [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#, r#"{"dt":1.0}"#, r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#] {
+        for step in steps {
             out.push(r.call("__wg_step", step).unwrap_or_else(|e| format!("\"STEP {}\"", e.to_string().replace('"', "'"))));
         }
         out
@@ -1999,6 +2046,7 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
             sources.push('"');
             names.push(key);
         }
+        let names: Vec<String> = names.into_iter().filter(|n| !n.starts_with("mwse/lib/")).collect();
         let mains: Vec<String> = mwse_mains(&names).into_iter().map(|m| format!("\"{m}\"")).collect();
         let start = format!(
             r#"{{"scripts":[],"sources":{{{sources}}},"mwse":[{}],"files":[],"weathers":["Clear"],"state":{}}}"#,

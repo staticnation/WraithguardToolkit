@@ -240,6 +240,8 @@ const WgScripts={
     this._mwNow.clear();
     // OpenMW Lua (74_wg_lua.js), against the same scene.
     if(typeof WgLua==='object') WgLua.frame(dt);
+    // Tools → HTN AI's Preview run (82_wg_htn.js): its actor's next step, before the AI moves it.
+    if(typeof WgHtn==='object' && WgHtn.run) WgHtn.frame(dt);
     const t2=performance.now();
     this.actorsFrame(dt);
     if(P){ P.add('ai', performance.now()-t2); P.count('actors', this.actors.size); }

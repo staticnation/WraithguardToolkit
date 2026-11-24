@@ -283,6 +283,31 @@
   its bytes are kept, and the scripts get `math.huge`), and tables keyed by numbers out of order
   (kept as pairs, `$table`, so `t[3]` stays a number key and is not written back as `t["3"]`).
   Test: `a_real_storage_file_round_trips` (ignored, `WG_STORAGE`, on a copy).
+- **Tools → HTN AI** (`82_wg_htn.js`, `viewcore::htn`, `htn_deps`/`htn_read`/`htn_export`): an
+  actor's behaviour built as an HTN domain for FluadHTN (Safebox's HTN framework): Selects, Sequences,
+  Actions and Pause plans, from ready-made game blocks (wait, wander, walk to a point or an object, go
+  to or follow the player, attack, show a message, play an animation, set a value) and checks (a value,
+  the player near, health low, in a fight, the hour, an item carried, a chance); world-state values,
+  "watched" ones set from a game check each tick so the actor plans again when the world changes;
+  effects counted while planning. Checked as it is built (an empty Select, a Pause outside a
+  Sequence, a missing value, a branch that hides the ones after it), saved as `*.wghtn.json`, and
+  exported as a mod for OpenMW (`.omwscripts`, an actor and a player script) and MWSE (`main.lua`),
+  written only inside the folder picked. FluadHTN is not included: the mod requires the copy the
+  player installed, and the page shows whether the setup has FluadHTN's OpenMW and MWSE builds and,
+  for OpenMW, Rubic0n's LuaJIT (told from stock LuaJIT by its table helpers), which the OpenMW build
+  needs. Advanced: custom Lua checks and actions per engine, effect kinds, while-running conditions,
+  and the generated Lua. *Try it in the Preview*: the behaviour planned and run on an actor of the
+  loaded cell while the Scripts run, by the page's own planner (FluadHTN's rules: the first branch
+  that decomposes, a Sequence's effects counted step by step, a plan replaced only by one taking an
+  earlier branch, Pause plans continued), with the plan, the values and a log.
+  Checked: the exported mod run on FluadHTN's Nexus OpenMW build with Rubic0n (greets once, wanders,
+  continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
+  (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
+  export for 30 ticks.
+- **The Preview's MWSE mods find libraries in `MWSE/lib`** (`luarun.rs`, `luarun.lua`): `require`
+  looks there after `MWSE/mods` and `MWSE/lua`, as MWSE does, and the folder's files are read as
+  sources, never started on their own. FluadHTN's MWSE build lives there. Test:
+  `an_mwse_mod_requires_a_library_in_mwse_lib`.
 - **"As Lua sees it" in the record dialog** (`lua_record`, `50_wg_editor_record.js`): the record as
   OpenMW's Lua gives it to a script (`types.X.records[id]`), for the kinds the scripts have records of.
 - **`tools/apply_patch.ps1`**: a patch checked, applied, the quick checks for what it touches run and

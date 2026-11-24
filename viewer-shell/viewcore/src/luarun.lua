@@ -2581,13 +2581,13 @@ local function mwse_env(inst, root)
   for k, v in pairs(MWSE_STRING) do env.string[k] = v end
   local logging = mwse_logger_lib(inst)
   local loaded = { ['logging.logger'] = logging }
-  -- `require('author.mod.config')`: MWSE/mods/author/mod/config.lua (or MWSE/lua/...); MWSE's
-  -- own modules and Lua's C ones are not here.
+  -- `require('author.mod.config')`: MWSE/mods/author/mod/config.lua (or MWSE/lua/..., or a
+  -- library in MWSE/lib/...); MWSE's own modules and Lua's C ones are not here.
   env.require = function(name)
     if loaded[name] ~= nil then return loaded[name] end
     local file = string.lower(tostring(name):gsub('%.', '/'))
     local text
-    for _, base in ipairs({ 'mwse/mods/', 'mwse/lua/', root }) do
+    for _, base in ipairs({ 'mwse/mods/', 'mwse/lua/', 'mwse/lib/', root }) do
       text = sources[base .. file .. '.lua'] or sources[base .. file .. '/init.lua']
       if text then break end
     end

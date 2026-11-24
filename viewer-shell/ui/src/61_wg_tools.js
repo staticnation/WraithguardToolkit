@@ -56,7 +56,9 @@ const WgToolsPage={
     // Wraithguard (Static 2026-11-23): 80_wg_luacheck.js.
     ['luacheck','Lua mods','Each Lua mod run on its own: what it needs that is missing, and what the Preview does not run yet'],
     // Wraithguard (Static 2026-11-23): 81_wg_luasettings.js.
-    ['luasettings','Lua settings','The settings OpenMW keeps for your Lua mods: read and change them outside the game']],
+    ['luasettings','Lua settings','The settings OpenMW keeps for your Lua mods: read and change them outside the game'],
+    // Wraithguard (Static 2026-11-23): 82_wg_htn.js.
+    ['htn','HTN AI','An actor\'s behaviour built from game blocks, tried in the Preview and exported for FluadHTN (OpenMW and MWSE)']],
   t3:{files:[], res:null},
   m2:{plugin:'', master:'', files:[]},
   jr:{data:null, quest:null},
@@ -273,6 +275,7 @@ const WgToolsPage={
     $('#tlLintRun').onclick=()=>this.runLint();
     if(typeof WgLuaCheck==='object' && !$('#tlLua')){ el.appendChild(WgLuaCheck.pane()); WgLuaCheck.wire(); }
     if(typeof WgLuaSettings==='object' && !$('#tlLuaSet')){ el.appendChild(WgLuaSettings.pane()); WgLuaSettings.wire(); }
+    if(typeof WgHtn==='object' && !$('#tlHtn')){ el.appendChild(WgHtn.pane()); WgHtn.wire(); }
     $('#tlBkScan').onclick=()=>this.scanBackups();
     $('#tlMsPick').onclick=()=>this.pickPlugin();
     $('#tlSvPick').onclick=()=>this.saveCheck(1);
@@ -435,6 +438,7 @@ const WgToolsPage={
     $('#tlM2m').hidden=tool!=='m2m';
     { const lua=$('#tlLua'); if(lua) lua.hidden=tool!=='luacheck'; }
     { const ls=$('#tlLuaSet'); if(ls) ls.hidden=tool!=='luasettings'; if(tool==='luasettings' && typeof WgLuaSettings==='object' && !WgLuaSettings.data) WgLuaSettings.load(); }
+    { const h=$('#tlHtn'); if(h){ h.hidden=tool!=='htn'; h.style.display=tool==='htn'? 'flex' : ''; } if(tool==='htn' && typeof WgHtn==='object') WgHtn.show(); }
     if(tool==='mergelands') this.landsHome();
     if(tool==='mergeobjects') this.obInit();
     if(tool==='mergesettings') this.mergeMine();
