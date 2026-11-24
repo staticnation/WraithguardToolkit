@@ -165,7 +165,7 @@ const WgToolsPage={
   <pre id="tlSvOut" style="white-space:pre;font-family:var(--mono);margin:0"></pre></div></div>
 <div class="col pane" id="tlJournal" hidden style="display:none;grid-template-columns:260px 1fr;grid-template-rows:auto 1fr">
   <h3 style="grid-column:1/3">Journal <span class="sp"></span><span id="tlJrStats" class="empty"></span>
-  <input type="text" id="tlJrFind" placeholder="Find a quest or text" style="width:200px"><button class="btn" id="tlJrRead">Read</button></h3>
+  <input type="text" id="tlJrFind" placeholder="Find a quest or text" style="width:200px"><select id="tlJrView" title="A quest's stages as a list, or as a graph of what sets each"><option value="list">List</option><option value="graph">Graph</option></select><button class="btn" id="tlJrRead">Read</button></h3>
   <div class="scroll nav" id="tlJrQuests" style="border-right:1px solid var(--line)"><div class="empty">Read the load order's quests.</div></div>
   <div class="scroll" id="tlJrStages"></div></div>
 <div class="col pane" id="tlT3" hidden><h3>tes3cmd <span class="sp"></span>
@@ -281,6 +281,7 @@ const WgToolsPage={
     $('#tlSvPick').onclick=()=>this.saveCheck(1);
     $('#tlSvTwo').onclick=()=>this.saveCheck(2);
     $('#tlJrRead').onclick=()=>this.readJournal();
+    { const vw=$('#tlJrView'); if(vw) vw.onchange=()=>{ if(this.jr.quest) this.showQuest(this.jr.quest); }; }
     $('#tlMoRun').onclick=()=>this.moRun();
     $('#tlMoWrite').onclick=()=>this.moWrite();
     $('#tlMoAll').onclick=()=>{ const bx=[...document.querySelectorAll('#tlMoBody input[data-p]')]; const on=bx.some(b=>!b.checked); for(const b of bx) b.checked=on; this.moTicked(); };
@@ -1011,6 +1012,8 @@ const WgToolsPage={
     const d=this.jr.data, quest=d.quests.find(x=>x.id===id); if(!quest) return;
     this.jr.quest=id;
     for(const el of document.querySelectorAll('#tlJrQuests [data-q]')) el.classList.toggle('on', el.dataset.q===id);
+    const vw=$('#tlJrView');
+    if(vw && vw.value==='graph' && typeof WgGraph==='object') return this.questGraph(quest);
     const conds=c=>c.length? `<div class="empty" style="padding:0">${c.map(loEsc).join(' &rsaquo; ')}</div>` : '';
     const eff=list=>list.length? `<div style="margin:2px 0 0 12px">${list.map(e=>`<div style="font-family:var(--mono)">${loEsc(e.raw)}${e.conditions.length?' <span class="empty" style="padding:0">('+e.conditions.map(loEsc).join(' &rsaquo; ')+')</span>':''}</div>`).join('')}</div>` : '';
     const link=c=>c.target? `<a href="#" data-jq="${loEsc(c.target.quest)}" data-ji="${loEsc(c.target.infoId)}">${loEsc(c.target.quest)} ${c.index}</a>` : `${loEsc(c.quest)} ${c.index} <span style="color:var(--warn)">(no such stage)</span>`;
@@ -1025,6 +1028,33 @@ const WgToolsPage={
     for(const a of box.querySelectorAll('a[data-jq]')) a.onclick=e=>{ e.preventDefault(); this.showQuest(a.dataset.jq, a.dataset.ji); };
     const at=infoId && document.getElementById('jr_'+infoId);
     if(at){ at.scrollIntoView({block:'center'}); at.style.outline='1px solid var(--ac)'; setTimeout(()=>at.style.outline='',1500); } else box.scrollTop=0;
+  },
+
+  /* A quest as a graph (83_wg_graph.js; Static 2026-11-23: "a graph view in ... journal /
+     quests"): its stages left to right in index order, under each what sets it - a response
+     (its speaker and conditions) or a script - and the other quests' stages it also sets.
+     Double-click one of those to draw that quest. */
+  JR_COL:{quest:'#6f9cf0', stage:'#c9a227', finished:'#3fb950', response:'#c9a85c', script:'#c07de0', link:'#6cb6ff', none:'#e5534b'},
+  questTree(quest){
+    const short=c=>c.length? c.join(' & ') : '';
+    return {id:'q:'+quest.id, kind:'quest', badge:'Quest', title:quest.id, sub:quest.stages.length+' stage'+(quest.stages.length===1? '' : 's'),
+      children:quest.stages.map(st=>({id:'s:'+st.infoId, kind:st.finished? 'finished' : 'stage', edge:String(st.index),
+        badge:'Stage '+st.index+(st.finished? ' · finishes' : '')+(st.state? ' · '+st.state : ''), title:st.text||'(no text)', sub:st.plugins.join(' > '),
+        tip:(st.text||'')+(st.conditions.length? '\n'+st.conditions.join('\n') : ''),
+        children:[
+          ...st.setBy.map((c, i)=>({id:'b:'+st.infoId+':'+i, kind:c.ownerType==='Script'? 'script' : 'response', edge:'set by',
+            badge:(c.ownerType==='Script'? 'Script' : 'Response')+(c.fromBytecode? ' (compiled)' : ''), title:c.ownerId, sub:short(c.conditions)||c.plugin,
+            tip:[c.ownerId, c.plugin, ...(c.conditions||[]), ...(c.speaker||[]), ...((c.effects||[]).map(e=>e.raw))].join('\n')})),
+          ...(st.setBy.length? [] : [{id:'n:'+st.infoId, kind:'none', edge:'set by', badge:'Nothing', title:'Nothing in the load order sets it'}]),
+          ...st.alsoSets.map((c, i)=>({id:'a:'+st.infoId+':'+i, kind:c.target? 'link' : 'none', edge:'also sets', badge:'Also sets', title:(c.target? c.target.quest : c.quest)+' '+c.index,
+            sub:c.target? 'double-click to draw it' : 'no such stage', jq:c.target && c.target.quest}))]}))};
+  },
+  questGraph(quest){
+    const box=$('#tlJrStages'); box.textContent='';
+    WgGraph.tree(box, this.questTree(quest), {colors:this.JR_COL, height:'calc(100% - 40px)',
+      legend:[['stage', 'stage'], ['finished', 'finishes the quest'], ['response', 'a response sets it'], ['script', 'a script sets it'], ['link', 'another quest']],
+      hint:'Double-click another quest to draw it.',
+      onDbl:n=>{ if(n.jq) this.showQuest(n.jq); }});
   },
 
   /* ---- Save Check ---- */

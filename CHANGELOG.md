@@ -339,6 +339,15 @@
   go in, else to its left or right); the + under a Select or Sequence adds a step; double-click
   folds one away. Wheel zooms, dragging the background pans, Fit shows it all. SVG built with
   the DOM.
+- **Graph views for dialogue and quests** (`83_wg_graph.js`, a tree drawn as a graph: boxes
+  top-down, labelled branches, folding, wheel zoom, drag to pan, Fit). The Dialogue window's
+  **Graph**: the selected topic's responses left to right in the order the engine tries them,
+  under a response the choices it offers and the responses answering each, and what it does
+  (the topics it adds, journal entries, variables, items); click a response to open it,
+  double-click a topic or quest to draw it. Tools → Journal's **List / Graph**: a quest's
+  stages in index order, under each what sets it (a response with its speaker and conditions,
+  or a script) or that nothing does, and the other quests' stages it also sets (double-click to
+  draw that quest).
 - **The Preview's MWSE mods find libraries in `MWSE/lib`** (`luarun.rs`, `luarun.lua`): `require`
   looks there after `MWSE/mods` and `MWSE/lua`, as MWSE does, and the folder's files are read as
   sources, never started on their own. FluadHTN's MWSE build lives there. Test:

@@ -44,6 +44,7 @@ const WgDial={
     seg.className='edSeg'; seg.id='edDialViews';
     const views=[['list','List','The topics and their responses, as the Construction Set lists them'],
       ['flow','Flow','The selected topic as the engine reads it: each response falls through to the next, choices open their own branches'],
+      ['graph','Graph','The selected topic as a tree: its responses in the order they are tried, the choices they offer and the responses answering them, and what each one does (Static 2026-11-23)'],
       ['map','Map','The topics around the selected one: what it leads to, what leads to it, the quests and variables in between'],
       ['flags','Flags','Every variable, quest index and item the dialogue writes or tests - who writes it, who reads it'],
       ['play','In game','The game\'s dialogue window, rehearsed with an NPC of your choice']];
@@ -73,6 +74,7 @@ const WgDial={
     if(topic) this._last=topic;
     const t=topic||this.topic();
     if(view==='flow') return this.flow(t);
+    if(view==='graph') return this.graph(t);
     if(view==='map') return this.map(t);
     if(view==='flags') return this.flags();
     if(view==='play') return this.play();
@@ -84,6 +86,56 @@ const WgDial={
   textHtml(segs){
     return (segs||[]).map(s=> s.topic? '<a class="edDLink" data-dtopic="'+escHtml(s.topic)+'" title="Topic: '+escHtml(s.topic)+'">'+escHtml(s.t)+'</a>'
       : s.macro? '<span class="edDMacro" title="Filled in by the game">'+escHtml(s.t)+'</span>' : escHtml(s.t)).join('');
+  },
+
+  /* ---- graph ----------------------------------------------------------------------------
+     The Flow drawn as a tree (83_wg_graph.js): the topic, its responses left to right in the
+     order the engine tries them (the first whose conditions all hold is said), under a response
+     the choices it offers and under each the responses answering it, and the leaves of what it
+     does: the topics it adds, the journal entries it writes, the variables it sets. Click a
+     response to open it, a topic to draw its own, a quest for its stages, a variable for its
+     readers and writers. */
+  GRAPH_COL:{topic:'#6f9cf0', response:'#c9a85c', orphan:'#e5534b', choice:'#c07de0', addtopic:'#6cb6ff', quest:'#c9a227', var:'#3fb950', item:'#9a9a9a'},
+  async graph(topic){
+    const box=this.box;
+    if(!topic){ box.innerHTML='<div class="hint">Choose a topic in the List view (or a link anywhere) to see its graph.</div>'; return; }
+    box.innerHTML='<div class="hint">Reading '+escHtml(topic)+'…</div>';
+    let f;
+    try{ f=await this.E.ask('editDialogueFlow', {topic}); }catch(e){ box.innerHTML=this.err(e); return; }
+    this._last=f.id||topic;
+    box.textContent='';
+    const host=document.createElement('div'); box.append(host);
+    if(typeof WgGraph!=='object'){ host.textContent='The graph is not loaded.'; return; }
+    WgGraph.tree(host, this.graphTree(topic, f.responses||[]), {colors:this.GRAPH_COL, height:'64vh',
+      legend:[['response', 'response'], ['choice', 'choice'], ['addtopic', 'adds a topic'], ['quest', 'journal'], ['var', 'sets a variable']],
+      hint:'Numbers: the order responses are tried. Click to open; double-click a topic or quest to draw it.',
+      onClick:n=>{ if(n.info) this.E.openRecord('INFO', n.info, null); else if(n.flag) this.flags(n.flag); },
+      onDbl:n=>{ if(n.topic) this.show('graph', n.topic); else if(n.quest) this.show('graph', n.quest); }});
+  },
+  /** The tree WgGraph draws for a topic's responses (`editDialogueFlow`'s). */
+  graphTree(topic, rows){
+    const nested=new Set(), kids=new Map();
+    for(const r of rows) for(const c of r.choices||[]){ const ans=rows.filter(x=>x!==r && x.gate===c.n); kids.set(r.id+':'+c.n, ans); ans.forEach(a=>nested.add(a.id)); }
+    const words=segs=>(segs||[]).map(x=>x.t).join('');
+    const ord=i=>String(i+1);
+    const resp=(r, i, depth, label)=>{
+      const kidsOf=[];
+      if(depth<6) for(const c of r.choices||[]){
+        const ans=kids.get(r.id+':'+c.n)||[];
+        kidsOf.push({id:r.id+':c'+c.n, kind:'choice', edge:'choice '+c.n, badge:'Choice '+c.n, title:c.label, sub:ans.length? ans.length+' answer'+(ans.length===1? '' : 's') : 'nothing answers it',
+          children:ans.map((a, j)=>resp(a, j, depth+1))});
+      }
+      for(const t of r.addtopics||[]) kidsOf.push({id:r.id+':t:'+t, kind:'addtopic', edge:'adds', badge:'AddTopic', title:t, topic:t});
+      for(const j of r.journal||[]) kidsOf.push({id:r.id+':q:'+j.quest+':'+j.index, kind:'quest', edge:'journal', badge:'Journal', title:j.quest+' '+j.index, quest:j.quest});
+      for(const v of r.sets||[]) kidsOf.push({id:r.id+':v:'+v.name, kind:'var', edge:'sets', badge:'Variable', title:(v.target? v.target+'->' : '')+v.name, flag:v.name});
+      for(const it of r.items||[]) kidsOf.push({id:r.id+':i:'+it.item+':'+it.verb, kind:'item', edge:it.verb==='add'? 'gives' : 'takes', badge:'Item', title:it.item});
+      const conds=(r.conditions||[]).length? 'if '+r.conditions.join(' & ') : 'always';
+      return {id:r.id, kind:r.orphan? 'orphan' : 'response', info:r.id, edge:label!=null? label : ord(i),
+        badge:'#'+r.n+' '+(r.speaker||'')+(r.goodbye? ' · Goodbye' : '')+(r.orphan? ' · read last' : ''),
+        title:words(r.segments)||'(no text)', sub:conds, tip:words(r.segments)+'\n'+conds, children:kidsOf};
+    };
+    const top=rows.filter(r=>!nested.has(r.id));
+    return {id:'topic:'+topic, kind:'topic', badge:'Topic', title:topic, sub:rows.length+' response'+(rows.length===1? '' : 's'), children:top.map((r, i)=>resp(r, i, 0))};
   },
 
   /* ---- flow ------------------------------------------------------------------------------ */
