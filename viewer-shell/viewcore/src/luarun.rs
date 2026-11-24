@@ -1608,6 +1608,9 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
 "#;
         let run = |small: &str| {
             let mut r = runner();
+            // The Lua matcher on every pattern is slow in a debug build on a slow runner (GitHub's
+            // took over the half second a call gets): this test is about answers, not time.
+            r.call("__wg_set_limits", "10,262144").unwrap();
             r.call("__wg_set_pattern_small", small).unwrap();
             let mut esc = String::from("\"");
             crate::json::escape_into(script, &mut esc);
