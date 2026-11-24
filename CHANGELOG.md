@@ -312,6 +312,14 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **HTN AI: Wander and the other AI steps work in the Preview's run on FluadHTN**
+  (`82_wg_htn.js`; Static 2026-11-24: `actor.lua:33: attempt to index field 'AI' (a nil value)`).
+  The exported mod's actions are OpenMW's AI packages (`I.AI`), which OpenMW's built-in scripts
+  provide; the Preview runs those only when they are turned on, and they were off. "Run on
+  FluadHTN" turns them on for the run (and says so in its log), and the exported Lua checks for
+  `I.AI` and, where it is missing, prints one line saying why rather than failing each tick (in
+  the game it is always there). Run on FluadHTN's Nexus OpenMW build: without the built-ins the
+  greeting runs and the one line is printed; with them, Wander starts OpenMW's Wander package.
 - **Docs brought up to date**: the README (the Tools table's Lua mods, Lua settings and HTN AI;
   the Journal's and the Dialogue window's graphs; occlusion culling; the actors; the Report's
   performance part; how `boot.js` finds the engine), QUICKSTART's tools, PREFLIGHT's page checks

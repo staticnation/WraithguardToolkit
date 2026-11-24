@@ -423,12 +423,17 @@ const WgHtn={
       'local anim = require("openmw.animation")',
       '',
       'local G = {}',
+      /* OpenMW's AI interface comes from its built-in scripts (Static 2026-11-24: "attempt to
+         index field 'AI' (a nil value)" in the Preview, where they were off). In the game it is
+         always there; where it is not, one clear line says so instead of an error each tick. */
+      'local warnedAI = false',
+      'local function AI() if I.AI then return I.AI end if not warnedAI then warnedAI = true print("[wg_htn] OpenMW\'s AI interface (I.AI) is missing: OpenMW\'s built-in scripts are not running") end return nil end',
       'function G.player(a) return nearby.players[1] end',
       'function G.playerDist(a) local p = nearby.players[1] if not p then return math.huge end return (self.position - p.position):length() end',
       'function G.distTo(a, x, y, z) return (self.position - util.vector3(x, y, z)):length() end',
       'function G.objDist(a, o) if not o or not o:isValid() then return math.huge end return (self.position - o.position):length() end',
       'function G.health(a) local h = types.Actor.stats.dynamic.health(self) if h.base <= 0 then return 100 end return h.current / h.base * 100 end',
-      'function G.inCombat(a) local p = I.AI.getActivePackage() return p ~= nil and p.type == "Combat" end',
+      'function G.inCombat(a) local ai = AI() if not ai then return false end local p = ai.getActivePackage() return p ~= nil and p.type == "Combat" end',
       'function G.hour() return (core.getGameTime() / 3600) % 24 end',
       'function G.count(a, id) return types.Actor.inventory(self):countOf(id) end',
       'function G.now(a) return core.getSimulationTime() end',
@@ -441,12 +446,12 @@ const WgHtn={
       '  end',
       '  return best',
       'end',
-      'function G.wander(a, d) I.AI.startPackage({ type = "Wander", distance = d }) end',
-      'function G.travel(a, x, y, z) I.AI.startPackage({ type = "Travel", destPosition = util.vector3(x, y, z) }) end',
-      'function G.travelTo(a, o) I.AI.startPackage({ type = "Travel", destPosition = o.position }) end',
-      'function G.follow(a) local p = nearby.players[1] if p then I.AI.startPackage({ type = "Follow", target = p }) end end',
-      'function G.fight(a) local p = nearby.players[1] if p then I.AI.startPackage({ type = "Combat", target = p }) end end',
-      'function G.clear(a) I.AI.removePackages() end',
+      'function G.wander(a, d) local ai = AI() if ai then ai.startPackage({ type = "Wander", distance = d }) end end',
+      'function G.travel(a, x, y, z) local ai = AI() if ai then ai.startPackage({ type = "Travel", destPosition = util.vector3(x, y, z) }) end end',
+      'function G.travelTo(a, o) local ai = AI() if ai then ai.startPackage({ type = "Travel", destPosition = o.position }) end end',
+      'function G.follow(a) local p, ai = nearby.players[1], AI() if p and ai then ai.startPackage({ type = "Follow", target = p }) end end',
+      'function G.fight(a) local p, ai = nearby.players[1], AI() if p and ai then ai.startPackage({ type = "Combat", target = p }) end end',
+      'function G.clear(a) local ai = AI() if ai then ai.removePackages() end end',
       'function G.say(a, text) local p = nearby.players[1] if p then p:sendEvent('+this.lstr('WgHtnSay_'+d.modId)+', { text = text }) end end',
       'function G.anim(a, group) I.AnimationController.playBlendedAnimation(group, { priority = anim.PRIORITY.Scripted }) end',
       'local function pct(s) if s.base <= 0 then return 100 end return s.current / s.base * 100 end',
@@ -460,7 +465,7 @@ const WgHtn={
       '  local p = nearby.players[1] if not p then return end',
       '  local away = self.position - p.position',
       '  if away:length() < 1 then away = util.vector3(1, 0, 0) end',
-      '  I.AI.startPackage({ type = "Travel", destPosition = p.position + away:normalize() * (d + 200) })',
+      '  local ai = AI() if ai then ai.startPackage({ type = "Travel", destPosition = p.position + away:normalize() * (d + 200) }) end',
       'end',
       '-- Use as the game\'s Use does (OpenMW\'s own UseItem handler, a global script).',
       'function G.use(a, id) local o = types.Actor.inventory(self):find(id) if o then core.sendGlobalEvent("UseItem", { object = o, actor = self }) end end',
@@ -839,6 +844,14 @@ const WgHtn={
     this.run={mode:'fluad', key, t, A, doc:d, ws:d.state.map(v=>+v.init||0), plan:[], curName:'', log:[], clock:0, status:'', _drawAt:0};
     this.say('Running "'+d.name+'" on FluadHTN, on '+a.id);
     if(tableExt) this.say('Rubic0n\'s table functions are supplied by the Preview: OpenMW itself needs Rubic0n installed to run this');
+    /* Its actions are OpenMW's AI packages (`I.AI`, from OpenMW's built-in scripts): those are
+       turned on for the run when they are off (Static 2026-11-24: "attempt to index field 'AI'
+       (a nil value)"), and stay on - Scripts › Which scripts run turns them off again. */
+    if(WgLua.isOff && WgLua.isOff('@builtins')){
+      WgLua.on.add(WgLua.key('@builtins'));
+      try{ localStorage.setItem('wgLuaOn', JSON.stringify([...WgLua.on])); }catch(_){ }
+      this.say('Turned on OpenMW\'s built-in scripts: the behaviour\'s actions are their AI packages (I.AI)');
+    }
     WgLua.extra={files, scripts:[[dir+'actor.lua', ['NPC', 'CREATURE']], [dir+'player.lua', ['PLAYER']]], tableExt,
                  fluadDir:this.deps.omw_chosen||null};   // FluadHTN from a chosen folder that is not a data folder
     await WgLua.start();
