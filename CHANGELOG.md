@@ -324,6 +324,14 @@
   MWSE's `equip`); an object near, magicka or fatigue below, the player's health below, the
   player carries, a quest's stage. Each for both engines and Wraithguard's planner, run on
   FluadHTN's OpenMW build without an error.
+- **HTN AI: editor polish**: undo and redo (the last 100 changes; Ctrl+Z, Ctrl+Y); rows dragged
+  to move them (onto a Select or Sequence's right half to go in, else above or below; never into
+  themselves, a Pause only into a Sequence); templates for New (guard, merchant, wildlife,
+  companion, empty); and reusable parts: a Select built once and used where a "Use part" step
+  names it, exported as its own domain spliced in (FluadHTN's `Splice`), built before the parts
+  that use it, parts that use each other in a circle refused. A message or an item use that
+  changes nothing is warned of (it repeats every tick it can be planned). The guard example now
+  yields once. Checked: a part spliced in on FluadHTN's Nexus OpenMW build.
 - **The Preview's MWSE mods find libraries in `MWSE/lib`** (`luarun.rs`, `luarun.lua`): `require`
   looks there after `MWSE/mods` and `MWSE/lua`, as MWSE does, and the folder's files are read as
   sources, never started on their own. FluadHTN's MWSE build lives there. Test:

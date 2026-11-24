@@ -75,7 +75,7 @@ const WgHtn={
   },
   OPS:['==', '~=', '<', '<=', '>', '>='],
   EFFECT_KINDS:[['run', 'Plan and run', 'Counted while planning, and set when the step succeeds'], ['plan', 'Plan only', 'Counted while planning; never set'], ['permanent', 'Permanent', 'Set as soon as the plan is made']],
-  NODE_TYPES:{select:'Select', sequence:'Sequence', action:'Action', pause:'Pause plan'},
+  NODE_TYPES:{select:'Select', sequence:'Sequence', action:'Action', pause:'Pause plan', splice:'Use part'},
 
   /* ---- the domain ------------------------------------------------------------------------ */
   id(){ return 'n'+(++this._n).toString(36)+Date.now().toString(36).slice(-3); },
@@ -96,10 +96,11 @@ const WgHtn={
       state:[
         {name:'PlayerNear', kind:'bool', init:0, sensor:this.check('player_within', {distance:600})},
         {name:'Hurt', kind:'bool', init:0, sensor:this.check('health_below', {percent:30})},
-        {name:'Greeted', kind:'bool', init:0, sensor:null}],
+        {name:'Greeted', kind:'bool', init:0, sensor:null},
+        {name:'Yielded', kind:'bool', init:0, sensor:null}],
       root:N('select', 'Guard', {children:[
-        N('sequence', 'Back off when hurt', {conds:[this.check('state', {var:'Hurt', op:'==', value:1})], children:[
-          N('action', 'Yield', {do:this.act('say', {text:'Enough! I yield.'})}),
+        N('select', 'Back off when hurt', {conds:[this.check('state', {var:'Hurt', op:'==', value:1})], children:[
+          N('action', 'Yield', {conds:[this.check('state', {var:'Yielded', op:'==', value:0})], do:this.act('say', {text:'Enough! I yield.'}), effects:[{var:'Yielded', op:'set', value:1, kind:'run'}]}),
           N('action', 'Step back', {do:this.act('wander', {distance:300, seconds:10})})]}),
         N('action', 'Greet the player', {conds:[this.check('state', {var:'PlayerNear', op:'==', value:1}), this.check('state', {var:'Greeted', op:'==', value:0})],
           do:this.act('say', {text:'Halt! Keep the peace.'}), effects:[{var:'Greeted', op:'set', value:1, kind:'run'}]}),
@@ -107,15 +108,66 @@ const WgHtn={
           N('action', 'Wander', {do:this.act('wander', {distance:400, seconds:20})}),
           N('action', 'Rest', {do:this.act('play_anim', {group:'Idle2', seconds:4})})]})]})};
   },
+  /** The templates New offers: [key, label, make]. */
+  TEMPLATES:[['guard', 'Guard: greets once, backs off when hurt, patrols'], ['merchant', 'Merchant: greets customers, tidies, closes at night'],
+    ['wildlife', 'Wildlife: grazes, runs from the player, fights when cornered'], ['companion', 'Companion: follows the player, warns when they are hurt'],
+    ['empty', 'Empty']],
+  template(k){
+    const N=(t, name, more)=>this.node(t, name, more), C=(b, a, not)=>this.check(b, a, not), S=(v, x)=>this.check('state', {var:v, op:'==', value:x});
+    const base=(name, modId, ids)=>({format:this.FORMAT, version:this.VERSION, name, modId, engines:{omw:true, mwse:true}, attach:{ids, all:false}, tick:0.25, subs:[]});
+    if(k==='guard') return Object.assign(this.example(), {subs:[]});
+    if(k==='merchant') return Object.assign(base('Merchant', 'wg_htn_merchant', []), {
+      state:[{name:'PlayerNear', kind:'bool', init:0, sensor:C('player_within', {distance:400})}, {name:'Night', kind:'bool', init:0, sensor:C('hour_between', {from:20, to:6})}, {name:'Greeted', kind:'bool', init:0, sensor:null}],
+      root:N('select', 'Merchant', {children:[
+        N('sequence', 'Close at night', {conds:[S('Night', 1)], children:[N('action', 'Go home', {do:this.act('walk_to')}), N('action', 'Rest', {do:this.act('wait', {seconds:30})})]}),
+        N('action', 'Greet a customer', {conds:[S('PlayerNear', 1), S('Greeted', 0)], do:this.act('say', {text:'Welcome! Have a look around.'}), effects:[{var:'Greeted', op:'set', value:1, kind:'run'}]}),
+        N('action', 'Forget the customer', {conds:[S('PlayerNear', 0), S('Greeted', 1)], do:this.act('set_state', {var:'Greeted', value:0})}),
+        N('action', 'Wait on the customer', {conds:[S('PlayerNear', 1)], do:this.act('play_anim', {group:'Idle3', seconds:6})}),
+        N('action', 'Tidy the shop', {do:this.act('wander', {distance:150, seconds:30})})]})});
+    if(k==='wildlife') return Object.assign(base('Wildlife', 'wg_htn_wildlife', ['rat']), {
+      state:[{name:'PlayerNear', kind:'bool', init:0, sensor:C('player_within', {distance:700})}, {name:'Hurt', kind:'bool', init:0, sensor:C('health_below', {percent:50})},
+        {name:'Fighting', kind:'bool', init:0, sensor:C('in_combat')}],
+      root:N('select', 'Wildlife', {children:[
+        N('action', 'Keep fighting', {conds:[S('Fighting', 1)], do:this.act('wait', {seconds:2})}),
+        N('action', 'Fight when cornered', {conds:[S('Hurt', 1), S('PlayerNear', 1)], do:this.act('attack_player')}),
+        N('action', 'Run from the player', {conds:[S('PlayerNear', 1)], do:this.act('flee_player', {distance:1500})}),
+        N('sequence', 'Graze', {children:[N('action', 'Roam', {do:this.act('wander', {distance:600, seconds:25})}), N('action', 'Sniff about', {do:this.act('play_anim', {group:'Idle2', seconds:4})})]})]})});
+    if(k==='companion') return Object.assign(base('Companion', 'wg_htn_companion', []), {
+      state:[{name:'PlayerHurt', kind:'bool', init:0, sensor:C('player_health_below', {percent:40})}, {name:'Warned', kind:'bool', init:0, sensor:null}],
+      root:N('select', 'Companion', {children:[
+        N('action', 'Warn the player', {conds:[S('PlayerHurt', 1), S('Warned', 0)], do:this.act('say', {text:'You\'re hurt! Fall back, I\'ll cover you.'}), effects:[{var:'Warned', op:'set', value:1, kind:'run'}]}),
+        N('action', 'Forget the warning', {conds:[S('PlayerHurt', 0), S('Warned', 1)], do:this.act('set_state', {var:'Warned', value:0})}),
+        N('action', 'Stay close', {do:this.act('follow_player', {seconds:20})})]})});
+    return this.empty();
+  },
   empty(){
     return {format:this.FORMAT, version:this.VERSION, name:'New behaviour', modId:'wg_htn_new', engines:{omw:true, mwse:true},
-      attach:{ids:[], all:false}, tick:0.25, state:[], root:this.node('select', 'New behaviour')};
+      attach:{ids:[], all:false}, tick:0.25, state:[], root:this.node('select', 'New behaviour'), subs:[]};
   },
-  /** Every node, depth first, with its parent and depth. */
+  /** Every node, depth first, with its parent and depth: from `n`, or (none given) the
+   *  domain's root and then each reusable part's. */
   walk(fn, n, parent, depth){
-    n=n||this.doc.root; depth=depth|0;
+    if(!n){ this.walk(fn, this.doc.root, null, 0); for(const sp of this.doc.subs||[]) this.walk(fn, sp, null, 0); return; }
+    depth=depth|0;
     fn(n, parent||null, depth);
     for(const c of n.children||[]) this.walk(fn, c, n, depth+1);
+  },
+  /** A reusable part by id. */
+  sub(id){ return (this.doc.subs||[]).find(x=>x.id===id) || null; },
+  /** The reusable parts in the order they must be built: a part after the parts it uses. Null
+   *  when parts use each other round in a circle. */
+  subOrder(d){
+    d=d||this.doc;
+    const subs=d.subs||[], by=new Map(subs.map(x=>[x.id, x])), out=[], state=new Map();
+    const uses=r=>{ const u=[]; const go=n=>{ if(n.type==='splice' && by.has(n.sub)) u.push(n.sub); (n.children||[]).forEach(go); }; go(r); return u; };
+    const visit=id=>{
+      const st=state.get(id); if(st===2) return true; if(st===1) return false;
+      state.set(id, 1);
+      for(const u of uses(by.get(id))) if(!visit(u)) return false;
+      state.set(id, 2); out.push(by.get(id)); return true;
+    };
+    for(const x of subs) if(!visit(x.id)) return null;
+    return out;
   },
   find(id){ let hit=null, up=null; this.walk((n, p)=>{ if(n.id===id){ hit=n; up=p; } }); return hit? {n:hit, parent:up} : null; },
   /** A loaded domain made whole: ids where missing, fields a newer page added. */
@@ -127,6 +179,8 @@ const WgHtn={
     const fix=n=>{ n.id=n.id||this.id(); n.conds=n.conds||[]; if(n.type==='action'){ n.effects=n.effects||[]; n.exec=n.exec||[]; n.do=n.do||this.act('wait'); } (n.children||[]).forEach(fix); };
     if(!d.root || d.root.type!=='select') throw new Error('the domain has no root Select');
     fix(d.root);
+    d.subs=Array.isArray(d.subs)? d.subs.filter(x=>x && x.type==='select') : [];
+    d.subs.forEach(fix);
     return d;
   },
 
@@ -135,6 +189,10 @@ const WgHtn={
    *  export; warnings are said. */
   validate(d){
     d=d||this.doc;
+    const keep=this.doc; this.doc=d;
+    try{ return this.validateDoc(d); } finally{ this.doc=keep; }
+  },
+  validateDoc(d){
     const out=[], err=(at, text)=>out.push({level:'error', at, text}), warn=(at, text)=>out.push({level:'warn', at, text});
     if(!/^[a-z][a-z0-9_]{0,39}$/.test(d.modId||'')) err('', 'The mod id must be 1-40 lower-case letters, digits and _ , starting with a letter (it names the mod\'s folders).');
     if(!d.engines.omw && !d.engines.mwse) err('', 'Choose at least one engine to export for.');
@@ -151,9 +209,13 @@ const WgHtn={
     if(!(+d.tick>=0.05 && +d.tick<=5)) err('', 'Plan every 0.05 to 5 seconds.');
     const root=d.root;
     if(!root.children.length) err(root.id, 'The domain is empty: add an Action, a Select or a Sequence.');
+    const subIds=new Set((d.subs||[]).map(x=>x.id));
+    for(const x of d.subs||[]) if(!x.children.length) err(x.id, 'The part "'+(x.name||'')+'" is empty.');
+    if((d.subs||[]).length && !this.subOrder(d)) err('', 'Reusable parts use each other in a circle: one of them must stop using the other.');
     this.walk((n, parent)=>{
       const where=n.name||this.NODE_TYPES[n.type];
-      if((n.type==='select' || n.type==='sequence') && n!==root && !n.children.length) err(n.id, where+': a '+this.NODE_TYPES[n.type]+' with nothing in it can never be done.');
+      if(n.type==='splice' && !subIds.has(n.sub)) err(n.id, where+': choose which reusable part it uses.');
+      if((n.type==='select' || n.type==='sequence') && n!==root && parent && !n.children.length) err(n.id, where+': a '+this.NODE_TYPES[n.type]+' with nothing in it can never be done.');
       if(n.type==='pause' && (!parent || parent.type!=='sequence')) err(n.id, 'A Pause plan only works inside a Sequence.');
       if(n.type==='pause' && parent && parent.children[0]===n) warn(n.id, 'A Pause plan first in its Sequence plans nothing before it.');
       for(const c of n.conds||[]) this.checkArgs(c, this.CHECKS, err, n.id, where, names);
@@ -161,6 +223,10 @@ const WgHtn={
         if(!n.do || !this.ACTIONS[n.do.block]) err(n.id, where+': choose what it does.');
         else this.checkArgs(n.do, this.ACTIONS, err, n.id, where, names);
         for(const c of n.exec||[]) this.checkArgs(c, this.CHECKS, err, n.id, where+' (while running)', names);
+        // Done at once and changing nothing: planned again every tick it can be (FluadHTN plans
+        // again as soon as a plan ends), so a message shows twice a tick.
+        if(['say', 'use_item'].includes(n.do && n.do.block) && !(n.effects||[]).length)
+          warn(n.id, where+': it is done at once and changes nothing, so it repeats every tick it can be planned. Give it an effect (set a value) and a condition on that value, so it is done once.');
         for(const e of n.effects||[]){
           const v=names.get(e.var);
           if(!v) err(n.id, where+': an effect sets a value that is not there ('+(e.var||'none chosen')+').');
@@ -174,11 +240,13 @@ const WgHtn={
         const i=n.children.findIndex(c=>this.always(c));
         if(i>=0 && i<n.children.length-1) warn(n.id, where+': "'+(n.children[i].name||'')+'" can always be done, so the '+(n.children.length-1-i)+' after it never are.');
       }
-    }, root);
+    });
     return out;
   },
   /** Whether a node can always be done: no conditions anywhere that it needs. */
-  always(n){
+  always(n, depth){
+    if((depth|0)>20) return false;
+    if(n.type==='splice'){ const x=this.sub(n.sub); return !!x && this.always(x, (depth|0)+1); }
     if((n.conds||[]).length) return false;
     if(n.type==='action') return true;
     if(n.type==='pause') return true;
@@ -259,11 +327,13 @@ const WgHtn={
   },
   ind(s, k){ const p=' '.repeat(k); return String(s).split('\n').map(l=>l? p+l : l).join('\n'); },
   /** The domain's builder chain and what it needs, for `eng`: the body of `build(htn)`. */
-  luaDomain(d, eng){
+  luaDomain(d, eng, root){
+    root=root||d.root;
     const L=[], E={run:'E.PlanAndExecute', plan:'E.PlanOnly', permanent:'E.Permanent'};
     const conds=(cs, how)=>{ for(const c of cs||[]) L.push('  :'+how+'('+this.lstr(this.checkText(c))+', function(ctx) local a = ctx.actor return '+this.luaCheck(c, eng)+' end)'); };
     const emit=n=>{
       if(n.type==='pause'){ L.push('  :PausePlan()'); return; }
+      if(n.type==='splice'){ L.push('  :Splice(PART['+this.lstr(n.sub)+'])'); return; }
       if(n.type==='select' || n.type==='sequence'){
         L.push('  :'+(n.type==='select'? 'Select' : 'Sequence')+'('+this.lstr(n.name||this.NODE_TYPES[n.type])+')');
         conds(n.conds, 'Condition');
@@ -285,8 +355,8 @@ const WgHtn={
       }
       L.push('  :End()');
     };
-    for(const c of d.root.children) emit(c);
-    return 'htn.DomainBuilder:new(Ctx, '+this.lstr(d.name||'Domain')+')\n'+L.join('\n')+'\n  :Build()';
+    for(const c of root.children) emit(c);
+    return 'htn.DomainBuilder:new(Ctx, '+this.lstr(root===d.root? (d.name||'Domain') : (root.name||'Part'))+')\n'+L.join('\n')+'\n  :Build()';
   },
   /** What both engines' scripts share: the values, the context, the watched values, the
    *  domain. Expects `htn` and `G` to be there. */
@@ -325,6 +395,9 @@ const WgHtn={
       '    self.PlannerState = htn.Planners.DefaultPlannerState:new()',
       '    self.run = {}',
       '  end',
+      '  -- The reusable parts, each its own domain, spliced in where they are used.',
+      '  local PART = {}',
+      ...(this.subOrder(d)||[]).map(x=>'  PART['+this.lstr(x.id)+'] = '+this.ind(this.luaDomain(d, eng, x), 2).trimStart()),
       '  local domain = '+this.ind(this.luaDomain(d, eng), 2).trimStart(),
       '  return domain, htn.Planners.Planner:new(Ctx)',
       'end',
@@ -634,12 +707,30 @@ const WgHtn={
     try{ const s=JSON.parse(localStorage.getItem(this.KEY)||'null'); if(s && s.doc){ this.doc=this.normalize(s.doc); this.path=s.path||''; return true; } }catch(_){ }
     return false;
   },
-  changed(){ this.keep(); this.draw(); },
+  changed(){ this.record(); this.keep(); this.draw(); },
+  /* Undo and redo (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z, and the buttons): the domain as it was
+     after each change, the last 100. */
+  hist:[], fut:[], _snap:null,
+  record(){
+    const now=JSON.stringify(this.doc);
+    if(this._snap!=null && now!==this._snap){ this.hist.push(this._snap); if(this.hist.length>100) this.hist.shift(); this.fut=[]; }
+    this._snap=now;
+  },
+  fresh(){ this.hist=[]; this.fut=[]; this._snap=JSON.stringify(this.doc); },
+  undo(){ this.step(this.hist, this.fut); },
+  redo(){ this.step(this.fut, this.hist); },
+  step(from, to){
+    if(!from.length) return;
+    to.push(this._snap); this._snap=from.pop();
+    this.doc=this.normalize(JSON.parse(this._snap));
+    if(this.sel && !this.find(this.sel)) this.sel='';
+    this.keep(); this.draw();
+  },
   async open(){
     let p;
     try{ p=await Engine.pick('open', {filters:[{name:'HTN domain', extensions:['json']}]}); }catch(e){ toast(String(e && e.message || e), 'err', 4000); return; }
     if(!p) return;
-    try{ const d=await Engine.call('htn_read', {path:String(p)}); this.doc=this.normalize(typeof d==='string'? JSON.parse(d) : d); this.path=String(p); this.sel=''; this.stopRun(); this.changed(); toast('Opened '+this.doc.name, 'ok', 2500); }
+    try{ const d=await Engine.call('htn_read', {path:String(p)}); this.doc=this.normalize(typeof d==='string'? JSON.parse(d) : d); this.path=String(p); this.sel=''; this.stopRun(); this.fresh(); this.changed(); toast('Opened '+this.doc.name, 'ok', 2500); }
     catch(e){ toast(String(e && e.message || e), 'err', 5000); }
   },
   async save(as){
@@ -828,6 +919,12 @@ const WgHtn={
       return null;
     }
     if(n.type==='sequence') return this.decomposeSeq(R, n, 0, ws, mtr);
+    if(n.type==='splice'){
+      const x=(R.doc.subs||[]).find(y=>y.id===n.sub);
+      if(!x || (R._depth|0)>40) return null;
+      R._depth=(R._depth|0)+1;
+      try{ return this.decompose(R, Object.assign({}, x, {conds:[]}), ws, mtr); } finally{ R._depth--; }
+    }
     return null;
   },
   decomposeSeq(R, n, from, ws, mtr){
@@ -972,8 +1069,12 @@ const WgHtn={
     const h=this.el('h3'); h.append('HTN AI ');
     h.append(this.el('span', 'sp'));
     const name=this.el('span', 'kind'); name.id='tlHtnName'; name.style.display='inline';
+    const tpl=this.el('select'); tpl.id='tlHtnTpl'; tpl.title='The template New starts from';
+    for(const [k, t] of this.TEMPLATES){ const o=this.el('option', '', t); o.value=k; tpl.append(o); }
     h.append(name, ' ',
-      this.btn('New', ()=>this.newDoc(), 'Start a new behaviour (the example guard, or an empty one)'),
+      tpl,
+      this.btn('New', ()=>this.newDoc(tpl.value), 'Start a new behaviour from the template chosen (Undo has the one open now back)'),
+      this.btn('↶', ()=>this.undo(), 'Undo (Ctrl+Z)'), this.btn('↷', ()=>this.redo(), 'Redo (Ctrl+Y)'),
       this.btn('Open…', ()=>this.open(), 'Open a saved domain (*.wghtn.json)'),
       this.btn('Save', ()=>this.save(false), 'Save the domain'),
       this.btn('Save as…', ()=>this.save(true)),
@@ -991,18 +1092,29 @@ const WgHtn={
     return col;
   },
   wire(){
+    if(!this._keys){
+      this._keys=true;
+      document.addEventListener('keydown', e=>{
+        const pane=$('#tlHtn'); if(!pane || pane.hidden || !(e.ctrlKey || e.metaKey)) return;
+        const t=e.target && e.target.tagName; if(t==='INPUT' || t==='TEXTAREA' || t==='SELECT') return;
+        const k=String(e.key).toLowerCase();
+        if(k==='z' && !e.shiftKey){ e.preventDefault(); this.undo(); }
+        else if(k==='y' || (k==='z' && e.shiftKey)){ e.preventDefault(); this.redo(); }
+      });
+    }
     const ac=$('#tlHtnAdv');
     if(ac){ try{ this.adv=localStorage.getItem('wgHtnAdv')==='1'; }catch(_){ } ac.checked=this.adv; ac.onchange=()=>{ this.adv=ac.checked; try{ localStorage.setItem('wgHtnAdv', this.adv? '1' : '0'); }catch(_){ } this.draw(); }; }
   },
   show(){
     if(!this.doc && !this.restore()) this.doc=this.example();
+    if(this._snap==null) this.fresh();
     if(!this.deps) this.loadDeps();
     this.draw();
   },
-  async newDoc(){
-    const ex=typeof wgConfirm==='function'? await wgConfirm('Start from the example guard? (Cancel starts an empty behaviour.) The behaviour open now is replaced; save it first if you want to keep it.', 'New behaviour') : true;
+  /** A new behaviour from a template (`k`); the one open now can be had back with Undo. */
+  newDoc(k){
     this.stopRun();
-    this.doc=ex? this.example() : this.empty(); this.path=''; this.sel='';
+    this.doc=this.template(k||'empty'); this.path=''; this.sel='';
     this.changed();
   },
   draw(){
@@ -1025,8 +1137,11 @@ const WgHtn={
     box.append(this.btn('Check again', ()=>this.loadDeps()));
   },
 
-  /* The tree: each node a row - what it is, its name, its conditions in short - with buttons
-     to add, move and remove. The running step is marked during a Preview run. */
+  /* The tree: each node a row - what it is, its name, its conditions in short - the domain
+     first, then each reusable part. A row is dragged to move it (pointer events: the shell's
+     webview hands HTML drag-and-drop to the window as file drops): onto a Select or Sequence's
+     right half it goes in, else above or below the row. The running step is marked during a
+     Preview run. */
   drawTree(){
     const box=$('#tlHtnTree'); if(!box || !this.doc) return;
     box.textContent='';
@@ -1035,30 +1150,88 @@ const WgHtn={
     const R=this.run, fl=R && R.mode==='fluad';
     const byName=nm=>{ let id=''; if(nm) this.walk(n=>{ if(!id && n.type==='action' && n.name===nm) id=n.id; }); return id; };
     const cur=R && (fl? byName(R.curName) : R.cur && R.cur.id), planned=new Set(R? (fl? R.plan.map(byName) : R.plan.map(n=>n.id)) : []);
-    this.walk((n, parent, depth)=>{
-      const row=this.el('div', 'wgHtnRow');
-      row.dataset.id=n.id;
-      row.style.cssText='display:flex;gap:6px;align-items:center;padding:2px 4px;cursor:pointer;border-radius:4px;margin-left:'+(depth*16)+'px';
-      if(n.id===this.sel) row.style.background='var(--sel, rgba(120,160,255,.18))';
-      if(n.id===cur) row.style.outline='2px solid var(--ac)';
-      else if(planned.has(n.id)) row.style.outline='1px dashed var(--ac)';
-      const tag=this.el('span', 'kind', this.NODE_TYPES[n.type]); tag.style.cssText='display:inline;min-width:64px;opacity:.75';
+    const row=(n, parent, depth, isPart)=>{
+      const r=this.el('div', 'wgHtnRow');
+      r.dataset.id=n.id;
+      r.style.cssText='display:flex;gap:6px;align-items:center;padding:2px 4px;cursor:pointer;border-radius:4px;user-select:none;margin-left:'+(depth*16)+'px';
+      if(n.id===this.sel) r.style.background='var(--sel, rgba(120,160,255,.18))';
+      if(n.id===cur) r.style.outline='2px solid var(--ac)';
+      else if(planned.has(n.id)) r.style.outline='1px dashed var(--ac)';
+      const tag=this.el('span', 'kind', isPart? 'Part' : this.NODE_TYPES[n.type]); tag.style.cssText='display:inline;min-width:64px;opacity:.75';
       const nm=this.el('b', '', n.type==='pause'? '⏸' : (n.name||''));
-      row.append(tag, nm);
-      if(n.type==='action') row.append(this.el('span', 'hint', this.actText(n.do)));
-      if(n.conds.length) row.append(this.el('span', 'hint', 'if '+n.conds.map(c=>this.checkText(c)).join(' and ')));
-      if(bad.has(n.id)){ const m=this.el('span', '', bad.get(n.id)==='error'? '⛔' : '⚠'); m.title=probs.filter(p=>p.at===n.id).map(p=>p.text).join('\n'); row.append(m); }
-      row.onclick=()=>{ this.sel=n.id; this.drawTree(); this.drawSide(); };
-      box.append(row);
-    });
+      r.append(tag, nm);
+      if(n.type==='action') r.append(this.el('span', 'hint', this.actText(n.do)));
+      if(n.type==='splice'){ const x=this.sub(n.sub); r.append(this.el('span', 'hint', x? 'uses "'+x.name+'"' : 'uses nothing yet')); }
+      if((n.conds||[]).length) r.append(this.el('span', 'hint', 'if '+n.conds.map(c=>this.checkText(c)).join(' and ')));
+      if(bad.has(n.id)){ const m=this.el('span', '', bad.get(n.id)==='error'? '⛔' : '⚠'); m.title=probs.filter(p=>p.at===n.id).map(p=>p.text).join('\n'); r.append(m); }
+      r.onclick=()=>{ if(this._dragged) return; this.sel=n.id; this.drawTree(); this.drawSide(); };
+      if(parent) r.onpointerdown=e=>this.dragStart(e, n.id);
+      box.append(r);
+    };
+    this.walk((n, parent, depth)=>row(n, parent, depth, false), this.doc.root);
+    const partsHead=this.el('div', 'hint', 'Reusable parts: a Select you build once and use in several places ("Use part").');
+    partsHead.style.margin='10px 0 2px';
+    box.append(partsHead);
+    for(const x of this.doc.subs||[]) this.walk((n, parent, depth)=>row(n, parent, depth, !parent), x);
+    box.append(this.btn('+ Reusable part', ()=>{ const x=this.node('select', 'Part '+((this.doc.subs||[]).length+1)); (this.doc.subs=this.doc.subs||[]).push(x); this.sel=x.id; this.changed(); }));
     const add=this.el('div'); add.style.marginTop='8px';
     const into=this.find(this.sel), target=into && (into.n.children? into.n : into.parent) || this.doc.root;
     add.append(this.el('span', 'hint', 'Add to "'+(target.name||this.NODE_TYPES[target.type])+'": '));
-    for(const t of ['action', 'select', 'sequence', 'pause']){
+    for(const t of ['action', 'select', 'sequence', 'pause', 'splice']){
       if(t==='pause' && target.type!=='sequence') continue;
-      add.append(this.btn('+ '+this.NODE_TYPES[t], ()=>{ const n=this.node(t); target.children.push(n); this.sel=n.id; this.changed(); }));
+      if(t==='splice' && !(this.doc.subs||[]).length) continue;
+      add.append(this.btn('+ '+this.NODE_TYPES[t], ()=>{ const n=this.node(t); if(t==='splice'){ const x=this.doc.subs.find(y=>y!==this.partOf(target.id)); n.sub=x? x.id : ''; n.name=x? x.name : 'Use part'; } target.children.push(n); this.sel=n.id; this.changed(); }));
     }
     box.append(add);
+  },
+  /** The reusable part a node is in (null: the domain itself). */
+  partOf(id){ for(const x of this.doc.subs||[]){ let hit=false; this.walk(n=>{ if(n.id===id) hit=true; }, x); if(hit) return x; } return null; },
+  /** Whether `id` is `anc` or below it. */
+  under(id, anc){ let hit=false; this.walk(n=>{ if(n.id===id) hit=true; }, anc); return hit; },
+  /** A row dragged: past a few pixels it moves with the pointer, and where it would go is
+   *  shown; let go, it goes there (`moveTo`). */
+  dragStart(e, id){
+    if(e.button!==0) return;
+    const box=$('#tlHtnTree'); if(!box) return;
+    const x0=e.clientX, y0=e.clientY;
+    let on=false, where=null;
+    this._dragged=false;
+    const clear=()=>{ for(const r of box.querySelectorAll('.wgHtnRow')){ r.style.boxShadow=''; } };
+    const move=ev=>{
+      if(!on && Math.hypot(ev.clientX-x0, ev.clientY-y0)<5) return;
+      on=true; this._dragged=true;
+      clear(); where=null;
+      const el=document.elementFromPoint? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+      const r=el && el.closest && el.closest('.wgHtnRow'); if(!r || r.dataset.id===id) return;
+      const t=this.find(r.dataset.id); if(!t) return;
+      const b=r.getBoundingClientRect();
+      const inside=!!t.n.children && ev.clientX>b.left+b.width/2;
+      const after=!inside && ev.clientY>b.top+b.height/2;
+      if(!t.parent && !inside) return;   // nothing goes beside a root
+      where={to:r.dataset.id, inside, after};
+      r.style.boxShadow=inside? 'inset 0 0 0 2px var(--ac)' : after? 'inset 0 -2px 0 var(--ac)' : 'inset 0 2px 0 var(--ac)';
+    };
+    const up=()=>{
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
+      clear();
+      if(on && where) this.moveTo(id, where);
+      setTimeout(()=>{ this._dragged=false; }, 0);
+    };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+  },
+  /** A node moved: into `to` (a Select or Sequence, last), or before or after it. Not into
+   *  itself or below itself; a Pause only into a Sequence. */
+  moveTo(id, w){
+    const f=this.find(id), t=this.find(w.to);
+    if(!f || !f.parent || !t || this.under(w.to, f.n)) return false;
+    const dest=w.inside? t.n : t.parent;
+    if(!dest || !dest.children) return false;
+    if(f.n.type==='pause' && dest.type!=='sequence') return false;
+    f.parent.children.splice(f.parent.children.indexOf(f.n), 1);
+    if(w.inside) dest.children.push(f.n);
+    else dest.children.splice(dest.children.indexOf(t.n)+(w.after? 1 : 0), 0, f.n);
+    this.sel=id; this.changed();
+    return true;
   },
   /** Move a node among its siblings (`d` -1/1), or out (`out`) or into the sibling above. */
   move(id, d){
@@ -1203,6 +1376,8 @@ const WgHtn={
     return w;
   },
   inspector(n, parent){
+    if(!parent) return this.partInspector(n);
+    if(n.type==='splice') return this.spliceInspector(n);
     const frag=document.createDocumentFragment();
     const w=this.section(this.NODE_TYPES[n.type]);
     const help={select:'Does the first thing below it that can be done, from the top.', sequence:'Does everything below it, in order; it can only be done if every step can.',
@@ -1251,6 +1426,32 @@ const WgHtn={
       frag.append(e);
     }
     return frag;
+  },
+  /** A reusable part: its name, where it is used, and Remove when it is used nowhere. */
+  partInspector(x){
+    const w=this.section('Reusable part');
+    w.append(this.el('div', 'hint', 'A Select built once and used where a "Use part" step names it: the first thing in it that can be done is done there. FluadHTN splices it in (Splice).'));
+    w.append(this.line('Name', this.input(x.name, v=>{ x.name=v; this.walk(n=>{ if(n.type==='splice' && n.sub===x.id) n.name=v; }); this.changed(); }, 'text', '220px')));
+    let uses=0; this.walk(n=>{ if(n.type==='splice' && n.sub===x.id) uses++; });
+    w.append(this.el('div', 'hint', uses? 'Used in '+uses+' place'+(uses===1? '' : 's')+'.' : 'Not used yet: add a "Use part" step where it should be done.'));
+    const rm=this.btn('Remove part', ()=>{ this.doc.subs.splice(this.doc.subs.indexOf(x), 1); this.sel=''; this.changed(); }, uses? 'Remove the steps that use it first' : 'Remove this part');
+    rm.disabled=uses>0;
+    w.append(rm, ' ', this.btn('Done', ()=>{ this.sel=''; this.draw(); }));
+    return w;
+  },
+  spliceInspector(n){
+    const w=this.section('Use part');
+    w.append(this.el('div', 'hint', 'Does the reusable part here, as if its steps were written in this place.'));
+    const pick=this.el('select');
+    const z=this.el('option', '', '(choose a part)'); z.value=''; pick.append(z);
+    const own=this.partOf(n.id);
+    for(const x of this.doc.subs||[]){ if(x===own) continue; const o=this.el('option', '', x.name); o.value=x.id; pick.append(o); }
+    pick.value=n.sub||''; pick.onchange=()=>{ n.sub=pick.value; const x=this.sub(n.sub); n.name=x? x.name : 'Use part'; this.changed(); };
+    w.append(this.line('Part', pick));
+    const bar=this.el('div'); bar.style.margin='6px 0';
+    bar.append(this.btn('↑', ()=>this.move(n.id, -1)), ' ', this.btn('↓', ()=>this.move(n.id, 1)), ' ', this.btn('Remove', ()=>this.remove(n.id)), ' ', this.btn('Done', ()=>{ this.sel=''; this.draw(); }));
+    w.append(bar);
+    return w;
   },
   here(dd){
     const R=App.R, o=(App._scene && App._scene.origin)||[0, 0];

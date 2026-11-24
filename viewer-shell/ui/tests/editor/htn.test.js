@@ -24,7 +24,7 @@ module.exports = async (t) => {
   const actor = files.find(f => f[0] === 'scripts/wg_htn_guard/actor.lua')[1], main = files.find(f => f[0] === 'MWSE/mods/wg_htn_guard/main.lua')[1];
   t.ok(/pcall\(function\(\) return require\("scripts\.sb_htn\.interface"\) end\)/.test(actor) && /type\(table\.size\) ~= "function"/.test(actor), 'OpenMW: FluadHTN required, not carried; Rubic0n asked for when missing');
   t.ok(/pcall\(function\(\) return require\("sb_htn\.interop"\) end\)/.test(main) && /tes3\.event\.simulate/.test(main), 'MWSE: FluadHTN required; run each simulate');
-  t.ok(/\["imperial guard"\] = true/.test(actor) && /:Sequence\("Back off when hurt"\)/.test(actor) && /:Effect\("Set Greeted", E\.PlanAndExecute/.test(actor), 'the actors, the domain and its effects are in the Lua');
+  t.ok(/\["imperial guard"\] = true/.test(actor) && /:Select\("Back off when hurt"\)/.test(actor) && /:Effect\("Set Greeted", E\.PlanAndExecute/.test(actor), 'the actors, the domain and its effects are in the Lua');
   t.ok(/NPC, CREATURE: scripts\/wg_htn_guard\/actor\.lua/.test(files[0][1]), 'the .omwscripts registers the actor script');
   t.ok(!/sb_htn\/|Safebox36/.test(names.join(' ')), 'no FluadHTN file is in the export');
 
@@ -127,6 +127,45 @@ module.exports = async (t) => {
   await H.startFluad('k2');
   t.ok(H.run && H.run.mode !== 'fluad', 'without FluadHTN installed it runs on the page\'s planner');
   H.stopRun();
+
+  // Templates: each checks clean once it has its actors.
+  for (const [k] of H.TEMPLATES) {
+    if (k === 'empty') continue;
+    const d = H.template(k);
+    if (!d.attach.ids.length) d.attach.ids = ['someone'];
+    const errs = H.validate(d).filter(x => x.level === 'error');
+    t.ok(errs.length === 0, 'the ' + k + ' template is clean ' + JSON.stringify(errs));
+  }
+
+  // Reusable parts: built first, spliced in; planned through by the page's planner; a circle refused.
+  const pd = H.template('guard');
+  const pt = H.node('select', 'Idle about', { children: [H.node('action', 'Look around', { do: H.act('say', { text: 'part ran' }) })] });
+  pd.subs = [pt];
+  pd.root.children = [H.node('splice', 'Idle about', { sub: pt.id })];
+  H.doc = pd;
+  t.ok(H.validate().filter(x => x.level === 'error').length === 0, 'a domain using a part is clean');
+  const pl = H.files().find(f => f[0] === 'scripts/wg_htn_guard/actor.lua')[1];
+  t.ok(pl.indexOf('PART["' + pt.id + '"] = htn.DomainBuilder:new(Ctx, "Idle about")') >= 0 && pl.indexOf(':Splice(PART["' + pt.id + '"])') > pl.indexOf('PART["' + pt.id + '"] ='), 'the part is built, then spliced in');
+  said.length = 0; H.startRun('k2'); step(2); H.stopRun();
+  t.ok(said.includes('part ran'), 'the page\'s planner plans through a part ' + JSON.stringify(said));
+  const loop = H.node('select', 'Loop', { children: [] });
+  loop.children.push(H.node('splice', 'Loop', { sub: pt.id }));
+  pt.children.push(H.node('splice', 'Back', { sub: loop.id }));
+  pd.subs.push(loop);
+  t.ok(H.validate().some(x => /in a circle/.test(x.text)), 'parts that use each other in a circle are refused');
+
+  // Moving by dragging (`moveTo`), and undo / redo.
+  H.doc = H.template('guard'); H.fresh();
+  const [hu, gr, pa] = H.doc.root.children;
+  t.ok(H.moveTo(gr.id, { to: pa.id, inside: true }) && pa.children[pa.children.length - 1] === gr, 'a row dropped on a Sequence goes in, last');
+  t.ok(!H.moveTo(pa.id, { to: gr.id, inside: false, after: false }), 'not into itself');
+  t.ok(H.moveTo(gr.id, { to: hu.id, inside: false, after: false }) && H.doc.root.children[0].id === gr.id, 'above a row');
+  const pz = H.node('pause'); pa.children.push(pz); H.changed();
+  t.ok(!H.moveTo(pz.id, { to: hu.id, inside: false, after: true }), 'a Pause stays in a Sequence');
+  H.undo(); H.undo();
+  t.ok(H.doc.root.children[0].name === 'Back off when hurt' && H.doc.root.children[1].children.some(c => c.name === 'Greet the player'), 'undone twice: back where the first move left it');
+  H.redo();
+  t.ok(H.doc.root.children[0].name === 'Greet the player', 'redone');
 
   // The page.
   H.doc = H.example(); H.path = ''; H.sel = ''; H.deps = null;
