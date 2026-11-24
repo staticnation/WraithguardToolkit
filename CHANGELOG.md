@@ -327,6 +327,30 @@
   camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
   orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
   the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **The Lua and HTN batch** (Static 2026-11-24, "lets do all this"; `89_wg_luadeps.js`, `82_wg_htn.js`,
+  `viewcore::luafind`, `lua_find`, `open_web`):
+  - **Lua mods: what the mods need, turned on.** The check's findings gathered into one list at the
+    top, each need once with the mods that need it: an interface (`I.X`), a module (named in the
+    message when the finding's own label lost it), a plugin's global. Each looked for in the setup:
+    a content file in the data folders not in `content=` whose registered script sets
+    `interfaceName = 'X'` (`.omwscripts` and `.omwaddon`), or a plugin with that GLOB; and the Load
+    order page's mods folder, scanned, for those and for a module's file (`scripts/a/b.lua`, or its
+    `init.lua`). **Turn on** adds it on the Load order page as a drop does (content=, and data= for
+    a folder); **Turn on all**; **Search Nexus** for what is not installed, in the person's browser
+    (`open_web` opens only Nexus Mods' Morrowind pages and modding-openmw.com, https, URL characters
+    only).
+  - **HTN AI: who runs it by faction, class or cell** as well as record id (any one). OpenMW asks
+    `types.NPC.getFactions` (else the record's primary faction) and its class, and asks again when
+    the actor changes cell; MWSE the NPC's faction and class and the reference's cell. A cell is a
+    name or an exterior's `x,y`. The README says who.
+  - **HTN AI: four more templates**: sentry (challenges at night, warns off a skooma carrier, stands
+    watch; picked by the guard class), worker (works by day, eats at noon, rests at night, catches
+    its breath), pilgrim (walks to a shrine, prays, moves on), coward (calls for help and runs when
+    hurt or in a fight). Every template's Lua compiles (checked with Lua 5.4).
+  - **HTN AI: breakpoints in the Preview run**: ○ beside a step (or the inspector's box) pauses the
+    Preview as that step starts, before it acts, on the page's planner or on FluadHTN; **Step** goes
+    on to the next step that starts, **Continue** to the next breakpoint. This session's only.
+  Tests: `luadeps.test.js`, `htn.test.js` (breakpoints, who runs it), viewcore `luafind`.
 - **The Load order and Conflicts batch** (Static 2026-11-24, "lets do all this"; `88_wg_lo_qol.js`,
   `ordercore::why`, `loadorder_why`):
   - **Why here?** (the button over content=, or double-click a plugin): where it loads and between

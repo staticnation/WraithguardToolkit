@@ -554,6 +554,20 @@ pub fn show_folder(dir: &Path) -> Result<(), String> {
         .map_err(|e| crate::msg!("eng.open_failed", dir = dir.display().to_string(), err = e.to_string()))
 }
 
+/// An https page in the person's browser, through the same opener as [`show_folder`] (Windows'
+/// explorer and macOS' open hand a URL to the default browser; xdg-open does too). The caller
+/// checks the URL.
+pub fn show_web(url: &str) -> Result<(), String> {
+    std::process::Command::new(file_browser())
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| crate::msg!("eng.open_failed", dir = url.to_string(), err = e.to_string()))
+}
+
 /// The system's file browser by its full path (security audit F8): a bare name is looked
 /// for in the program's own folder first on Windows, so an `explorer.exe` put beside the
 /// program would have run instead. `%SystemRoot%\explorer.exe`, `/usr/bin/open`, and

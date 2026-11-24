@@ -3979,6 +3979,45 @@ fn lua_deps(openmw: Option<String>, state: State) -> Result<String, String> {
     Ok(viewcore::luacheck::deps(&a.sources, &reg, &builtins).to_string())
 }
 
+/// Wraithguard: where the Lua checker's missing dependencies are, if installed and not turned on
+/// (Static 2026-11-24; `viewcore::luafind`). `needs`: `[[kind, name]...]` (kind `interface`,
+/// `module` or `global`); `extra`: folders not in `data=` yet (the Load order page's mods folder,
+/// scanned). Answers `[{kind, name, found: [{content, path, data, via}]}]`.
+#[tauri::command(async)]
+fn lua_find(needs: serde_json::Value, extra: Vec<String>, state: State) -> Result<String, String> {
+    let (vfs, order) = {
+        let app = state.app();
+        (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
+    };
+    let needs: Vec<(String, String)> = needs
+        .as_array()
+        .ok_or("no needs were given")?
+        .iter()
+        .filter_map(|n| Some((n.get(0)?.as_str()?.to_string(), n.get(1)?.as_str()?.to_string())))
+        .collect();
+    let content = viewcore::luascan::content(order.as_deref());
+    let extra: Vec<std::path::PathBuf> = extra.iter().map(|d| d.trim()).filter(|d| !d.is_empty()).map(std::path::PathBuf::from).filter(|p| p.is_dir()).collect();
+    Ok(viewcore::luafind::find(&needs, &vfs, &content, &extra).to_string())
+}
+
+/// Wraithguard: a mod's page, or a search for one, in the person's browser (Static 2026-11-24:
+/// "links for missing mods"). Only Nexus Mods' Morrowind pages and modding-openmw.com, https,
+/// and only the characters a URL is made of: the page cannot open anything else through this.
+#[tauri::command(async)]
+fn open_web(url: String) -> Result<(), String> {
+    let ok_host = ["https://www.nexusmods.com/morrowind/", "https://www.nexusmods.com/games/morrowind/", "https://modding-openmw.com/"]
+        .iter()
+        .any(|p| url.starts_with(p));
+    let ok_chars = url.chars().all(|c| c.is_ascii_alphanumeric() || "-._~:/?#@!$&()*+,;=%".contains(c));
+    if !ok_host || !ok_chars || url.len() > 400 {
+        return Err("only a Nexus Mods Morrowind page or modding-openmw.com opens from here".into());
+    }
+    if std::env::var_os("GARDENFELL_NO_OPEN").is_some() {
+        return Ok(());
+    }
+    viewcore::profiles::show_web(&url)
+}
+
 /// Wraithguard: Tools → HTN AI (Static 2026-11-23): what an exported mod needs and whether the
 /// setup has it - FluadHTN's OpenMW and MWSE builds in the data folders, and Rubic0n's LuaJIT in
 /// the OpenMW install (`viewcore::htn::deps`).
@@ -5024,6 +5063,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_run_start,
             lua_check,
             lua_deps,
+            lua_find,
+            open_web,
             lua_settings_read,
             lua_settings_write,
             htn_deps,

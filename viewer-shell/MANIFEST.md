@@ -131,23 +131,24 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `79_wg_actorinfo.js` | 6 KB | Actor info (the viewport's 🛈): over each actor near the camera, its AI package, the animation it plays and whether it blends or waits for its mesh, and how often it is posed. |
 | `80_wg_luacheck.js` | 8 KB | Tools → Lua mods: each Lua mod run on its own (`lua_check`), what its scripts said sorted into what can be done about it, what the Preview does not run yet, and the load-order lint. |
 | `81_wg_luasettings.js` | 8 KB | Tools → Lua settings: the settings OpenMW keeps for Lua mods (`player_storage.bin`, `global_storage.bin`), one value changed at a time, the file written only when it reads back as meant. |
-| `82_wg_htn.js` | 115 KB | Tools → HTN AI: an actor's behaviour as an HTN domain for FluadHTN, from game blocks: the editor (list and graph, undo, templates, reusable parts), the check, the export for OpenMW and MWSE, and the Preview run (the page's planner, or the exported Lua on FluadHTN). |
+| `82_wg_htn.js` | 129 KB | Tools → HTN AI: an actor's behaviour as an HTN domain for FluadHTN, from game blocks: the editor (list and graph, undo, templates, reusable parts), who runs it (record id, faction, class, cell), the check, the export for OpenMW and MWSE, and the Preview run (the page's planner, or the exported Lua on FluadHTN) with breakpoints. |
 | `83_wg_graph.js` | 8 KB | A tree drawn as a graph (boxes, labelled branches, folding, zoom and pan): the Dialogue window's Graph and Tools → Journal's. |
 | `84_wg_views.js` | 6 KB | Camera views kept per cell (world units, `localStorage`) and put back; the 3D view saved as a PNG, clean of highlights and arrows on request. |
 | `85_wg_palette.js` | 10 KB | Ctrl+P: pages, tools, key actions, buttons on screen, saved views, cells and records by id, found by typing. |
 | `86_wg_editor_qol.js` | 16 KB | The Editor's back and forward, Pending's field-by-field diff with ↶ per field, Script Edit's Ctrl+Space and "Where is it set?", a response's placeholder check. |
 | `87_wg_land_qol.js` | 40 KB | The Land view's mirror, color pick, road or path, painting by rules, heightmap PNG out and in, and the strokes list with Back to before this. |
 | `88_wg_lo_qol.js` | 21 KB | Load order's Why here? and snapshots (compare, restore); Conflicts' reviewed marks. |
+| `89_wg_luadeps.js` | 8 KB | The Lua mods check's missing dependencies found in the setup, turned on through the Load order page, or searched for on Nexus. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 160, and `pick.rs`: 2)
+## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 162, and `pick.rs`: 2)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
 
 - **path** (`pick.rs`): `path_pick`, `path_allow`
 - **connect**: `connect_stage`
-- **open**: `open_install`, `open_folder`
+- **open**: `open_install`, `open_folder`, `open_web` (a Nexus Mods or modding-openmw.com page)
 - **startup**: `startup_install`
 - **theme**: `theme_set`
 - **picker**: `picker_set`
@@ -179,7 +180,7 @@ names a command that is not defined, or one is left unregistered.
 - **record**: `record_search` (records by id, best first)
 - **editor**: `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs_bytes`, `editor_ref_names`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`, `editor_land_link`
 - **htn**: `htn_deps`, `htn_read`, `htn_export` (Tools → HTN AI)
-- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`, `lua_deps`, `lua_check`, `lua_record`, `lua_settings_read`, `lua_settings_write`, `anim_blend_config`
+- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`, `lua_deps`, `lua_check`, `lua_find`, `lua_record`, `lua_settings_read`, `lua_settings_write`, `anim_blend_config`
 - **wg**: `wg_post`, `wg_save_edited` (the page tests' seam to a stand-in host; nothing serves them since 5.0)
 - **scan**: `scan_cache_warm`
 - **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`, `loadorder_plain_sort`, `loadorder_plain_write`, `loadorder_plain_restore_dates`, `loadorder_why`
@@ -221,7 +222,8 @@ names a command that is not defined, or one is left unregistered.
 | `lang.rs` | 582 | Language packs. |
 | `lib.rs` | 69 | Crate root; `init()` installs the G7 readers. |
 | `lod.rs` | 405 | Distant objects' models, simplified (meshopt-port). |
-| `luacheck.rs` | 347 | Tools → Lua mods: each Lua mod run on its own and what its scripts said sorted; what each script needs on with it (`deps`). |
+| `luacheck.rs` | 352 | Tools → Lua mods: each Lua mod run on its own and what its scripts said sorted; what each script needs on with it (`deps`). |
+| `luafind.rs` | 216 | Where a Lua mod's missing interface, module or global is when it is installed and not turned on: content files outside `content=`, the mods folder's folders outside `data=`. |
 | `luafiles.rs` | 543 | The files a Lua mod reads (on demand, through the worker) and the settings the player saved (`player_storage.bin`, `global_storage.bin`): read for the scripts, and one value written back for Tools → Lua settings. |
 | `luaproc.rs` | 267 | The Preview's Lua in a worker process (the program with `--lua-worker`), ended when a call runs past its time. |
 | `luarun.rs` | 1586 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins, the load order's scripts and MWSE mods' main.lua, luarun.lua's API. |
@@ -236,7 +238,7 @@ names a command that is not defined, or one is left unregistered.
 | `npc.rs` | 982 | NPCs assembled for drawing: race, body parts, worn items by OpenMW's priorities, the skeleton. |
 | `objects.rs` | 30 | Gardenfell's object index (`ObjKind`, `ObjectDef`, leveled lists). |
 | `preview.rs` | 594 | Meshes packed as the bytes the viewport draws, and their animation as JSON. |
-| `profiles.rs` | 629 | Files beside the program: the remembered install, theme, cell-picker choice. |
+| `profiles.rs` | 664 | Files beside the program: the remembered install, theme, cell-picker choice; a folder or web page opened in the system's own browser. |
 | `rawrec.rs` | 271 | A raw plugin walker: records and subrecords as byte slices. |
 | `refkey.rs` | 38 | A reference's stable name: its plugin and index. |
 | `review.rs` | 169 | One mod's part in a cell: what it added, changed, moved and took away. |

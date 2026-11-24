@@ -186,6 +186,11 @@ pub fn lint(sources: &HashMap<String, String>, copies: &[(String, Vec<String>)])
     Value::Array(out)
 }
 
+/// The interfaces a script provides (`interfaceName = 'X'`).
+pub fn provides(text: &str) -> Vec<String> {
+    interfaces_of(text).0
+}
+
 /// The interfaces a file provides (`interfaceName = 'X'`) and uses (`I.X`, `interfaces.X`).
 fn interfaces_of(text: &str) -> (Vec<String>, BTreeSet<String>) {
     let ident = |s: &str| -> String { s.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect() };

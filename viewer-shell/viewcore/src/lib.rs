@@ -25,6 +25,7 @@ pub mod luascan;
 pub mod luarun;
 pub mod luaproc;
 pub mod luacheck;
+pub mod luafind;
 pub mod luafiles;
 pub mod luarec;
 pub mod mge;

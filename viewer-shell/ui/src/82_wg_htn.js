@@ -36,6 +36,9 @@ const WgHtn={
   NEXUS_FLUADHTN:'https://www.nexusmods.com/morrowind/mods/52111',
   NEXUS_RUBIC0N:'https://www.nexusmods.com/morrowind/mods/58557',
   doc:null, sel:'', adv:false, path:'', deps:null, _n:0, run:null, _showLua:'',
+  /* Breakpoints (Static 2026-11-24, "breakpoints in the Preview run"): action ids where the run
+     pauses the Preview as the step starts; this session's, never saved or exported. */
+  bps:new Set(),
 
   /* ---- the blocks ------------------------------------------------------------------------ */
   /* A field: [key, label, type, default]. Types: num, text, id (an object's record id),
@@ -111,6 +114,8 @@ const WgHtn={
   /** The templates New offers: [key, label, make]. */
   TEMPLATES:[['guard', 'Guard: greets once, backs off when hurt, patrols'], ['merchant', 'Merchant: greets customers, tidies, closes at night'],
     ['wildlife', 'Wildlife: grazes, runs from the player, fights when cornered'], ['companion', 'Companion: follows the player, warns when they are hurt'],
+    ['sentry', 'Sentry: challenges at night, warns off smugglers, stands watch'], ['worker', 'Worker: works by day, eats at noon, rests at night'],
+    ['pilgrim', 'Pilgrim: walks to a shrine, prays, moves on'], ['coward', 'Coward: calls for help and runs when hurt or in a fight'],
     ['empty', 'Empty']],
   template(k){
     const N=(t, name, more)=>this.node(t, name, more), C=(b, a, not)=>this.check(b, a, not), S=(v, x)=>this.check('state', {var:v, op:'==', value:x});
@@ -138,6 +143,42 @@ const WgHtn={
         N('action', 'Warn the player', {conds:[S('PlayerHurt', 1), S('Warned', 0)], do:this.act('say', {text:'You\'re hurt! Fall back, I\'ll cover you.'}), effects:[{var:'Warned', op:'set', value:1, kind:'run'}]}),
         N('action', 'Forget the warning', {conds:[S('PlayerHurt', 0), S('Warned', 1)], do:this.act('set_state', {var:'Warned', value:0})}),
         N('action', 'Stay close', {do:this.act('follow_player', {seconds:20})})]})});
+    if(k==='sentry') return Object.assign(base('Sentry', 'wg_htn_sentry', []), {attach:{ids:[], factions:[], classes:['guard'], cells:[], all:false},
+      state:[{name:'PlayerNear', kind:'bool', init:0, sensor:C('player_within', {distance:500})}, {name:'Night', kind:'bool', init:0, sensor:C('hour_between', {from:20, to:6})},
+        {name:'Smuggling', kind:'bool', init:0, sensor:C('player_carries', {id:'potion_skooma_01', count:1})}, {name:'Challenged', kind:'bool', init:0, sensor:null}, {name:'Warned', kind:'bool', init:0, sensor:null}],
+      root:N('select', 'Sentry', {children:[
+        N('action', 'Warn off a smuggler', {conds:[S('PlayerNear', 1), S('Smuggling', 1), S('Warned', 0)], do:this.act('say', {text:'Is that skooma? Get it out of my sight.'}), effects:[{var:'Warned', op:'set', value:1, kind:'run'}]}),
+        N('action', 'Challenge at night', {conds:[S('PlayerNear', 1), S('Night', 1), S('Challenged', 0)], do:this.act('say', {text:'Who goes there? State your business.'}), effects:[{var:'Challenged', op:'set', value:1, kind:'run'}]}),
+        N('action', 'Forget the stranger', {conds:[S('PlayerNear', 0), S('Challenged', 1)], do:this.act('set_state', {var:'Challenged', value:0})}),
+        N('action', 'Forget the smuggler', {conds:[S('PlayerNear', 0), S('Warned', 1)], do:this.act('set_state', {var:'Warned', value:0})}),
+        N('sequence', 'Stand watch', {children:[N('action', 'Look about', {do:this.act('play_anim', {group:'Idle2', seconds:5})}), N('action', 'Pace', {do:this.act('wander', {distance:200, seconds:15})})]})]})});
+    if(k==='worker') return Object.assign(base('Worker', 'wg_htn_worker', []), {
+      state:[{name:'Night', kind:'bool', init:0, sensor:C('hour_between', {from:21, to:6})}, {name:'Noon', kind:'bool', init:0, sensor:C('hour_between', {from:12, to:13})},
+        {name:'Tired', kind:'bool', init:0, sensor:C('fatigue_below', {percent:25})}],
+      root:N('select', 'Worker', {children:[
+        N('sequence', 'Rest at night', {conds:[S('Night', 1)], children:[N('action', 'Go home', {do:this.act('walk_to')}), N('action', 'Sleep', {do:this.act('wait', {seconds:60})})]}),
+        N('action', 'Eat at noon', {conds:[S('Noon', 1)], do:this.act('play_anim', {group:'Idle4', seconds:20})}),
+        N('action', 'Catch a breath', {conds:[S('Tired', 1)], do:this.act('wait', {seconds:15})}),
+        N('sequence', 'Work', {children:[N('action', 'Go to work', {do:this.act('wander', {distance:250, seconds:20})}), N('action', 'Labour', {do:this.act('play_anim', {group:'Idle6', seconds:8})})]})]})});
+    if(k==='pilgrim') return Object.assign(base('Pilgrim', 'wg_htn_pilgrim', []), {
+      state:[{name:'Prayed', kind:'bool', init:0, sensor:null}],
+      root:N('select', 'Pilgrim', {children:[
+        N('sequence', 'Visit the shrine', {conds:[S('Prayed', 0)], children:[
+          N('action', 'Walk to the shrine', {do:this.act('walk_to')}),
+          N('action', 'Pray', {do:this.act('play_anim', {group:'Idle9', seconds:12}), effects:[{var:'Prayed', op:'set', value:1, kind:'run'}]})]}),
+        N('sequence', 'Move on', {children:[
+          N('action', 'Wander off', {do:this.act('wander', {distance:800, seconds:60})}),
+          N('action', 'Feel the pull again', {do:this.act('set_state', {var:'Prayed', value:0})})]})]})});
+    if(k==='coward') return Object.assign(base('Coward', 'wg_htn_coward', []), {
+      state:[{name:'Hurt', kind:'bool', init:0, sensor:C('health_below', {percent:60})}, {name:'Fighting', kind:'bool', init:0, sensor:C('in_combat')},
+        {name:'Called', kind:'bool', init:0, sensor:null}],
+      root:N('select', 'Coward', {children:[
+        N('action', 'Call for help when hurt', {conds:[S('Hurt', 1), S('Called', 0)], do:this.act('say', {text:'Guards! Guards! Help!'}), effects:[{var:'Called', op:'set', value:1, kind:'run'}]}),
+        N('action', 'Call for help in a fight', {conds:[S('Fighting', 1), S('Called', 0)], do:this.act('say', {text:'Somebody help me!'}), effects:[{var:'Called', op:'set', value:1, kind:'run'}]}),
+        N('action', 'Run', {conds:[S('Hurt', 1)], do:this.act('flee_player', {distance:2000})}),
+        N('action', 'Run from the fight', {conds:[S('Fighting', 1)], do:this.act('flee_player', {distance:1500})}),
+        N('action', 'Calm down', {conds:[S('Fighting', 0), S('Hurt', 0), S('Called', 1)], do:this.act('set_state', {var:'Called', value:0})}),
+        N('action', 'Go about its day', {do:this.act('wander', {distance:300, seconds:20})})]})});
     return this.empty();
   },
   empty(){
@@ -175,6 +216,7 @@ const WgHtn={
     if(!d || typeof d!=='object' || d.format!==this.FORMAT) throw new Error('not a Wraithguard HTN domain');
     if((d.version|0)>this.VERSION) throw new Error('made by a newer Wraithguard (version '+d.version+')');
     d.engines=d.engines||{omw:true, mwse:true}; d.attach=d.attach||{ids:[], all:false}; d.attach.ids=d.attach.ids||[];
+    for(const k of ['factions', 'classes', 'cells']) d.attach[k]=Array.isArray(d.attach[k])? d.attach[k] : [];
     d.state=Array.isArray(d.state)? d.state : []; d.tick=+d.tick>0? +d.tick : 0.25;
     const fix=n=>{ n.id=n.id||this.id(); n.conds=n.conds||[]; if(n.type==='action'){ n.effects=n.effects||[]; n.exec=n.exec||[]; n.do=n.do||this.act('wait'); } (n.children||[]).forEach(fix); };
     if(!d.root || d.root.type!=='select') throw new Error('the domain has no root Select');
@@ -196,7 +238,7 @@ const WgHtn={
     const out=[], err=(at, text)=>out.push({level:'error', at, text}), warn=(at, text)=>out.push({level:'warn', at, text});
     if(!/^[a-z][a-z0-9_]{0,39}$/.test(d.modId||'')) err('', 'The mod id must be 1-40 lower-case letters, digits and _ , starting with a letter (it names the mod\'s folders).');
     if(!d.engines.omw && !d.engines.mwse) err('', 'Choose at least one engine to export for.');
-    if(!d.attach.all && !d.attach.ids.filter(s=>String(s).trim()).length) err('', 'Say which actors use this behaviour (their record ids), or choose every NPC and creature.');
+    if(!d.attach.all && !this.attachLists(d).some(([, v])=>v.length)) err('', 'Say which actors use this behaviour (record ids, factions, classes or cells), or choose every NPC and creature.');
     if(d.attach.all) warn('', 'Every NPC and creature will run this behaviour; that takes their own AI from all of them.');
     const names=new Map();
     for(const v of d.state){
@@ -410,7 +452,29 @@ const WgHtn={
       eng==='omw'? '-- OpenMW also needs Rubic0n\'s LuaJIT: '+this.NEXUS_RUBIC0N+'.' : '-- MWSE: needs MWSE and FluadHTN\'s MWSE build.',
       '-- Edit the domain (' + d.modId + '.wghtn.json) in Wraithguard and export again rather than this file.', ''].join('\n');
   },
-  idsTable(d){ return d.attach.all? 'nil' : '{ '+d.attach.ids.map(s=>String(s).trim().toLowerCase()).filter(Boolean).map(s=>'['+this.lstr(s)+'] = true').join(', ')+' }'; },
+  idsTable(d){ return d.attach.all? 'nil' : this.setTable(d.attach.ids); },
+  setTable(list){ return '{ '+(list||[]).map(s=>String(s).trim().toLowerCase()).filter(Boolean).map(s=>'['+this.lstr(s)+'] = true').join(', ')+' }'; },
+  /** Who runs it, by kind (Static 2026-11-24, "assign by faction/class/cell"): [[kind, list]]. */
+  attachLists(d){ const a=d.attach||{}; return [['ids', a.ids||[]], ['factions', a.factions||[]], ['classes', a.classes||[]], ['cells', a.cells||[]]].map(([k, v])=>[k, v.map(s=>String(s).trim()).filter(Boolean)]); },
+  /** The Lua that says whether an actor runs it: by record id, any of its factions, its class, or
+   *  the cell it is in (a cell's name, or "x,y" for an exterior), any one of them enough. IDS is nil
+   *  for every actor. */
+  attachLua(d){
+    const cell=s=>String(s).trim().toLowerCase().replace(/^\(?\s*(-?\d+)\s*[, ]\s*(-?\d+)\s*\)?$/, '$1,$2');
+    return ['-- Which actors run it: by record id, faction, class or cell (any one; IDS nil: every one).',
+      'local IDS = '+this.idsTable(d),
+      'local FACTIONS = '+this.setTable(d.attach.factions),
+      'local CLASSES = '+this.setTable(d.attach.classes),
+      'local CELLS = '+this.setTable((d.attach.cells||[]).map(cell)),
+      'local function picked(id, facs, class, cell, gx, gy)',
+      '  if IDS == nil or IDS[id] then return true end',
+      '  for _, f in ipairs(facs) do if FACTIONS[f] then return true end end',
+      '  if class and CLASSES[class] then return true end',
+      '  if cell and cell ~= "" and CELLS[cell] then return true end',
+      '  if gx and gy and CELLS[tostring(gx) .. "," .. tostring(gy)] then return true end',
+      '  return false',
+      'end'].join('\n');
+  },
   /** OpenMW's game layer, for an NPC or creature's local script (`a` is `self`). */
   omwGame(d){
     return [
@@ -476,10 +540,25 @@ const WgHtn={
   exportOmw(d, opt){
     const id=d.modId, dir='scripts/'+id+'/', trace=!!(opt && opt.trace);
     const actor=[this.header(d, 'omw'), this.omwGame(d), '', this.luaCore(d, 'omw'), '',
-      '-- Which actors run it: their record ids (nil: every one this script is on).',
-      'local IDS = '+this.idsTable(d),
+      this.attachLua(d),
+      '-- This actor: its record id, factions, class and cell, for picked().',
+      'local function who()',
+      '  local facs, class = {}, nil',
+      '  if types.NPC.objectIsInstance(self) then',
+      '    local rec = types.NPC.record(self)',
+      '    class = rec.class and tostring(rec.class):lower() or nil',
+      '    local ok, list = pcall(function() return types.NPC.getFactions(self) end)',
+      '    if ok and type(list) == "table" then for _, f in ipairs(list) do facs[#facs + 1] = tostring(f):lower() end end',
+      '    if #facs == 0 then local ok2, f = pcall(function() return rec.primaryFaction end) if ok2 and f and f ~= "" then facs[1] = tostring(f):lower() end end',
+      '  end',
+      '  local c = self.cell',
+      '  local ext = c and c.isExterior',
+      '  return self.recordId, facs, class, c and c.name and c.name:lower() or "", ext and c.gridX or nil, ext and c.gridY or nil',
+      'end',
+      'local function cellKey() local c = self.cell if not c then return "" end return tostring(c.name) .. "|" .. tostring(c.isExterior and c.gridX) .. "|" .. tostring(c.isExterior and c.gridY) end',
+      'local HAS_CELLS = next(CELLS) ~= nil',
       'local TICK = '+this.lnum(d.tick),
-      'local domain, planner, ctx, on, saved, wait, said = nil, nil, nil, nil, nil, 0, false',
+      'local domain, planner, ctx, on, saved, wait, said, lastCell = nil, nil, nil, nil, nil, 0, false, nil',
       ...(trace? [
         '-- The Preview\'s run: what the planner does, printed for Wraithguard\'s HTN AI page.',
         'local lastWs',
@@ -496,9 +575,13 @@ const WgHtn={
         '  ps.OnStopCurrentTask = function(_, t) say("stop", t.Name) end',
         'end'] : []),
       'local function start()',
+      '  -- Picked by its cell: asked again when it moves to another.',
+      '  if HAS_CELLS and on ~= nil and cellKey() ~= lastCell then on = nil end',
       '  if on ~= nil then return on end',
-      '  on = IDS == nil or IDS[self.recordId] == true',
+      '  lastCell = cellKey()',
+      '  on = picked(who())',
       '  if not on then return false end',
+      '  if domain then return true end',
       '  local ok, mod = pcall(function() return require("scripts.sb_htn.interface") end)',
       '  if not ok then print('+this.lstr('['+id+'] FluadHTN (OpenMW build) is not installed: ')+' .. tostring(mod)) on = false return false end',
       '  if type(table.size) ~= "function" then print('+this.lstr('['+id+'] FluadHTN on OpenMW needs Rubic0n\'s LuaJIT ('+this.NEXUS_RUBIC0N+')')+') on = false return false end',
@@ -577,7 +660,7 @@ const WgHtn={
   exportMwse(d){
     const id=d.modId;
     const main=[this.header(d, 'mwse'), this.mwseGame(), '', this.luaCore(d, 'mwse'), '',
-      'local IDS = '+this.idsTable(d),
+      this.attachLua(d),
       'local TICK = '+this.lnum(d.tick),
       'local domain, planner',
       'local actors = {}   -- reference -> its context',
@@ -586,7 +669,14 @@ const WgHtn={
       'local function wanted(ref)',
       '  if ref.disabled then return false end',
       '  local obj = ref.baseObject or ref.object',
-      '  return IDS == nil or IDS[obj.id:lower()] == true',
+      '  local facs, class = {}, nil',
+      '  if obj.objectType == tes3.objectType.npc then',
+      '    if obj.faction then facs[1] = obj.faction.id:lower() end',
+      '    if obj.class then class = obj.class.id:lower() end',
+      '  end',
+      '  local c = ref.cell',
+      '  local ext = c and not c.isInterior',
+      '  return picked(obj.id:lower(), facs, class, c and (c.name or c.id or ""):lower() or "", ext and c.gridX or nil, ext and c.gridY or nil)',
       'end',
       '-- The actors of the loaded cells that run it, looked for once a second.',
       'local function scan()',
@@ -644,7 +734,7 @@ const WgHtn={
   },
   readme(d){
     const L=['# '+this.one(d.name||'HTN behaviour'), '', 'Made with WraithguardToolkit\'s HTN AI tool from '+d.modId+'.wghtn.json (kept beside this file; open it in Wraithguard to change the behaviour and export again).', '',
-      'Actors: '+(d.attach.all? 'every NPC and creature' : d.attach.ids.join(', ')), '', '## Requirements', '',
+      'Actors: '+(d.attach.all? 'every NPC and creature' : this.attachLists(d).filter(([, v])=>v.length).map(([k, v])=>({ids:'', factions:'in the faction ', classes:'of the class ', cells:'in the cell '}[k])+v.join(', ')).join('; or ')), '', '## Requirements', '',
       '- FluadHTN by Safebox: '+this.NEXUS_FLUADHTN+' (not included; install it from its page)'];
     if(d.engines.omw) L.push('- OpenMW: FluadHTN\'s OpenMW build and Rubic0n ('+this.NEXUS_RUBIC0N+'), and `content='+d.modId+'.omwscripts` in openmw.cfg (or the mod enabled in your launcher)');
     if(d.engines.mwse) L.push('- MWSE: FluadHTN\'s MWSE build');
@@ -812,6 +902,7 @@ const WgHtn={
   },
   stopRun(){
     const R=this.run; if(!R) return;
+    if(R.atBreak!=null) this.pauseScripts(false);
     if(R.mode==='fluad'){
       // The Lua started again without the page's mod; the actor's AI left to its own.
       this.run=null; R.A.ai=null; R.A._route=null;
@@ -870,7 +961,7 @@ const WgHtn={
     switch(k){
       case 'start': this.say('FluadHTN is planning for '+v); break;
       case 'plan': case 'replan': R.plan=v? v.split('|') : []; this.say((k==='plan'? 'Plan: ' : 'New plan: ')+R.plan.join(' → ')); R.status='planned'; break;
-      case 'task': { R.curName=v; const i=R.plan.indexOf(v); if(i>=0) R.plan.splice(i, 1); this.say('Start: '+v); break; }
+      case 'task': { R.curName=v; const i=R.plan.indexOf(v); if(i>=0) R.plan.splice(i, 1); this.say('Start: '+v); let id=''; this.walk(n=>{ if(!id && n.type==='action' && n.name===v) id=n.id; }, R.doc.root); this.breakAt(R, id, v); break; }
       case 'done': this.say('Done: '+v); R.curName=''; break;
       case 'fail': this.say('Failed: '+v+'; planning again'); R.curName=''; R.plan=[]; break;
       case 'condfail': this.say(v+': its conditions no longer hold; planning again'); R.curName=''; R.plan=[]; break;
@@ -883,6 +974,23 @@ const WgHtn={
     return true;
   },
   say(text){ const R=this.run; if(!R) return; R.log.push([R.clock, text]); if(R.log.length>60) R.log.shift(); },
+  /** A step starting: the Preview paused there when it has a breakpoint (or Step was pressed). */
+  breakAt(R, id, name){
+    if(!R || !(R.stepping || (id && this.bps.has(id)))) return false;
+    R.stepping=false; R.atBreak=name||'';
+    this.say((this.bps.has(id)? 'Breakpoint: ' : 'Stepped to: ')+name);
+    this.pauseScripts(true);
+    this.drawRun();
+    return true;
+  },
+  /** The Preview's Scripts paused or going again, and its own Pause button saying so. */
+  pauseScripts(on){
+    const S=typeof WgScripts==='object'? WgScripts : null; if(!S) return;
+    S.paused=!!on;
+    const b=document.querySelector('#wgScrPause'); if(b){ b.classList.toggle('pri', S.paused); b.textContent=S.paused? 'Resume' : 'Pause'; }
+  },
+  goOn(step){ const R=this.run; if(!R) return; R.atBreak=null; R.stepping=!!step; this.pauseScripts(false); this.drawRun(); },
+  toggleBp(id){ if(this.bps.has(id)) this.bps.delete(id); else this.bps.add(id); this.drawTree(); if(this.sel===id) this.drawSide(); },
   /** One frame of the Scripts (73_wg_scripts.js `frame`): the run ticks at the domain's rate. */
   frame(dt){
     const R=this.run; if(!R || !(dt>0)) return;
@@ -1013,9 +1121,17 @@ const WgHtn={
       if(!this.condsOk(R, n.conds, R.ws)){ this.say(n.name+': its conditions no longer hold; planning again'); R.plan=[]; R.mtr=null; R.partial=null; return; }
       R.cur=n; R.op={t0:R.clock, did:false};
       this.say('Start: '+n.name+' ('+this.actText(n.do)+')');
+      if(this.breakAt(R, n.id, n.name)){ R.op.held=true; this.drawTree(); return; }
       const st=this.simAct(R, n, true);
       if(st!=='continue'){ this.finish(R, n, st); return; }
       this.drawTree();
+    }
+    if(R.cur && R.op && R.op.held){
+      // Resumed from a breakpoint: the step starts now.
+      const n=R.cur; R.op.held=false; R.op.t0=R.clock;
+      const st=this.simAct(R, n, true);
+      if(st!=='continue') this.finish(R, n, st);
+      return;
     }
     if(R.cur){
       const n=R.cur;
@@ -1202,6 +1318,14 @@ const WgHtn={
       if(n.id===this.sel) r.style.background='var(--sel, rgba(120,160,255,.18))';
       if(n.id===cur) r.style.outline='2px solid var(--ac)';
       else if(planned.has(n.id)) r.style.outline='1px dashed var(--ac)';
+      if(n.type==='action'){
+        const on=this.bps.has(n.id), bp=this.el('span', '', on? '●' : '○');
+        bp.title=on? 'Breakpoint: the Preview run pauses as this step starts (click to remove)' : 'Click to pause the Preview run as this step starts';
+        bp.style.cssText='cursor:pointer;width:12px;text-align:center;'+(on? 'color:var(--bad,#e06c6c)' : 'opacity:.35');
+        bp.onclick=e=>{ e.stopPropagation(); this.toggleBp(n.id); };
+        bp.onpointerdown=e=>e.stopPropagation();
+        r.append(bp);
+      }else r.append(this.el('span', '', '')); r.lastChild.style.width='12px';
       const tag=this.el('span', 'kind', isPart? 'Part' : this.NODE_TYPES[n.type]); tag.style.cssText='display:inline;min-width:64px;opacity:.75';
       const nm=this.el('b', '', n.type==='pause'? '⏸' : (n.name||''));
       r.append(tag, nm);
@@ -1524,7 +1648,16 @@ const WgHtn={
     ids.onchange=()=>{ d.attach.ids=ids.value.split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean); this.changed(); };
     const all=this.el('label'), ac=this.el('input'); ac.type='checkbox'; ac.checked=!!d.attach.all; ac.onchange=()=>{ d.attach.all=ac.checked; this.changed(); };
     all.append(ac, ' every NPC and creature');
-    w.append(this.line('Actors', ids), this.line('', all));
+    w.append(this.line('Actors', ids));
+    // By faction, class or cell too (any one is enough).
+    for(const [k, label, ph, by] of [['factions', 'Factions', 'Faction ids (e.g. imperial legion)', /\r?\n|,/], ['classes', 'Classes', 'Class ids (e.g. guard, pauper)', /\r?\n|,/],
+      ['cells', 'Cells', 'A cell a line: a name (Balmora) or an exterior\'s x,y (-2,-9)', /\r?\n/]]){
+      const t=this.el('textarea'); t.rows=1; t.style.width='100%'; t.value=(d.attach[k]||[]).join('\n'); t.placeholder=ph;
+      t.onchange=()=>{ d.attach[k]=t.value.split(by).map(s=>s.trim()).filter(Boolean); this.changed(); };
+      w.append(this.line(label, t));
+    }
+    w.append(this.el('div', 'hint', 'An actor runs it when its record id, one of its factions, its class or the cell it is in is listed (any one).'));
+    w.append(this.line('', all));
     w.append(this.line('Plan every', this.input(d.tick, v=>{ d.tick=v; this.changed(); }, 'number', '70px'), 'seconds'));
     return w;
   },
@@ -1620,6 +1753,12 @@ const WgHtn={
     bar.append(this.btn('↑', ()=>this.move(n.id, -1), 'Earlier (in a Select, earlier is tried first)'), ' ', this.btn('↓', ()=>this.move(n.id, 1), 'Later'), ' ',
       this.btn('Duplicate', ()=>this.duplicate(n.id)), ' ', this.btn('Remove', ()=>this.remove(n.id)), ' ', this.btn('Done', ()=>{ this.sel=''; this.draw(); }, 'Back to the behaviour\'s settings'));
     w.append(bar);
+    if(n.type==='action'){
+      const l=this.el('label'), c=this.el('input'); c.type='checkbox'; c.checked=this.bps.has(n.id);
+      c.onchange=()=>this.toggleBp(n.id);
+      l.append(c, ' Breakpoint: pause the Preview run as this step starts');
+      w.append(l);
+    }
     frag.append(w);
     if(n.type==='pause') return frag;
     if(n.type==='action'){
@@ -1719,6 +1858,9 @@ const WgHtn={
       if(!acts.length){ w.append(this.el('div', 'hint', 'Open a cell with NPCs or creatures in the Preview.')); box.append(w); return; }
       const sel=this.el('select');
       const want=new Set((this.doc.attach.ids||[]).map(s=>String(s).toLowerCase()));
+      // Picked by its cell: every actor of a listed cell (factions and classes are the game's to tell).
+      const cells=new Set((this.doc.attach.cells||[]).map(s=>String(s).trim().toLowerCase().replace(/^\(?\s*(-?\d+)\s*[, ]\s*(-?\d+)\s*\)?$/, '$1,$2')));
+      if(cells.size) for(const c of App._scene.cells||[]){ const k=c.kind==='ext'? c.gx+','+c.gy : String(c.name||'').toLowerCase(); if(cells.has(k) || cells.has(String(c.name||'').toLowerCase())) for(const r of c.refs||[]) want.add(String(r.id||'').toLowerCase()); }
       acts.sort((a, b)=>(want.has(b.id)-want.has(a.id)) || a.id.localeCompare(b.id));
       for(const a of acts.slice(0, 400)){ const o=this.el('option', '', a.id+(want.has(a.id)? ' ★' : '')); o.value=a.key; sel.append(o); }
       const fl=this.deps && this.deps.omw;
@@ -1728,6 +1870,13 @@ const WgHtn={
       box.append(w); return;
     }
     const doing=R.mode==='fluad'? R.curName : R.cur && R.cur.name;
+    if(R.atBreak!=null){
+      const p=this.el('div'); p.style.cssText='display:flex;gap:6px;align-items:center;margin:2px 0 6px;padding:4px 6px;border-radius:4px;background:var(--acd,rgba(120,160,255,.15))';
+      p.append(this.el('b', '', '⏸ Paused at '+(R.atBreak||'a step')), this.el('span', 'sp'),
+        this.btn('Continue', ()=>this.goOn(false), 'Go on to the next breakpoint'), this.btn('Step', ()=>this.goOn(true), 'Go on to the next step that starts, and pause there'));
+      p.children[1].style.flex='1';
+      w.append(p);
+    }
     w.append(this.btn('Stop', ()=>this.stopRun()), ' ', this.el('b', '', R.A.id), ' ', this.el('span', 'hint', (R.mode==='fluad'? 'on FluadHTN · ' : 'on Wraithguard\'s planner · ')+(doing? 'doing: '+doing : R.status==='none'? 'no plan' : 'between steps')));
     const ws=this.el('div'); ws.style.cssText='font-family:var(--mono);font-size:11px;margin:4px 0';
     ws.textContent=R.doc.state.map((v, i)=>v.name+'='+(v.kind==='bool'? (R.ws[i]? 'true' : 'false') : R.ws[i])).join('  ') || '(no world state)';

@@ -90,6 +90,32 @@ module.exports = async (t) => {
   H.stopRun();
   t.ok(!H.run, 'the run stops');
 
+  // Breakpoints (2026-11-24): the Preview pauses as a marked step starts, before it acts; Step
+  // goes on to the next step that starts; Continue to the next breakpoint.
+  A.hp = 100; playerDist = 300; said.length = 0;
+  H.doc = H.example();
+  H.bps.add(H.doc.root.children[1].id);
+  H.startRun('k2');
+  const live = n => { for (let i = 0; i < n; i++) if (!w.WgScripts.paused) H.frame(0.25); };
+  live(4);
+  t.ok(w.WgScripts.paused && H.run.atBreak === 'Greet the player' && !said.includes('Halt! Keep the peace.'), 'paused as the greeting starts, before it is said ' + JSON.stringify(H.run.log));
+  H.goOn(true); live(1);
+  t.ok(said.includes('Halt! Keep the peace.'), 'Step: the greeting goes on');
+  live(4);
+  t.ok(w.WgScripts.paused && H.run.atBreak === 'Wander', 'and pauses at the next step that starts: ' + H.run.atBreak);
+  H.goOn(false); live(4);
+  t.ok(!w.WgScripts.paused && H.run.atBreak == null, 'Continue: no breakpoint on the patrol, it runs on');
+  H.bps.clear(); H.stopRun();
+
+  // Who runs it, by faction, class or cell (2026-11-24).
+  const fac = H.example(); fac.attach = { ids: [], factions: ['Imperial Legion'], classes: [], cells: [], all: false };
+  t.ok(H.validate(fac).filter(x => x.level === 'error').length === 0, 'a faction alone says who runs it');
+  const fo = H.files(fac).find(f => /actor\.lua$/.test(f[0]))[1], fm = H.files(fac).find(f => /main\.lua$/.test(f[0]))[1];
+  t.ok(/FACTIONS = \{ \["imperial legion"\] = true \}/.test(fo) && /on = picked\(who\(\)\)/.test(fo) && /types\.NPC\.getFactions\(self\)/.test(fo), 'OpenMW: picked by its factions');
+  t.ok(/obj\.faction\.id:lower\(\)/.test(fm) && /return picked\(obj\.id:lower\(\)/.test(fm), 'MWSE: likewise');
+  fac.attach.factions = []; fac.attach.cells = ['(-2, -9)'];
+  t.ok(/CELLS = \{ \["-2,-9"\] = true \}/.test(H.files(fac).find(f => /actor\.lua$/.test(f[0]))[1]) && /in the cell \(-2, -9\)/.test(H.readme(fac)), 'a cell by its grid, and the README says so');
+
   // Partial plans: the steps after a Pause are planned once the ones before it are done.
   const part = H.empty();
   part.modId = 'wg_part'; part.attach.ids = ['imperial guard'];
