@@ -312,6 +312,25 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **CI: the boot checks no longer hang** (`ui/tests/boot.js`): since 2026-11-23 CI builds the
+  headless engine with `--release` (`target/release/wg-view-serve`) and the boot check started
+  `target/serve/wg-view-serve` only. The spawn failed into the catch-all handler and every
+  engine call waited for ever, so "cell viewer boots" ran until GitHub cancelled it (an hour
+  on). It now starts the first build that is there (serve, release, debug; WG_VIEW_SERVE
+  still wins), fails at once with what to build when there is none or the engine does not
+  start or ends early, and fails after ten minutes (`WG_BOOT_LIMIT`) naming the calls it was
+  waiting on.
+- **A folder unpacked again is indexed again** (`vfsindex::stamp`): the overlay's saved file
+  index took a folder as unchanged while its modified time was; 7-Zip sets the folders it makes
+  to the archive's stored times, so a folder deleted and unpacked again matched and its old file
+  list was used (Static's FluadHTN, unpacked in place and not found). A folder's stamp is now the
+  later of its modified and created times; the index's version is 2, so every root is walked
+  once. Test: `a_folder_made_again_with_its_old_time_is_walked` (fails on the old stamp).
+- **HTN AI: FluadHTN on disk is found** (`htn::deps`): when the loaded file list lacks it, each
+  data folder is looked at on disk; found there, the chip is ✓ and the page says the kept file
+  list is older (reconnect, so the Preview can read it). `why_missing` no longer says "no sb_htn
+  folder is in it" of a folder that has it in place. Tests:
+  `fluadhtn_on_disk_but_not_in_a_stale_file_list_is_found`, and the page's chip in `htn.test.js`.
 - **Occlusion culling** (`29_wg_occlusion.js`; Preview › Scene › "Occlusion culling", on by
   default; saved as `occlusion_culling`): objects, the batches drawn on their own and the
   grass's cell runs that stand wholly behind what was drawn in front of them (a building,

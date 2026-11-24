@@ -162,7 +162,28 @@ function fakeLink(name, body){
   return res;
 }
 const {spawn}=require('child_process');
-const eng=spawn(process.env.WG_VIEW_SERVE||require('path').join(__dirname,'../../target/serve/wg-view-serve'+(process.platform==='win32'?'.exe':'')),[],{stdio:['pipe','pipe','inherit']});
+/* The engine: WG_VIEW_SERVE, or the first of the builds that is there - the `serve`
+   profile, then release, then debug. CI builds release since 2026-11-23; this looked only
+   at target/serve, the spawn failed, the failure went to the catch-all below, and every
+   engine call waited for ever (the run hung until GitHub cancelled it, an hour on). A
+   missing engine, or one that cannot start, now ends the run at once and says so. */
+const exe=process.platform==='win32'? '.exe' : '';
+const ENGINE=process.env.WG_VIEW_SERVE || ['serve','release','debug']
+  .map(p=>path.join(__dirname,'../../target',p,'wg-view-serve'+exe)).find(f=>fs.existsSync(f));
+if(!ENGINE){
+  console.error('boot: no wg-view-serve built (looked in viewer-shell/target/serve, release and debug). Build it:\n'+
+    '  cargo build --profile serve --manifest-path viewer-shell/check-commands/Cargo.toml --bin wg-view-serve');
+  process.exit(1);
+}
+const eng=spawn(ENGINE,[],{stdio:['pipe','pipe','inherit']});
+eng.on('error',e=>{ console.error('boot: the engine ('+ENGINE+') did not start: '+e.message); process.exit(1); });
+eng.on('exit',(code,sig)=>{ if(!booted){ console.error('boot: the engine ('+ENGINE+') ended early: '+(sig||('exit code '+code))); process.exit(1); } });
+let booted=false;   // set once the checks are over, so the engine's own shutdown is not a failure
+/* And a ceiling on the whole run: a normal one is under two minutes. Whatever else waits for
+   ever, the run fails with what it was waiting on rather than holding the runner. */
+const LIMIT=+process.env.WG_BOOT_LIMIT||10*60*1000;
+setTimeout(()=>{ console.error('boot: still running after '+Math.round(LIMIT/1000)+' s - the engine calls asked for: '+
+  [...new Set(calls)].join(' ')+'; unanswered: '+waiting.size); process.exit(1); }, LIMIT).unref();
 let nextId=1; const waiting=new Map(); let buf='';
 eng.stdout.on('data',d=>{buf+=d; let nl; while((nl=buf.indexOf('\n'))>=0){const line=buf.slice(0,nl); buf=buf.slice(nl+1); let m; try{m=JSON.parse(line);}catch(e){continue;} if(m.ready) continue; const w=waiting.get(m.id); if(w){waiting.delete(m.id); w(m);}}});
 function engineCall(cmd,args){ return new Promise((res,rej)=>{ const id=nextId++; waiting.set(id,m=>{ if('err' in m) rej(m.err); else if('b64' in m){ const b=Buffer.from(m.b64,'base64'); res(b.buffer.slice(b.byteOffset,b.byteOffset+b.length)); } else res(m.ok); }); eng.stdin.write(JSON.stringify({id,cmd,args:args||{}})+'\n'); }); }
@@ -1050,7 +1071,7 @@ setTimeout(async ()=>{
     try{ fs.unlinkSync(SETTINGS); }catch(_){ }
     console.log('setup:', done.join(', '));
     console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
-    try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
+    booted=true; try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
   }
   if(MESH){
     let done_mesh='';
@@ -1087,7 +1108,7 @@ setTimeout(async ()=>{
     }catch(e){ errors.push('draw order: '+short(e)); }
     console.log('mesh view:', n, 'batches;', w.eval("(document.getElementById('mvStats')||{}).textContent||''"), done_mesh||'');
     console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
-    try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
+    booted=true; try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
   }
   const loaded=calls.includes('cell_data') && !!w.eval('App._scene');
   if(!loaded) errors.push('the cell never loaded (no cell_data / scene)');
@@ -1292,5 +1313,5 @@ setTimeout(async ()=>{
   }
   if(process.env.WG_TAINT){ console.log('unescaped:', tainted.size); [...tainted].forEach(t=>console.log(' -',t)); }
   console.log('page errors:', errors.length); errors.slice(0,40).forEach(e=>console.log(' -',e));
-  try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
+  booted=true; try{ eng.kill(); }catch(_){ } process.exit(errors.length?1:0);
 }, WAIT);

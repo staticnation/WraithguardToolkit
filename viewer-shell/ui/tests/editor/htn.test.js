@@ -221,5 +221,10 @@ module.exports = async (t) => {
   H.deps = { omw: false, mwse: false, rubic0n: true, toml: { omw: 'D:\\Mods\\OdaiHTN', mwse: null, path: 'C:/MOMW/customizations.toml' }, hint: 'FluadHTN is in your customizations TOML (D:\\Mods\\OdaiHTN) but not in openmw.cfg yet: run the MOMW configurator' };
   H.drawDeps();
   const dt = d.getElementById('tlHtnDeps').textContent;
+  // Found on disk, in a folder whose kept file list is older (Static 2026-11-24): ✓, and why the Preview may not see it.
+  H.deps = { omw: true, mwse: false, rubic0n: true, stale: ['E:\\OpenMW\\Mods\\custom\\OdaiHTN'], hint: 'FluadHTN is on disk in E:\\OpenMW\\Mods\\custom\\OdaiHTN, but the file list Wraithguard keeps for that folder is older than it: reconnect the install' };
+  d.body.querySelector('#tlHtnDeps') && H.drawDeps();
+  const ds = d.getElementById('tlHtnDeps').textContent;
+  t.ok(/✓ FluadHTN \(OpenMW\)/.test(ds) && /reconnect the install/.test(ds), 'on disk only: found, and the reconnect said: ' + ds);
   t.ok(/in customizations\.toml, not openmw\.cfg yet/.test(dt) && /run the MOMW configurator/.test(dt) && !/✗ FluadHTN \(OpenMW\)/.test(dt), 'a TOML-only FluadHTN is pending, not missing: ' + dt);
 };

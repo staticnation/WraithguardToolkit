@@ -39,18 +39,51 @@ pub fn is_rubic0n(lib: &[u8]) -> bool {
 /// What an exported mod needs, and what is there: `{omw, mwse, mwse_path, luajit, rubic0n}`.
 /// `luajit` is the library OpenMW will load (null when none was found); `rubic0n` is null then.
 pub fn deps(vfs: &Vfs, luajit: Option<&Path>) -> Value {
-    let omw = vfs.resolve(OMW_FILE).is_some();
-    let mwse_path = MWSE_FILES.iter().find(|p| vfs.resolve(p).is_some()).copied();
-    let rubic0n = luajit.and_then(|p| std::fs::read(p).ok()).map(|b| is_rubic0n(&b));
     let roots: Vec<PathBuf> = vfs.roots.iter().map(|r| r.dir.clone()).collect();
+    /* The loaded file list first; then each data folder on disk. Static 2026-11-24: the files
+       were in E:/…/OdaiHTN/scripts/sb_htn, the folder was a data= line, and the list the
+       viewer kept for it was from before they were unpacked. The game reads the disk, so the
+       disk says whether the export will find FluadHTN; the stale list is said separately. */
+    let on_disk = |rel: &str| roots.iter().find(|r| r.join(rel).is_file()).cloned();
+    let mut stale: Vec<PathBuf> = Vec::new();
+    let mut omw = vfs.resolve(OMW_FILE).is_some();
+    if !omw {
+        if let Some(r) = on_disk(OMW_FILE) {
+            omw = true;
+            stale.push(r);
+        }
+    }
+    let mut mwse_path = MWSE_FILES.iter().find(|p| vfs.resolve(p).is_some()).copied();
+    if mwse_path.is_none() {
+        if let Some((p, r)) = MWSE_FILES.iter().find_map(|p| on_disk(p).map(|r| (*p, r))) {
+            mwse_path = Some(p);
+            stale.push(r);
+        }
+    }
+    let rubic0n = luajit.and_then(|p| std::fs::read(p).ok()).map(|b| is_rubic0n(&b));
+    let mut hint: Vec<String> = Vec::new();
+    if !stale.is_empty() {
+        let list: Vec<String> = stale.iter().map(|r| r.display().to_string()).collect();
+        hint.push(format!(
+            "FluadHTN is on disk in {}, but the file list Wraithguard keeps for that folder is older than it: reconnect the install (Setup, Save and load) so the Preview can read it. The game will find it as it is.",
+            list.join(", ")
+        ));
+    }
+    if !(omw && mwse_path.is_some()) {
+        // Why it may not be found (Static 2026-11-23: "its not detecting odaihtn").
+        let w = why_missing(&roots);
+        if !w.is_empty() && !(omw && w.starts_with("A data folder names it")) {
+            hint.push(w);
+        }
+    }
     json!({
         "omw": omw,
         "mwse": mwse_path.is_some(),
         "mwse_path": mwse_path,
         "luajit": luajit.map(|p| p.display().to_string()),
         "rubic0n": rubic0n,
-        // Why it may not be found (Static 2026-11-23: "its not detecting odaihtn").
-        "hint": if omw && mwse_path.is_some() { Value::Null } else { json!(why_missing(&roots)) },
+        "stale": stale.iter().map(|r| r.display().to_string()).collect::<Vec<_>>(),
+        "hint": if hint.is_empty() { Value::Null } else { json!(hint.join("\n")) },
     })
 }
 
@@ -82,6 +115,7 @@ pub fn why_missing(roots: &[PathBuf]) -> String {
         s.contains("odai") || s.contains("fluad") || s.contains("htn")
     };
     let mut found = Vec::new();
+    let mut placed = false;   // an sb_htn exactly where one build or the other wants it
     for root in roots.iter().filter(|r| like(r)) {
         let mut stack = vec![(root.clone(), 0usize)];
         while let Some((d, depth)) = stack.pop() {
@@ -103,6 +137,8 @@ pub fn why_missing(roots: &[PathBuf]) -> String {
                         });
                     } else if rel == "data files/mwse/lib/sb_htn" {
                         found.push(format!("{} is in {}: the MWSE build goes in Morrowind's Data Files, or the data= line should end in Data Files", p.display(), root.display()));
+                    } else {
+                        placed = true;
                     }
                 } else if depth < 4 {
                     stack.push((p, depth + 1));
@@ -112,6 +148,11 @@ pub fn why_missing(roots: &[PathBuf]) -> String {
     }
     if !found.is_empty() {
         return found.join("\n");
+    }
+    /* In place: nothing to explain about where it is. (Before, this fell through to "no sb_htn
+       folder is in it", which Static's correctly unpacked folder got.) */
+    if placed {
+        return String::new();
     }
     if roots.iter().any(|r| like(r)) {
         return "A data folder names it, but no sb_htn folder is in it: is FluadHTN unpacked there?".into();
@@ -201,6 +242,27 @@ mod tests {
         let why = why_missing(&[dir.join("Other"), root.clone()]);
         assert!(why.contains("one folder too deep") && why.contains(&root.join("OdaiHTN").display().to_string()), "{why}");
         assert!(why_missing(&[dir.join("Other")]).contains("No data folder"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fluadhtn_on_disk_but_not_in_a_stale_file_list_is_found() {
+        // Static 2026-11-24: the folder a data= line, FluadHTN unpacked in it correctly, and
+        // the file list kept for it from before - the check said it was not there.
+        let dir = std::env::temp_dir().join(format!("wg_stale_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("OdaiHTN");
+        std::fs::create_dir_all(&root).unwrap();
+        let vfs = Vfs::with_roots(&[("OdaiHTN".to_string(), root.clone())]);   // listed while empty
+        std::fs::create_dir_all(root.join("scripts/sb_htn")).unwrap();
+        std::fs::write(root.join("scripts/sb_htn/interface.lua"), "return {}").unwrap();
+        let v = deps(&vfs, None);
+        assert_eq!(v["omw"], true, "{v}");
+        assert_eq!(v["stale"][0], root.display().to_string(), "{v}");
+        let hint = v["hint"].as_str().unwrap_or("");
+        assert!(hint.contains("older than it") && !hint.contains("no sb_htn folder"), "{hint}");
+        // In place, there is nothing to say about where it is.
+        assert_eq!(why_missing(std::slice::from_ref(&root)), "");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

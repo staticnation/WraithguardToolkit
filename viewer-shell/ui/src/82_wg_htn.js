@@ -1142,7 +1142,8 @@ const WgHtn={
     if(d.engines.mwse) chip(D.mwse, 'FluadHTN (MWSE)', D.mwse? D.mwse_path : 'Install FluadHTN\'s MWSE build: '+this.NEXUS_FLUADHTN);
     box.append(this.btn('Check again', ()=>this.loadDeps()));
     // Why it was not found, when the engine can tell (a TOML not applied yet, a folder one too deep).
-    if(D.hint && ((d.engines.omw && !D.omw) || (d.engines.mwse && !D.mwse))){ const h=this.el('div', 'hint', D.hint); h.style.cssText='white-space:pre-wrap;margin-top:3px'; box.append(h); }
+    // And when it was found on disk only: the file list kept for its folder is older than it.
+    if(D.hint && ((d.engines.omw && !D.omw) || (d.engines.mwse && !D.mwse) || (D.stale && D.stale.length))){ const h=this.el('div', 'hint', D.hint); h.style.cssText='white-space:pre-wrap;margin-top:3px'; box.append(h); }
   },
 
   /* The tree: each node a row - what it is, its name, its conditions in short - the domain

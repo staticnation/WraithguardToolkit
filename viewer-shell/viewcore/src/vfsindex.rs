@@ -21,8 +21,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// The file's name, beside the viewer's other files.
 pub const FILE: &str = "wraithguard_overlay_index.bin";
 const MAGIC: &[u8; 4] = b"WGVI";
-/// Bumped whenever what a root's index holds could differ for the same folders.
-const VERSION: u32 = 1;
+/// Bumped whenever what a root's index holds could differ for the same folders. 2: a
+/// folder's stamp is the later of its modified and created times (see `stamp`).
+const VERSION: u32 = 2;
 
 /// What one connect's index cost: roots taken from the file, roots walked, and whether
 /// the file was written.
@@ -41,8 +42,21 @@ struct Saved {
     files: Vec<(String, String)>,
 }
 
+/// A folder's time: the later of when its entries last changed and when it was made.
+///
+/// The modified time alone was not enough (Static 2026-11-24, FluadHTN's folder unpacked
+/// again and its files not seen): 7-Zip, and copies that keep times, set each folder they
+/// make to the time the archive stored, so a folder deleted and unpacked again can carry
+/// exactly the time it had, and its old file list was reused. The creation time is the
+/// moment the folder was made on this disk, which nothing restores; where the system has
+/// none, the modified time alone, as before.
 fn stamp(p: &Path) -> Option<(u64, u32)> {
-    let t = std::fs::metadata(p).ok()?.modified().ok()?;
+    let m = std::fs::metadata(p).ok()?;
+    let t = m.modified().ok()?;
+    let t = match m.created() {
+        Ok(c) if c > t => c,
+        _ => t,
+    };
     let d = t.duration_since(UNIX_EPOCH).ok()?;
     Some((d.as_secs(), d.subsec_nanos()))
 }
@@ -304,6 +318,42 @@ mod tests {
         let (v4, s4) = overlay(&dirs, Some(&cache));
         assert_eq!((s4.reused, s4.walked), (1, 1));
         assert!(v4.resolve("textures/tx_rock.dds").is_none());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Static 2026-11-24: a folder deleted and unpacked again by 7-Zip comes back with the
+    /// times the archive stored, so its modified time alone matched the saved one and its old
+    /// file list was reused. Its creation time is new, and that walks it. (Unix: a folder's
+    /// times are set through an open handle, which Windows does not give for a folder; and
+    /// only where the filesystem records when a folder was made.)
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_made_again_with_its_old_time_is_walked() {
+        let base = scratch("remade");
+        let a = base.join("OdaiHTN");
+        tree(&a, &["odaihtn.omwscripts"]);
+        let old = std::fs::metadata(&a).unwrap().modified().unwrap() - std::time::Duration::from_secs(86_400);
+        let set = |d: &Path| std::fs::File::open(d).unwrap().set_modified(old).unwrap();
+        set(&a);
+        age(&base);
+        if std::fs::metadata(&a).unwrap().created().is_err() {
+            eprintln!("this filesystem keeps no creation times: nothing to test");
+            let _ = std::fs::remove_dir_all(&base);
+            return;
+        }
+        let dirs = vec![("OdaiHTN".to_string(), a.clone())];
+        let cache = base.join(FILE);
+        let (v1, _) = overlay(&dirs, Some(&cache));
+        assert!(v1.resolve("scripts/sb_htn/interface.lua").is_none());
+        // Deleted, unpacked again with the scripts, and every folder set back to the stored time.
+        std::fs::remove_dir_all(&a).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        tree(&a, &["odaihtn.omwscripts", "scripts/sb_htn/interface.lua"]);
+        for d in [a.join("scripts/sb_htn"), a.join("scripts"), a.clone()] { set(&d); }
+        age(&base);
+        let (v2, s2) = overlay(&dirs, Some(&cache));
+        assert_eq!((s2.reused, s2.walked), (0, 1), "the remade folder is walked");
+        assert!(v2.resolve("scripts/sb_htn/interface.lua").is_some());
         let _ = std::fs::remove_dir_all(&base);
     }
 
