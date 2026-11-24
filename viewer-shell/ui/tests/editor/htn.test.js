@@ -107,6 +107,29 @@ module.exports = async (t) => {
   t.ok(!w.WgScripts.paused && H.run.atBreak == null, 'Continue: no breakpoint on the patrol, it runs on');
   H.bps.clear(); H.stopRun();
 
+  // Places and the schedule (2026-11-24, from Liam Mello's "NPC scheduling").
+  const sd = H.example(); sd.places = [{ name: 'Gate', x: 100, y: 200, z: 0, cell: 'Balmora' }, { name: 'Bed', x: -500, y: 0, z: 0, cell: 'Balmora' }];
+  sd.schedule = [{ from: 8, to: 20, place: 'Gate', activity: 'wander' }, { from: 20, to: 8, place: 'Bed', activity: 'wait' }];
+  sd.root.children = sd.root.children.filter(n => n.name !== 'Patrol');   // always possible: it would hide the schedule
+  H.doc = sd; H.fresh();
+  const sch = H.applySchedule();
+  t.ok(sch && H.doc.root.children[H.doc.root.children.length - 1] === sch && sch.children.length === 2 && sch.children[0].conds[0].block === 'hour_between', 'the schedule is the last branch, an hour block each');
+  t.ok(H.validate().filter(x => x.level === 'error').length === 0, 'and checks clean ' + JSON.stringify(H.validate().filter(x => x.level === 'error')));
+  const so = H.files().find(f => /actor\.lua$/.test(f[0]))[1], sm = H.files().find(f => /main\.lua$/.test(f[0]))[1];
+  t.ok(/G\.travel\(a, 100, 200, 0\)/.test(so) && /G\.travel\(a, -500, 0, 0\)/.test(sm), 'a place goes into both engines\' Lua as its point');
+  H.applySchedule();
+  t.ok(H.doc.root.children.filter(n => n.schedule).length === 1, 'put in again: replaced, not added twice');
+  sch.children[0].children[0].do.args.place = 'Nowhere';
+  H.doc.root.children[H.doc.root.children.length - 1].children[0].children[0].do.args.place = 'Nowhere';
+  t.ok(H.validate().some(x => /choose a place \(Nowhere is not there\)/.test(x.text)), 'a place that is not there is caught');
+  H.applySchedule();
+  // The Preview run walks to the place.
+  A.hp = 100; playerDist = 5000; ais.length = 0;
+  const $0 = w.$; w.$ = sel => sel === '#p_hour' ? { value: '22' } : $0(sel);
+  H.startRun('k2'); step(3);
+  t.ok(ais.includes('travel') && A.ai.args.map(Number).join() === '-500,0,0', 'at 22h it goes to bed: ' + JSON.stringify(A.ai));
+  H.stopRun(); w.$ = $0;
+
   // Who runs it, by faction, class or cell (2026-11-24).
   const fac = H.example(); fac.attach = { ids: [], factions: ['Imperial Legion'], classes: [], cells: [], all: false };
   t.ok(H.validate(fac).filter(x => x.level === 'error').length === 0, 'a faction alone says who runs it');

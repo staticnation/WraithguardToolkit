@@ -327,6 +327,21 @@
   camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
   orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
   the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **HTN AI: places and schedules** (Static 2026-11-24, from Liam Mello: "place all the anchor
+  points in your editor since it shows what the world looks like ... map out detailed NPC
+  schedules"; `82_wg_htn.js`):
+  - **Places**: named anchor points in the behaviour, each set from where the Preview's camera
+    stands (**+ Place here**, **Here** to move one), kept in the `.wghtn.json`; renaming one renames
+    it in every step and schedule row that goes there.
+  - **Go to a place**, a new step: walks there (as Walk to a point, the place's point written into
+    both engines' Lua at export, and played by the Preview's run); a place that is not there is a
+    problem the check names.
+  - **Schedule**: hour blocks (from, to, a place, what to do there: wander, stand, idle, or a reusable
+    part). **Put in the behaviour** adds them as its last branch, a Select "Schedule" with a Sequence
+    an hour block (Go to the place, then the activity, while the hour is in the block); put in again,
+    it replaces the one before. Which cells' NPCs run it is the behaviour's Cells (who runs it).
+  Tests: `htn.test.js` (the schedule's steps, both engines' Lua, a missing place, the Preview run
+  going to bed at 22h).
 - **The jobs batch, and the Lua round trip** (Static 2026-11-24, "lets do all this"; `90_wg_jobs.js`):
   - **Jobs** on the top bar: every long command the pages start (Merge Lands, Merge objects, the
     Mesh optimizer, Check meshes, the Lua check, tes3cmd, Save Check, the Conflicts scans, the Load

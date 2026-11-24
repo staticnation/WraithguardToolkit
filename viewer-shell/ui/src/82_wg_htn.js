@@ -47,6 +47,7 @@ const WgHtn={
     wait:{label:'Wait', help:'Stand still for a while.', fields:[['seconds', 'Seconds', 'num', 5]]},
     wander:{label:'Wander', help:'Wander around where it stands, for a while.', fields:[['distance', 'Distance', 'num', 512], ['seconds', 'Seconds', 'num', 20]]},
     walk_to:{label:'Walk to a point', help:'Walk to a place in the world (game units). Fails after two minutes.', fields:[['x', 'X', 'num', 0], ['y', 'Y', 'num', 0], ['z', 'Z', 'num', 0]], here:true},
+    go_place:{label:'Go to a place', help:'Walk to one of the behaviour\'s places (Places, in its settings: anchor points set from the Preview). Fails after two minutes.', fields:[['place', 'Place', 'place', '']]},
     walk_to_object:{label:'Walk to an object', help:'Walk up to the nearest loaded object with this record id. Fails when none is loaded.', fields:[['id', 'Object id', 'id', ''], ['near', 'Stop within', 'num', 128]]},
     go_to_player:{label:'Go to the player', help:'Walk up to the player.', fields:[['near', 'Stop within', 'num', 200]]},
     follow_player:{label:'Follow the player', help:'Follow the player for a while.', fields:[['seconds', 'Seconds', 'num', 30]]},
@@ -218,6 +219,7 @@ const WgHtn={
     d.engines=d.engines||{omw:true, mwse:true}; d.attach=d.attach||{ids:[], all:false}; d.attach.ids=d.attach.ids||[];
     for(const k of ['factions', 'classes', 'cells']) d.attach[k]=Array.isArray(d.attach[k])? d.attach[k] : [];
     d.state=Array.isArray(d.state)? d.state : []; d.tick=+d.tick>0? +d.tick : 0.25;
+    d.places=Array.isArray(d.places)? d.places : []; d.schedule=Array.isArray(d.schedule)? d.schedule : [];
     const fix=n=>{ n.id=n.id||this.id(); n.conds=n.conds||[]; if(n.type==='action'){ n.effects=n.effects||[]; n.exec=n.exec||[]; n.do=n.do||this.act('wait'); } (n.children||[]).forEach(fix); };
     if(!d.root || d.root.type!=='select') throw new Error('the domain has no root Select');
     fix(d.root);
@@ -310,6 +312,7 @@ const WgHtn={
       }
       if(type==='val' && !isFinite(+v)) err(at, where+' - '+def.label+': '+label+' must be a number (true is 1, false 0).');
       if(type==='op' && !this.OPS.includes(v)) err(at, where+' - '+def.label+': an unknown comparison.');
+      if(type==='place' && !this.placeOf(v)) err(at, where+' - '+def.label+': choose a place'+(v? ' ('+v+' is not there)' : '')+' (Places, in the behaviour\'s settings).');
     }
     if(b.block==='say' && !String(b.args.text||'').trim()) err(at, where+' - Show a message: the text is empty.');
   },
@@ -346,8 +349,12 @@ const WgHtn={
   },
   /** An action as Lua: [start body, update body, stop body], over `a`, `ctx` and `r` (its own
    *  table on the context, cleared at each start). Start and update return a task status. */
+  /** A place of the behaviour by name (Static 2026-11-24, NPC schedules: "place all the anchor
+   *  points in your editor"): {name, x, y, z, cell} or null. The export's own doc while it runs. */
+  placeOf(name, d){ const D=d||this._expDoc||this.doc; return ((D && D.places)||[]).find(p=>p.name===name) || null; },
   luaAct(d, eng){
     const A=d.args||{}, n=x=>this.lnum(x);
+    if(d.block==='go_place'){ const p=this.placeOf(A.place)||{x:0, y:0, z:0}; return this.luaAct({block:'walk_to', args:{x:p.x, y:p.y, z:p.z}}, eng); }
     switch(d.block){
       case 'wait': return ['r.t0 = G.now(a)', 'if G.now(a) - r.t0 >= '+n(A.seconds)+' then return T.Success end', ''];
       case 'wander': return ['r.t0 = G.now(a)\nG.wander(a, '+n(A.distance)+')', 'if G.now(a) - r.t0 >= '+n(A.seconds)+' then G.clear(a) return T.Success end', 'G.clear(a)'];
@@ -745,8 +752,11 @@ const WgHtn={
   files(d){
     d=d||this.doc;
     const out=[];
-    if(d.engines.omw) out.push(...this.exportOmw(d));
-    if(d.engines.mwse) out.push(...this.exportMwse(d));
+    this._expDoc=d;
+    try{
+      if(d.engines.omw) out.push(...this.exportOmw(d));
+      if(d.engines.mwse) out.push(...this.exportMwse(d));
+    }finally{ this._expDoc=null; }
     out.push([d.modId+'.wghtn.json', JSON.stringify(d, null, 2)+'\n'], [d.modId+' - README.md', this.readme(d)]);
     return out;
   },
@@ -781,6 +791,7 @@ const WgHtn={
       case 'wait': return 'wait '+A.seconds+' s';
       case 'wander': return 'wander '+A.distance+' for '+A.seconds+' s';
       case 'walk_to': return 'walk to '+[A.x, A.y, A.z].map(v=>Math.round(+v)).join(', ');
+      case 'go_place': return 'go to '+(A.place||'?');
       case 'walk_to_object': return 'walk to '+(A.id||'?');
       case 'go_to_player': return 'go to the player';
       case 'follow_player': return 'follow the player '+A.seconds+' s';
@@ -1162,6 +1173,11 @@ const WgHtn={
     switch(n.do.block){
       case 'wait': if(first) clear(); return el>=+A.seconds? 'success' : 'continue';
       case 'wander': if(first) ai('wander', [A.distance, 0, 0]); if(el>=+A.seconds){ clear(); return 'success'; } return 'continue';
+      case 'go_place': {
+        const p=this.placeOf(A.place, R.doc);
+        if(!p){ this.say('No place '+A.place); return 'failure'; }
+        return this.simAct(R, {name:n.name, do:{block:'walk_to', args:{x:p.x, y:p.y, z:p.z}}}, first);
+      }
       case 'walk_to': {
         if(first) ai('travel', [A.x, A.y, A.z]);
         if(Math.hypot(me[0]-A.x, me[1]-A.y, me[2]-A.z)<150 || (R.A.ai && R.A.ai.done)){ clear(); return 'success'; }
@@ -1201,7 +1217,7 @@ const WgHtn={
   },
   simStop(R, n){
     if(!n || n.type!=='action') return;
-    if(['wander', 'walk_to', 'walk_to_object', 'go_to_player', 'follow_player', 'flee_player'].includes(n.do.block)){ R.A.ai=null; R.A._route=null; }
+    if(['wander', 'walk_to', 'go_place', 'walk_to_object', 'go_to_player', 'follow_player', 'flee_player'].includes(n.do.block)){ R.A.ai=null; R.A._route=null; }
   },
 
   /* ---- the page --------------------------------------------------------------------------- */
@@ -1615,10 +1631,90 @@ const WgHtn={
     box.textContent='';
     const f=this.sel && this.find(this.sel);
     if(f && f.n!==this.doc.root) box.append(this.inspector(f.n, f.parent));
-    else box.append(this.settings(), this.stateEditor());
+    else box.append(this.settings(), this.stateEditor(), this.placesEditor(), this.scheduleEditor());
     const pr=this.el('div'); pr.id='tlHtnProbs'; box.append(pr); this.drawProblems();
     const run=this.el('div'); run.id='tlHtnRun'; box.append(run); this.drawRun();
     if(this.adv) box.append(this.luaView());
+  },
+  /* ---- places and the schedule (Static 2026-11-24, from Liam Mello: "place all the anchor
+     points in your editor ... map out detailed NPC schedules") ---- */
+  /** Where the Preview's camera stands, in game units, and the loaded cell's name. */
+  camera(){
+    const R=App.R, o=(App._scene && App._scene.origin)||[0, 0];
+    if(!R || !R.cam){ toast('Open a cell in the Preview first', 'warn', 2500); return null; }
+    const c=App.cellSel||{};
+    return {x:Math.round(R.cam.tx+o[0]), y:Math.round(R.cam.ty+o[1]), z:Math.round(R.cam.tz), cell:c.kind==='ext'? (c.gx+','+c.gy) : String(c.name||'')};
+  },
+  placesEditor(){
+    const d=this.doc, w=this.section('Places');
+    w.append(this.el('div', 'hint', 'Anchor points for "Go to a place" and the schedule: stand the Preview\'s camera where it should be, then Here.'));
+    (d.places||[]).forEach((pl, i)=>{
+      const r=this.el('div'); r.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px';
+      const nm=this.input(pl.name, v=>{
+        v=String(v).trim(); if(!v || v===pl.name) return;
+        if(d.places.some(q=>q!==pl && q.name===v)){ toast('There is a place '+v+' already', 'warn', 2500); this.draw(); return; }
+        // Every step and schedule row going there goes to the renamed place.
+        this.walk(n=>{ if(n.type==='action' && n.do.block==='go_place' && n.do.args.place===pl.name) n.do.args.place=v; });
+        for(const row of d.schedule||[]) if(row.place===pl.name) row.place=v;
+        pl.name=v; this.changed();
+      }, 'text', '120px');
+      const at=this.el('span', 'hint', [pl.x, pl.y, pl.z].join(', ')+(pl.cell? ' · '+pl.cell : '')); at.style.flex='1';
+      r.append(nm, at, this.btn('Here', ()=>{ const c=this.camera(); if(c){ Object.assign(pl, c); this.changed(); } }, 'Move it to where the Preview\'s camera stands'),
+        this.btn('✕', ()=>{ d.places.splice(i, 1); this.changed(); }, 'Remove this place'));
+      w.append(r);
+    });
+    w.append(this.btn('+ Place here', ()=>{
+      const c=this.camera(); if(!c) return;
+      let k=(d.places||[]).length+1; while((d.places||[]).some(q=>q.name==='Place '+k)) k++;
+      (d.places=d.places||[]).push(Object.assign({name:'Place '+k}, c)); this.changed();
+    }, 'A new place where the Preview\'s camera stands'));
+    return w;
+  },
+  ACTIVITIES:[['wander', 'Wander about there'], ['wait', 'Stand there'], ['idle', 'Idle there (animations)']],
+  scheduleEditor(){
+    const d=this.doc, w=this.section('Schedule');
+    w.append(this.el('div', 'hint', 'Where it is through the day, and what it does there. Put in the behaviour adds it as the last branch (what comes before it, a greeting or a fight, still comes first); its steps can be edited after.'));
+    const parts=(d.subs||[]).map(x=>['part:'+x.id, 'Do "'+x.name+'"']);
+    (d.schedule||[]).forEach((row, i)=>{
+      const r=this.el('div'); r.style.cssText='display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:3px';
+      const pl=this.el('select'); const z=this.el('option', '', '(place)'); z.value=''; pl.append(z);
+      for(const p of d.places||[]){ const o=this.el('option', '', p.name); o.value=p.name; pl.append(o); }
+      pl.value=row.place||''; pl.onchange=()=>{ row.place=pl.value; this.changed(); };
+      const act=this.el('select');
+      for(const [v, t] of this.ACTIVITIES.concat(parts)){ const o=this.el('option', '', t); o.value=v; act.append(o); }
+      act.value=row.activity||'wander'; act.onchange=()=>{ row.activity=act.value; this.changed(); };
+      r.append(this.input(row.from, v=>{ row.from=+v; this.changed(); }, 'number', '52px'), this.el('span', 'hint', 'to'),
+        this.input(row.to, v=>{ row.to=+v; this.changed(); }, 'number', '52px'), this.el('span', 'hint', 'h at'), pl, act,
+        this.btn('✕', ()=>{ d.schedule.splice(i, 1); this.changed(); }, 'Remove this hour'));
+      w.append(r);
+    });
+    const b=this.el('div'); b.style.marginTop='4px';
+    b.append(this.btn('+ Hours', ()=>{ const last=(d.schedule||[]).slice(-1)[0]; (d.schedule=d.schedule||[]).push({from:last? last.to : 8, to:last? (last.to+4)%24 : 12, place:(d.places[0]||{}).name||'', activity:'wander'}); this.changed(); }),
+      ' ', this.btn('Put in the behaviour', ()=>this.applySchedule(), 'Add the schedule as the behaviour\'s last branch (one already put in is replaced)', ''));
+    w.append(b);
+    return w;
+  },
+  /** The schedule as steps: a Select "Schedule", last in the root, a Sequence an hour block -
+   *  go to its place, then its activity - each while the hour is in it. One put in before goes. */
+  applySchedule(){
+    const d=this.doc, rows=(d.schedule||[]).filter(r=>r.place);
+    if(!rows.length){ toast('Give the schedule an hour block with a place first', 'warn', 3000); return null; }
+    const N=(t, name, more)=>this.node(t, name, more);
+    const doing=r=>{
+      const a=String(r.activity||'wander');
+      if(a.startsWith('part:')){ const x=this.sub(a.slice(5)); return N('splice', x? x.name : 'Use part', {sub:a.slice(5)}); }
+      if(a==='wait') return N('action', 'Stand at '+r.place, {do:this.act('wait', {seconds:30})});
+      if(a==='idle') return N('action', 'Idle at '+r.place, {do:this.act('play_anim', {group:'Idle2', seconds:10})});
+      return N('action', 'Wander at '+r.place, {do:this.act('wander', {distance:300, seconds:30})});
+    };
+    const sch=N('select', 'Schedule', {schedule:true, children:rows.map(r=>N('sequence', (+r.from)+'-'+(+r.to)+'h: '+r.place, {
+      conds:[this.check('hour_between', {from:+r.from, to:+r.to})],
+      children:[N('action', 'Go to '+r.place, {do:this.act('go_place', {place:r.place})}), doing(r)]}))});
+    d.root.children=d.root.children.filter(n=>!n.schedule);
+    d.root.children.push(sch);
+    this.sel=sch.id; this.changed();
+    toast('The schedule is the behaviour\'s last branch: '+rows.length+' hour block'+(rows.length===1? '' : 's'), 'ok', 3000);
+    return sch;
   },
   section(title){ const w=this.el('div', 'warn'); w.style.borderLeftColor='var(--ac)'; w.style.marginBottom='8px'; w.append(this.el('b', '', title)); return w; },
   line(label, input, hint){
@@ -1705,6 +1801,12 @@ const WgHtn={
         i=this.el('select');
         const z=this.el('option', '', '(choose a value)'); z.value=''; i.append(z);
         for(const v of this.doc.state){ const o=this.el('option', '', v.name); o.value=v.name; i.append(o); }
+        i.value=b.args[k]||''; i.onchange=()=>on(i.value);
+      }
+      else if(type==='place'){
+        i=this.el('select');
+        const z=this.el('option', '', '(choose a place)'); z.value=''; i.append(z);
+        for(const pl of this.doc.places||[]){ const o=this.el('option', '', pl.name); o.value=pl.name; i.append(o); }
         i.value=b.args[k]||''; i.onchange=()=>on(i.value);
       }
       else if(type==='op'){ i=this.el('select'); for(const o of this.OPS){ const e=this.el('option', '', o); e.value=o; i.append(e); } i.value=b.args[k]; i.onchange=()=>on(i.value); }
