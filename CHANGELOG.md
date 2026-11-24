@@ -137,6 +137,14 @@
 
 ### Fixed
 
+- **Load order: a mod dropped in after the sort survives the next Sort** (`ordercore::export::Plan::with_added`,
+  `loadorder_export`'s `addedPlugins`). Export wrote content= inserts into the customizations TOML only
+  for the plugins of the person's own list, so a plugin dragged onto the page after the sort was in
+  openmw.cfg's order but not in the TOML, and the next Sort (which reads the TOML) dropped it. The
+  page now sends the plugins it added, and they get their inserts. When "Write customizations to"
+  names another file than the customizations.toml Sort reads, Export says so. Tests:
+  `a_plugin_added_after_the_sort_is_kept_by_the_next_one`, `loadorder_added.test.js`.
+
 - **OpenMW's standard libraries are read-only in the Preview, as in the game** (`luarun.lua`
   `readOnly`). OpenMW gives its scripts `string`, `table`, `math`, `coroutine` and `os` read-only
   (`components/lua/luastate.cpp`, `makeReadOnly`), and its `os` is only `date`, `difftime` and
@@ -304,6 +312,18 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **HTN AI: run on FluadHTN in the Preview** (`luarun::start_with_extra`, `lua_run_start`'s
+  `extra`, `WgLua.extra`): "Run on FluadHTN" adds the exported OpenMW Lua to the Preview's Lua
+  for the chosen actor alone, on the FluadHTN the load order has, and reads its planner's own
+  events back (plan, step started, done, failed, replanned, the world state) into the panel and
+  the tree. Without Rubic0n's LuaJIT the Preview supplies its table functions (`size`, `new`,
+  `isempty`, `removevalue`; written here, none of Rubic0n's code) and says OpenMW needs Rubic0n.
+  Wraithguard's planner stays for setups without FluadHTN. Checked on FluadHTN's Nexus OpenMW
+  build on stock LuaJIT. Test: `a_page_made_mod_runs_with_the_load_order_s`.
+- **HTN AI: more blocks**: run from the player, use or equip an item (OpenMW's own UseItem;
+  MWSE's `equip`); an object near, magicka or fatigue below, the player's health below, the
+  player carries, a quest's stage. Each for both engines and Wraithguard's planner, run on
+  FluadHTN's OpenMW build without an error.
 - **The Preview's MWSE mods find libraries in `MWSE/lib`** (`luarun.rs`, `luarun.lua`): `require`
   looks there after `MWSE/mods` and `MWSE/lua`, as MWSE does, and the folder's files are read as
   sources, never started on their own. FluadHTN's MWSE build lives there. Test:

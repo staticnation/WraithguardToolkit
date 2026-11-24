@@ -22,11 +22,16 @@ module.exports = async (t) => {
   const names = files.map(f => f[0]);
   t.ok(['wg_htn_guard.omwscripts', 'scripts/wg_htn_guard/actor.lua', 'scripts/wg_htn_guard/player.lua', 'MWSE/mods/wg_htn_guard/main.lua', 'wg_htn_guard.wghtn.json'].every(n => names.includes(n)), 'both engines\' files, and the domain ' + names.join(', '));
   const actor = files.find(f => f[0] === 'scripts/wg_htn_guard/actor.lua')[1], main = files.find(f => f[0] === 'MWSE/mods/wg_htn_guard/main.lua')[1];
-  t.ok(/pcall\(require, "scripts\.sb_htn\.interface"\)/.test(actor) && /type\(table\.size\) ~= "function"/.test(actor), 'OpenMW: FluadHTN required, not carried; Rubic0n asked for when missing');
-  t.ok(/pcall\(require, "sb_htn\.interop"\)/.test(main) && /tes3\.event\.simulate/.test(main), 'MWSE: FluadHTN required; run each simulate');
+  t.ok(/pcall\(function\(\) return require\("scripts\.sb_htn\.interface"\) end\)/.test(actor) && /type\(table\.size\) ~= "function"/.test(actor), 'OpenMW: FluadHTN required, not carried; Rubic0n asked for when missing');
+  t.ok(/pcall\(function\(\) return require\("sb_htn\.interop"\) end\)/.test(main) && /tes3\.event\.simulate/.test(main), 'MWSE: FluadHTN required; run each simulate');
   t.ok(/\["imperial guard"\] = true/.test(actor) && /:Sequence\("Back off when hurt"\)/.test(actor) && /:Effect\("Set Greeted", E\.PlanAndExecute/.test(actor), 'the actors, the domain and its effects are in the Lua');
   t.ok(/NPC, CREATURE: scripts\/wg_htn_guard\/actor\.lua/.test(files[0][1]), 'the .omwscripts registers the actor script');
   t.ok(!/sb_htn\/|Safebox36/.test(names.join(' ')), 'no FluadHTN file is in the export');
+
+  // Every block is written for both engines (none falls to the default).
+  for (const k of Object.keys(H.CHECKS)) for (const eng of ['omw', 'mwse']) t.ok(H.luaCheck(H.check(k), eng) !== '(false)', 'check ' + k + ' for ' + eng);
+  for (const k of Object.keys(H.ACTIONS)) t.ok(H.luaAct(H.act(k), 'omw')[0] !== 'return T.Failure', 'action ' + k);
+  for (const k of Object.keys(H.CHECKS)) t.ok(!/^(not: )?undefined/.test(H.checkText(H.check(k))), 'check ' + k + ' reads as words');
 
   // What a person types is data in the Lua.
   const evil = H.example();
@@ -70,6 +75,18 @@ module.exports = async (t) => {
   step(2);
   t.ok(said.includes('Enough! I yield.'), 'hurt: an earlier branch replaces the patrol ' + JSON.stringify(H.run.log.slice(-6)));
   t.ok(H.run.log.some(l => /Stopped Wander for a better plan/.test(l[1])), 'the patrol was stopped for it');
+  // Hurt and the player far: the new blocks in the Preview run - it runs from the player.
+  H.stopRun();
+  const flee = H.empty(); flee.modId = 'wg_flee'; flee.attach.ids = ['imperial guard'];
+  flee.root.children.push(H.node('action', 'Run', { conds: [H.check('player_health_below', { percent: 101 })], do: H.act('flee_player', { distance: 1000 }) }));
+  w.WgScripts.actorOf = (tt) => tt && tt.player ? { hp: 100, max: [100, 100, 100], items: new Map() } : A;
+  w.WgScripts.posOf = (tt) => tt && tt.player ? [100, 0, 0] : [0, 0, 0];
+  H.doc = flee; ais.length = 0; playerDist = 300;
+  H.startRun('k2'); step(1);
+  t.ok(ais[0] === 'travel' && A.ai.args[0] < 0, 'it runs away from the player ' + JSON.stringify(A.ai));
+  playerDist = 1200; step(1);
+  t.ok(H.run.log.some(l => /Done: Run/.test(l[1])), 'and is done once far enough');
+  w.WgScripts.actorOf = () => A; w.WgScripts.posOf = () => [0, 0, 0];
   H.stopRun();
   t.ok(!H.run, 'the run stops');
 
@@ -86,8 +103,33 @@ module.exports = async (t) => {
   H.startRun('k2'); step(4); H.stopRun();
   t.ok(said[0] === 'one' && said[1] === 'two', 'the step after the Pause runs once the one before it is done ' + JSON.stringify(said));
 
+  // The run on FluadHTN: the exported Lua added to the Preview's Lua for this actor, its planner's
+  // events read back from what it prints.
+  let starts = 0;
+  w.WgLua = { extra: null, start: async () => { starts++; } };
+  H.deps = { omw: true, rubic0n: false };
+  H.doc = H.example();
+  await H.startFluad('k2');
+  const X = w.WgLua.extra;
+  t.ok(starts === 1 && X && X.tableExt === true && X.scripts.some(s => s[0] === 'scripts/wg_htn_guard/actor.lua' && s[1].includes('NPC')), 'the Lua starts again with the mod added, Rubic0n\'s table functions asked for');
+  const ta = X.files.find(f => f[0] === 'scripts/wg_htn_guard/actor.lua')[1];
+  t.ok(/\["imperial guard"\] = true/.test(ta) && /wg_htn_trace/.test(ta) && !X.files.some(f => /omwscripts|wghtn/.test(f[0])), 'for this actor alone, traced, Lua files only');
+  t.ok(!/wg_htn_trace/.test(H.files().find(f => f[0] === 'scripts/wg_htn_guard/actor.lua')[1]), 'an export is never traced');
+  const P = 'scripts/wg_htn_guard/actor.lua';
+  t.ok(H.fromLua(P, 'print', '[wg_htn_trace] plan|Greet the player') && H.fromLua(P, 'print', '[wg_htn_trace] task|Greet the player'), 'its events are taken');
+  t.ok(H.run.curName === 'Greet the player' && H.run.plan.length === 0, 'the step it runs is known');
+  H.fromLua(P, 'print', '[wg_htn_trace] ws|1,0,1');
+  t.ok(H.run.ws.join() === '1,0,1', 'and the world state');
+  t.ok(H.fromLua(P, 'print', 'plain line') === false, 'other prints pass through');
+  H.stopRun();
+  t.ok(!H.run && w.WgLua.extra === null && starts === 2, 'stopped: the Lua starts again without it');
+  H.deps = { omw: false };
+  await H.startFluad('k2');
+  t.ok(H.run && H.run.mode !== 'fluad', 'without FluadHTN installed it runs on the page\'s planner');
+  H.stopRun();
+
   // The page.
-  H.doc = H.example(); H.path = ''; H.sel = '';
+  H.doc = H.example(); H.path = ''; H.sel = ''; H.deps = null;
   d.body.appendChild(H.pane()); H.wire();
   H.show();
   await new Promise(r => setTimeout(r, 0));

@@ -749,6 +749,48 @@ pub fn required(text: &str) -> Vec<String> {
     out
 }
 
+/// The start message with a mod the page made added (Tools → HTN AI's run on FluadHTN, Static
+/// 2026-11-23): its files as sources and every module they require from the data folders (FluadHTN
+/// itself, from the copy installed), its scripts registered, and `tableExt` (Rubic0n's table
+/// functions, for an engine without them) when asked.
+pub fn start_with_extra(start: &str, vfs: &Vfs, files: &[(String, String)], scripts: &[(String, Vec<String>)], table_ext: bool) -> String {
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(start) else { return start.to_string() };
+    let mut want: Vec<String> = Vec::new();
+    {
+        let Some(src) = v.get_mut("sources").and_then(|s| s.as_object_mut()) else { return start.to_string() };
+        for (p, t) in files {
+            let k = p.replace('\\', "/").to_ascii_lowercase();
+            want.extend(required(t));
+            src.insert(k, serde_json::Value::String(t.clone()));
+        }
+        let mut seen = 0;
+        while let Some(w) = want.pop() {
+            seen += 1;
+            if seen > 5000 {
+                break;
+            }
+            let k = w.to_ascii_lowercase();
+            if src.contains_key(&k) {
+                continue;
+            }
+            if let Some(t) = read_script(vfs, None, &k) {
+                want.extend(required(&t));
+                src.insert(k, serde_json::Value::String(t));
+            }
+        }
+    }
+    if let Some(list) = v.get_mut("scripts").and_then(|s| s.as_array_mut()) {
+        for (p, f) in scripts {
+            list.retain(|s| !s["path"].as_str().is_some_and(|q| q.eq_ignore_ascii_case(p)));
+            list.push(serde_json::json!({"path": p, "flags": f}));
+        }
+    }
+    if table_ext {
+        v["tableExt"] = serde_json::Value::Bool(true);
+    }
+    v.to_string()
+}
+
 /// What `__wg_start` takes: the built-ins and the load order's scripts (built-ins first),
 /// every script's and module's text, the music files (for OpenMW's playlists) and the
 /// weather names. `registered` is the load order's (`luascan::registered`).
@@ -867,9 +909,9 @@ pub fn start_json(vfs: &Vfs, resources: Option<&Path>, registered: &[(String, Ve
         // MWSE/lib: the libraries mods `require` (MWSE puts it on the package path; FluadHTN's
         // MWSE build lives there) - sources only, never started on their own.
         for k in vfs.list("mwse/lib/", &[".lua"]).into_iter().take(3000).map(|p| p.replace('\\', "/").to_ascii_lowercase()) {
-            if !sources.contains_key(&k) {
-                if let Some(t) = read_script(vfs, None, &k) {
-                    sources.insert(k, t);
+            if let std::collections::btree_map::Entry::Vacant(e) = sources.entry(k) {
+                if let Some(t) = read_script(vfs, None, e.key()) {
+                    e.insert(t);
                 }
             }
         }
@@ -1890,7 +1932,7 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
     /// OpenMW's built-ins from `res` (a `resources` folder): the start's answer and three steps'.
     fn openmw_mod_answers(root: &std::path::Path, res: Option<&std::path::Path>) -> Vec<String> {
         let steps = [r#"{"dt":0.2,"activations":[{"key":"k1","by":"player"}]}"#.to_string(), r#"{"dt":1.0}"#.to_string(), r#"{"dt":0.1,"player":{"cell":{"name":"","ext":true,"gx":-3,"gy":-2}}}"#.to_string()];
-        openmw_mod_run(root, res, &steps)
+        openmw_mod_run(root, res, &steps, false)
     }
 
     /// A library in MWSE/lib is found by `require`, as MWSE puts it on the package path (FluadHTN's
@@ -1923,10 +1965,12 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         let res = std::env::var("WG_OMW_RES").ok().map(std::path::PathBuf::from);
         let mut steps = vec![r#"{"dt":0.05,"objects":{"k1":{"id":"wg_box","tag":"CONT","pos":[0,0,0]},"k2":{"id":"fargoth","tag":"NPC_","pos":[300,0,0]},"k3":{"id":"mudcrab","tag":"CREA","pos":[600,0,0]}}}"#.to_string()];
         steps.extend(std::iter::repeat_n(r#"{"dt":0.1}"#.to_string(), 30));
-        println!("WGDUMP [{}]", openmw_mod_run(std::path::Path::new(&root), res.as_deref(), &steps).join(","));
+        // `WG_TABLE_EXT`: Rubic0n's table functions supplied, as the page's run does without Rubic0n.
+        let ext = std::env::var("WG_TABLE_EXT").is_ok();
+        println!("WGDUMP [{}]", openmw_mod_run(std::path::Path::new(&root), res.as_deref(), &steps, ext).join(","));
     }
 
-    fn openmw_mod_run(root: &std::path::Path, res: Option<&std::path::Path>, steps: &[String]) -> Vec<String> {
+    fn openmw_mod_run(root: &std::path::Path, res: Option<&std::path::Path>, steps: &[String], table_ext: bool) -> Vec<String> {
         let root = root.to_path_buf();
         let (mut sources, mut list) = (String::new(), Vec::new());
         let mut seen: Vec<(String, Vec<String>)> = Vec::new();
@@ -2002,6 +2046,7 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
             list.join(","),
             r#"{"player":{"pos":[100,200,0],"cell":{"name":"Balmora","ext":false}},"objects":{"k1":{"id":"wg_box","tag":"CONT","pos":[0,0,0]},"k2":{"id":"fargoth","tag":"NPC_","pos":[300,0,0]},"k3":{"id":"mudcrab","tag":"CREA","pos":[600,0,0]},"k4":{"id":"wg_door","tag":"DOOR","pos":[900,0,0]}}}"#
         );
+        let start = if table_ext { format!("{{\"tableExt\":true,{}", &start[1..]) } else { start };
         let mut r = runner();
         r.call("__wg_set_limits", "5,262144").unwrap();
         let mut out = vec![r.call("__wg_start", &start).unwrap_or_else(|e| format!("\"START {}\"", e.to_string().replace('"', "'")))];
@@ -2112,6 +2157,34 @@ print(#table.concat(out, '\n'), table.concat(out, '\n'))
         let start = format!(r#"{{"scripts":[],"sources":{{"mwse/mods/wg/ro/main.lua":{e}}},"mwse":["mwse/mods/wg/ro/main.lua"],"files":[],"weathers":["Clear"]}}"#);
         let b = runner().call("__wg_start", &start).unwrap();
         assert!(b.contains(r#""text":"mwse 5 function""#), "{b}");
+    }
+
+    /// Tools → HTN AI's run on FluadHTN (Static 2026-11-23): a mod the page made is added to the
+    /// start with the modules it requires read from the data folders, its scripts registered (one of
+    /// the load order's at the same path replaced), and Rubic0n's table functions supplied only when
+    /// asked.
+    #[test]
+    fn a_page_made_mod_runs_with_the_load_order_s() {
+        let dir = std::env::temp_dir().join(format!("wg_extra_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("scripts/lib")).unwrap();
+        std::fs::write(dir.join("scripts/lib/a.lua"), "return { b = require('scripts.lib.b') }").unwrap();
+        std::fs::write(dir.join("scripts/lib/b.lua"), "return 'from b'").unwrap();
+        let vfs = crate::vfs::Vfs::with_roots(&[("data".to_string(), dir.clone())]);
+        let start = r#"{"scripts":[{"path":"scripts/m/g.lua","flags":["GLOBAL"]}],"sources":{"scripts/m/g.lua":"print('old')"},"files":[],"weathers":["Clear"]}"#;
+        let g = "local ok, m = pcall(function() return require('scripts.lib.a') end) print('lib', ok and m.b, type(table.size), table.size and table.size({ 1, 2, x = 3 }))";
+        let files = vec![("scripts/m/g.lua".to_string(), g.to_string())];
+        let scripts = vec![("scripts/m/g.lua".to_string(), vec!["GLOBAL".to_string()])];
+        let with = start_with_extra(start, &vfs, &files, &scripts, true);
+        let v: serde_json::Value = serde_json::from_str(&with).unwrap();
+        assert!(v["sources"]["scripts/lib/a.lua"].is_string() && v["sources"]["scripts/lib/b.lua"].is_string(), "{with}");
+        assert_eq!(v["scripts"].as_array().unwrap().len(), 1, "{with}");
+        let a = runner().call("__wg_start", &with).unwrap();
+        assert!(a.contains(r#""text":"lib from b function 3""#) && !a.contains("old"), "{a}");
+        // Not asked for: the table functions are not there (OpenMW's own LuaJIT has none).
+        let b = runner().call("__wg_start", &start_with_extra(start, &vfs, &files, &scripts, false)).unwrap();
+        assert!(b.contains(r#""text":"lib from b nil nil""#), "{b}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An endless loop is stopped and named, in time, and the scripts after it still run.

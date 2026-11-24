@@ -760,6 +760,8 @@ const WgLoadOrder={
         dataOrder:this.plan.dataResult? this.data.filter(r=>r.on).map(r=>r.line) : null,
         disabledPlugins:this.content.filter(r=>!r.on).map(r=>r.name),
         disabledData:this.data.filter(r=>!r.on).map(r=>r.line),
+        // Dropped in after the sort: written into the TOML as the person's, so a new Sort keeps them.
+        addedPlugins:this.content.filter(r=>r.on && r.isNew).map(r=>r.name),
         planFile:extra.loadorderPlan||''};
       const got=loReadExport(unpackTables(await Engine.bytes('loadorder_export',{args:JSON.stringify(a)})));
       this.report=this.report.concat(got.report||[]);
@@ -767,7 +769,9 @@ const WgLoadOrder={
       const what=[got.wroteCfg&&'openmw.cfg', got.wroteToml&&'customizations.toml'].filter(Boolean);
       // Say why nothing was written: a preview is what Export does without a target ticked.
       const why=a.dryRun? 'Dry run is ticked' : !a.emitToml? 'name the customizations.toml (or "Write customizations to") to write the order into' : 'see Warnings';
-      toast(what.length? 'Wrote '+what.join(' and ') : 'Nothing written (a preview): '+why, what.length?'ok':'warn', what.length? 4000 : 7000);
+      // Sort reads the customizations.toml field: a TOML written elsewhere is not what it reads.
+      const reads=this.val('customizations'), elsewhere=got.wroteToml && reads && toml && toml.toLowerCase()!==reads.toLowerCase();
+      toast(what.length? 'Wrote '+what.join(' and ')+(elsewhere? ' ('+toml+'). Sort reads '+reads+': name that file in customizations.toml to keep these changes on the next Sort' : '') : 'Nothing written (a preview): '+why, what.length? (elsewhere? 'warn' : 'ok') : 'warn', what.length? (elsewhere? 9000 : 4000) : 7000);
     }catch(e){ toast(String(e.message||e),'err',6000); }
     finally{ btn.disabled=false; }
   },

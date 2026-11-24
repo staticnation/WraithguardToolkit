@@ -2083,6 +2083,14 @@ local scriptMetas = setmetatable({}, { __mode = 'k' })   -- the metatables scrip
 -- the game - and ran on in the Preview, which gave each script a copy it could change. The same
 -- here: a library is read through, and a write is the error OpenMW's gives. `pairs`, `ipairs`,
 -- `next` and `#` read the library under it, as OpenMW's own do. MWSE mods keep theirs writable.
+-- Rubic0n's table helpers, as FluadHTN's OpenMW build uses them (`tableExt` in the start).
+local TABLE_EXT = false
+local TABLE_EXT_FNS = {
+  size = function(t) local n = 0 for _ in next, t do n = n + 1 end return n end,
+  new = function() return {} end,
+  isempty = function(t) return next(t) == nil end,
+  removevalue = function(t, v) for i = 1, #t do if t[i] == v then table.remove(t, i) return true end end return false end,
+}
 local roBacking = setmetatable({}, { __mode = 'k' })
 local function readOnly(t, name)
   local p = setmetatable({}, {
@@ -2154,6 +2162,10 @@ local function sandbox(inst)
   local tbl = {} for k, v in pairs(table) do tbl[k] = v end
   tbl.unpack = tbl.unpack or unpack
   tbl.pack = tbl.pack or function(...) return { n = select('#', ...), ... } end
+  -- Tools → HTN AI's run on FluadHTN (Static 2026-11-23): Rubic0n's table functions the OpenMW
+  -- build of FluadHTN calls, when the page asks for them (`tableExt`) and the engine lacks them.
+  -- Written here from what they do; none of Rubic0n's code.
+  if TABLE_EXT then for k, f in pairs(TABLE_EXT_FNS) do if tbl[k] == nil then tbl[k] = f end end end
   env.table = tbl
   env.print = function(...) local t = {} for i = 1, select('#', ...) do t[i] = tostring((select(i, ...))) end log('print', inst.path, table.concat(t, ' ')) end
   env.os = { time = os.time, date = os.date, clock = os.clock, difftime = os.difftime }
@@ -2916,6 +2928,7 @@ end
 -- content: [content= names], apiRevision, mwse: [MWSE mods' main.lua paths]}`
 function __wg_start(arg)
   local a = json.decode(arg)
+  TABLE_EXT = a.tableExt == true
   registered = a.scripts or {}
   for p, t in pairs(a.sources or {}) do sources[string.lower(p)] = t end
   S.files = a.files or {}

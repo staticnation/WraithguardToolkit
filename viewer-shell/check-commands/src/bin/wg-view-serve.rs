@@ -182,7 +182,7 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "lua_scene" => Reply::Bytes(t::lua_scene(strs(a, "ids"), st())?.0),
         "anim_groups" => Reply::Json(t::anim_groups(strs(a, "models"), st())?),
         "anim_blend_config" => Reply::Json(t::anim_blend_config(strs(a, "models"), st())?),
-        "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), Some(s(a, "openmw")).filter(|x| !x.is_empty()), Some(strs(a, "off")), st())?),
+        "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), Some(s(a, "openmw")).filter(|x| !x.is_empty()), Some(strs(a, "off")), Some(val(a, "extra")).filter(|x| x.is_object()), st())?),
         "lua_check" => Reply::Json(t::lua_check(Some(s(a, "openmw")).filter(|x| !x.is_empty()), st())?),
         "lua_deps" => Reply::Json(t::lua_deps(Some(s(a, "openmw")).filter(|x| !x.is_empty()), st())?),
         "lua_settings_read" => Reply::Json(t::lua_settings_read(st())?),

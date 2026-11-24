@@ -365,3 +365,51 @@ fn every_export_leaves_the_files_python_leaves() {
     }
     assert!(failed.is_empty(), "\n{}", failed.join("\n"));
 }
+
+/// A plugin added on the page after the sort (dropped in) is written into the customizations TOML
+/// as an insert, and reads back as one of the person's: the next sort keeps it (Static
+/// 2026-11-23). Without it counted as theirs, the TOML had no line for it and the sort lost it.
+#[test]
+fn a_plugin_added_after_the_sort_is_kept_by_the_next_one() {
+    let case = doc()["writes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["opts"]["emit_toml"].as_bool() == Some(true) && c["opts"]["dry_run"].as_bool() == Some(false))
+        .cloned()
+        .expect("an export case that writes the TOML");
+    let base = plan(&case["plan"]);
+    let mut order = case["opts"].get("final_order").and_then(Value::as_array).map(|_| strs(&case["opts"]["final_order"])).unwrap_or_else(|| base.final_order.clone());
+    assert!(order.len() >= 2, "the case needs an order to put the plugin into");
+    order.insert(1, "WgDropped.esp".to_string());
+    let run = |p: &Plan| {
+        let dir = temp_dir();
+        if let Some(text) = case["cfg"].as_str() {
+            fs::write(dir.join("openmw.cfg"), text).unwrap();
+        }
+        if let Some(text) = case["toml"].as_str() {
+            fs::write(dir.join("customizations.toml"), text).unwrap();
+        }
+        let toml_path = dir.join("customizations.toml");
+        let targets = Targets {
+            write_cfg: None,
+            emit_toml: Some(toml_path.as_path()),
+            dry_run: false,
+            no_backup: true,
+            sort_data_paths: false,
+            list_name: None,
+            stamp: "20261123-120000",
+            toml_line_ending: LineEnding::Lf,
+        };
+        write_plan(&targets, p, Some(&order), None, &[], &[]).unwrap();
+        let text = fs::read_to_string(&toml_path).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        text
+    };
+    let before = run(&base);
+    assert!(!before.contains("WgDropped.esp"), "the old export left it out:\n{before}");
+    let after = run(&base.with_added(&["WgDropped.esp".to_string()]));
+    assert!(after.contains("WgDropped.esp"), "{after}");
+    let back = ordercore::inputs::customizations(&after).unwrap();
+    assert!(back.subset.iter().any(|n| n.eq_ignore_ascii_case("WgDropped.esp")), "read back: {:?}", back.subset);
+}

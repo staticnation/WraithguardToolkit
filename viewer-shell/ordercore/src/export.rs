@@ -972,6 +972,22 @@ pub struct Plan {
     pub custom_anchors: BTreeMap<String, (String, Option<String>)>,
 }
 
+impl Plan {
+    /// The plan with plugins the person added on the Load order page after the sort (dropped
+    /// in, Static 2026-11-23: "drag in a mod, export, ... hit sort and the mod ... is now gone")
+    /// counted as theirs: the customizations TOML gets an insert for each, as for the subset's,
+    /// so the next sort reads them back. Names already in the subset are not added twice.
+    pub fn with_added(&self, added: &[String]) -> Plan {
+        let mut p = self.clone();
+        for n in added {
+            if !n.is_empty() && !p.subset.iter().any(|s| s.eq_ignore_ascii_case(n)) {
+                p.subset.push(n.clone());
+            }
+        }
+        p
+    }
+}
+
 /// The cfg edits a plan makes (`cfg_segments`).
 #[derive(Clone, Debug)]
 pub struct CfgEdits {

@@ -47,6 +47,8 @@ const WgHtn={
     walk_to_object:{label:'Walk to an object', help:'Walk up to the nearest loaded object with this record id. Fails when none is loaded.', fields:[['id', 'Object id', 'id', ''], ['near', 'Stop within', 'num', 128]]},
     go_to_player:{label:'Go to the player', help:'Walk up to the player.', fields:[['near', 'Stop within', 'num', 200]]},
     follow_player:{label:'Follow the player', help:'Follow the player for a while.', fields:[['seconds', 'Seconds', 'num', 30]]},
+    flee_player:{label:'Run from the player', help:'Run away until it is this far from the player. Fails after 30 seconds.', fields:[['distance', 'Until', 'num', 1500]]},
+    use_item:{label:'Use or equip an item', help:'Use an item it carries: equip a weapon or armour, drink a potion (as the game\'s Use does).', fields:[['id', 'Item id', 'id', '']]},
     attack_player:{label:'Attack the player', help:'Start a fight with the player (done at once; the fight goes on by the game\'s AI).', fields:[]},
     say:{label:'Show a message', help:'Show a message on the player\'s screen.', fields:[['text', 'Text', 'text', '']]},
     play_anim:{label:'Play an animation', help:'Play an animation group (Idle2 ... Idle9, a mod\'s own) for a while.', fields:[['group', 'Group', 'group', 'Idle2'], ['seconds', 'Seconds', 'num', 3]]},
@@ -61,6 +63,12 @@ const WgHtn={
     in_combat:{label:'It is in a fight', help:'It is fighting.', fields:[]},
     hour_between:{label:'The hour is between', help:'The game hour is from the first up to the second (it can wrap past midnight: 20 to 6).', fields:[['from', 'From', 'num', 8], ['to', 'To', 'num', 20]]},
     has_item:{label:'It carries', help:'It carries at least this many of an item.', fields:[['id', 'Item id', 'id', ''], ['count', 'Count', 'num', 1]]},
+    object_within:{label:'An object is near', help:'A loaded object with this record id is within this distance.', fields:[['id', 'Object id', 'id', ''], ['distance', 'Distance', 'num', 512]]},
+    magicka_below:{label:'Magicka is below', help:'Its magicka is below this percent of its most.', fields:[['percent', 'Percent', 'num', 30]]},
+    fatigue_below:{label:'Fatigue is below', help:'Its fatigue is below this percent of its most.', fields:[['percent', 'Percent', 'num', 30]]},
+    player_health_below:{label:'The player\'s health is below', help:'The player\'s health is below this percent of its most.', fields:[['percent', 'Percent', 'num', 50]]},
+    player_carries:{label:'The player carries', help:'The player carries at least this many of an item.', fields:[['id', 'Item id', 'id', ''], ['count', 'Count', 'num', 1]]},
+    journal:{label:'A quest\'s stage', help:'A journal entry\'s index (stage) compared.', fields:[['quest', 'Quest id', 'id', ''], ['op', 'Is', 'op', '>='], ['value', 'Stage', 'num', 10]]},
     random_chance:{label:'A chance of', help:'True this percent of the times it is asked.', fields:[['percent', 'Percent', 'num', 50]]},
     lua:{label:'Custom Lua', help:'A Lua expression for each engine (Advanced): `a` is the actor, `ctx` the context, `G` the game layer.', adv:true,
       fields:[['omw', 'OpenMW', 'lua', 'true'], ['mwse', 'MWSE', 'lua', 'true']]},
@@ -215,6 +223,12 @@ const WgHtn={
       }
       case 'has_item': e='G.count(a, '+this.lstr(String(A.id).toLowerCase())+') >= '+this.lnum(A.count); break;
       case 'random_chance': e='math.random() * 100 < '+this.lnum(A.percent); break;
+      case 'object_within': e='G.objDistId(a, '+this.lstr(String(A.id).toLowerCase())+') <= '+this.lnum(A.distance); break;
+      case 'magicka_below': e='G.magicka(a) < '+this.lnum(A.percent); break;
+      case 'fatigue_below': e='G.fatigue(a) < '+this.lnum(A.percent); break;
+      case 'player_health_below': e='G.playerHealth() < '+this.lnum(A.percent); break;
+      case 'player_carries': e='G.playerCount('+this.lstr(String(A.id).toLowerCase())+') >= '+this.lnum(A.count); break;
+      case 'journal': e='G.journal('+this.lstr(String(A.quest).toLowerCase())+') '+(this.OPS.includes(A.op)? A.op : '>=')+' '+this.lnum(A.value); break;
       case 'lua': e='('+(String(A[eng]||'').trim() || 'true')+')'; break;
       default: e='false';
     }
@@ -233,6 +247,8 @@ const WgHtn={
         'if G.objDist(a, r.o) < '+n(A.near)+' then G.clear(a) return T.Success end\nif G.now(a) - r.t0 > 120 then G.clear(a) return T.Failure end', 'G.clear(a)'];
       case 'go_to_player': return ['r.t0 = G.now(a)\nG.follow(a)', 'if G.playerDist(a) < '+n(A.near)+' then G.clear(a) return T.Success end\nif G.now(a) - r.t0 > 120 then G.clear(a) return T.Failure end', 'G.clear(a)'];
       case 'follow_player': return ['r.t0 = G.now(a)\nG.follow(a)', 'if G.now(a) - r.t0 >= '+n(A.seconds)+' then G.clear(a) return T.Success end', 'G.clear(a)'];
+      case 'flee_player': return ['r.t0 = G.now(a)\nG.fleeFrom(a, '+n(A.distance)+')', 'if G.playerDist(a) >= '+n(A.distance)+' then G.clear(a) return T.Success end\nif G.now(a) - r.t0 > 30 then G.clear(a) return T.Failure end', 'G.clear(a)'];
+      case 'use_item': return ['if G.count(a, '+this.lstr(String(A.id).toLowerCase())+') < 1 then return T.Failure end\nG.use(a, '+this.lstr(String(A.id).toLowerCase())+')\nreturn T.Success', 'return T.Success', ''];
       case 'attack_player': return ['G.fight(a)\nreturn T.Success', 'return T.Success', ''];
       case 'say': return ['G.say(a, '+this.lstr(A.text)+')\nreturn T.Success', 'return T.Success', ''];
       case 'play_anim': return ['r.t0 = G.now(a)\nG.anim(a, '+this.lstr(A.group)+')', 'if G.now(a) - r.t0 >= '+n(A.seconds)+' then return T.Success end', ''];
@@ -360,25 +376,57 @@ const WgHtn={
       'function G.clear(a) I.AI.removePackages() end',
       'function G.say(a, text) local p = nearby.players[1] if p then p:sendEvent('+this.lstr('WgHtnSay_'+d.modId)+', { text = text }) end end',
       'function G.anim(a, group) I.AnimationController.playBlendedAnimation(group, { priority = anim.PRIORITY.Scripted }) end',
+      'local function pct(s) if s.base <= 0 then return 100 end return s.current / s.base * 100 end',
+      'function G.magicka(a) return pct(types.Actor.stats.dynamic.magicka(self)) end',
+      'function G.fatigue(a) return pct(types.Actor.stats.dynamic.fatigue(self)) end',
+      'function G.playerHealth() local p = nearby.players[1] if not p then return 100 end return pct(types.Actor.stats.dynamic.health(p)) end',
+      'function G.playerCount(id) local p = nearby.players[1] if not p then return 0 end return types.Actor.inventory(p):countOf(id) end',
+      'function G.journal(id) local p = nearby.players[1] if not p then return 0 end local ok, q = pcall(function() return types.Player.quests(p)[id] end) return ok and q and q.stage or 0 end',
+      'function G.objDistId(a, id) return G.objDist(a, G.find(a, id)) end',
+      'function G.fleeFrom(a, d)',
+      '  local p = nearby.players[1] if not p then return end',
+      '  local away = self.position - p.position',
+      '  if away:length() < 1 then away = util.vector3(1, 0, 0) end',
+      '  I.AI.startPackage({ type = "Travel", destPosition = p.position + away:normalize() * (d + 200) })',
+      'end',
+      '-- Use as the game\'s Use does (OpenMW\'s own UseItem handler, a global script).',
+      'function G.use(a, id) local o = types.Actor.inventory(self):find(id) if o then core.sendGlobalEvent("UseItem", { object = o, actor = self }) end end',
     ].join('\n');
   },
-  /** The OpenMW mod's files: [[path, text]...]. */
-  exportOmw(d){
-    const id=d.modId, dir='scripts/'+id+'/';
+  /** The OpenMW mod's files: [[path, text]...]. `opt.trace`: the planner's events printed for
+   *  the Preview's run on FluadHTN (`fromLua`), never in an export. */
+  exportOmw(d, opt){
+    const id=d.modId, dir='scripts/'+id+'/', trace=!!(opt && opt.trace);
     const actor=[this.header(d, 'omw'), this.omwGame(d), '', this.luaCore(d, 'omw'), '',
       '-- Which actors run it: their record ids (nil: every one this script is on).',
       'local IDS = '+this.idsTable(d),
       'local TICK = '+this.lnum(d.tick),
       'local domain, planner, ctx, on, saved, wait, said = nil, nil, nil, nil, nil, 0, false',
+      ...(trace? [
+        '-- The Preview\'s run: what the planner does, printed for Wraithguard\'s HTN AI page.',
+        'local lastWs',
+        'local function say(k, s) print("[wg_htn_trace] " .. k .. "|" .. (s or "")) end',
+        'local function names(q) local t = {} for _, x in ipairs(q and q.list or {}) do t[#t + 1] = tostring(x.Name) end return table.concat(t, "|") end',
+        'local function traced(ps)',
+        '  ps.OnNewPlan = function(_, p) say("plan", names(p)) end',
+        '  ps.OnReplacePlan = function(_, old, cur, p) say("replan", names(p)) end',
+        '  ps.OnNewTask = function(_, t) say("task", t.Name) end',
+        '  ps.OnCurrentTaskCompletedSuccessfully = function(_, t) say("done", t.Name) end',
+        '  ps.OnCurrentTaskFailed = function(_, t) say("fail", t.Name) end',
+        '  ps.OnNewTaskConditionFailed = function(_, t) say("condfail", t.Name) end',
+        '  ps.OnCurrentTaskExecutingConditionFailed = function(_, t) say("execfail", t.Name) end',
+        '  ps.OnStopCurrentTask = function(_, t) say("stop", t.Name) end',
+        'end'] : []),
       'local function start()',
       '  if on ~= nil then return on end',
       '  on = IDS == nil or IDS[self.recordId] == true',
       '  if not on then return false end',
-      '  local ok, mod = pcall(require, "scripts.sb_htn.interface")',
+      '  local ok, mod = pcall(function() return require("scripts.sb_htn.interface") end)',
       '  if not ok then print('+this.lstr('['+id+'] FluadHTN (OpenMW build) is not installed: ')+' .. tostring(mod)) on = false return false end',
       '  if type(table.size) ~= "function" then print('+this.lstr('['+id+'] FluadHTN on OpenMW needs Rubic0n\'s LuaJIT ('+this.NEXUS_RUBIC0N+')')+') on = false return false end',
       '  domain, planner = build(mod.interface)',
       '  ctx = makeContext(self, saved)',
+      ...(trace? ['  traced(ctx.PlannerState)', '  say("start", self.recordId)'] : []),
       '  return true',
       'end',
       '',
@@ -391,6 +439,7 @@ const WgHtn={
       '      wait = 0',
       '      local ok, err = pcall(function() sense(ctx) planner:Tick(domain, ctx) end)',
       '      if not ok and not said then said = true print('+this.lstr('['+id+'] ')+' .. tostring(err)) end',
+      ...(trace? ['      local ws = table.concat(ctx.WorldState, ",")', '      if ws ~= lastWs then lastWs = ws say("ws", ws) end'] : []),
       '    end,',
       '    onSave = function() if ctx then return { ws = ctx.WorldState } end return saved and { ws = saved } or nil end,',
       '    onLoad = function(data) saved = data and data.ws or nil end,',
@@ -429,6 +478,21 @@ const WgHtn={
       '  local g = tes3.animationGroup[group:sub(1, 1):lower() .. group:sub(2)]',
       '  if g then tes3.playAnimation({ reference = a, group = g }) end',
       'end',
+      'local function pct(s) if not s or s.base <= 0 then return 100 end return s.current / s.base * 100 end',
+      'function G.magicka(a) return a.mobile and pct(a.mobile.magicka) or 100 end',
+      'function G.fatigue(a) return a.mobile and pct(a.mobile.fatigue) or 100 end',
+      'function G.playerHealth() return pct(tes3.mobilePlayer and tes3.mobilePlayer.health) end',
+      'function G.playerCount(id) return tes3.getItemCount({ reference = tes3.player, item = id }) end',
+      'function G.journal(id) return tes3.getJournalIndex({ id = id }) or 0 end',
+      'function G.objDistId(a, id) return G.objDist(a, tes3.getReference(id)) end',
+      'function G.fleeFrom(a, d)',
+      '  local p, q = a.position, tes3.player.position',
+      '  local x, y = p.x - q.x, p.y - q.y',
+      '  local l = math.sqrt(x * x + y * y)',
+      '  if l < 1 then x, y, l = 1, 0, 1 end',
+      '  G.travel(a, q.x + x / l * (d + 200), q.y + y / l * (d + 200), p.z)',
+      'end',
+      'function G.use(a, id) if a.mobile then a.mobile:equip({ item = id }) end end',
     ].join('\n');
   },
   /** The MWSE mod's files. */
@@ -490,7 +554,7 @@ const WgHtn={
       'local function onSave() for ref, ctx in pairs(actors) do ref.data.' + id + ' = ctx.WorldState end end',
       '',
       'local function onInitialized()',
-      '  local ok, htn = pcall(require, "sb_htn.interop")',
+      '  local ok, htn = pcall(function() return require("sb_htn.interop") end)',
       '  if not ok then mwse.log('+this.lstr('['+id+'] FluadHTN (MWSE build) is not installed: %s')+', tostring(htn)) return end',
       '  domain, planner = build(htn)',
       '  event.register(tes3.event.simulate, onSimulate)',
@@ -532,6 +596,12 @@ const WgHtn={
       case 'hour_between': t='the hour is '+A.from+' to '+A.to; break;
       case 'has_item': t='carries '+A.count+' '+(A.id||'?'); break;
       case 'random_chance': t=A.percent+'% chance'; break;
+      case 'object_within': t=(A.id||'?')+' within '+A.distance; break;
+      case 'magicka_below': t='magicka below '+A.percent+'%'; break;
+      case 'fatigue_below': t='fatigue below '+A.percent+'%'; break;
+      case 'player_health_below': t='the player\'s health below '+A.percent+'%'; break;
+      case 'player_carries': t='the player carries '+A.count+' '+(A.id||'?'); break;
+      case 'journal': t=(A.quest||'?')+' '+A.op+' '+A.value; break;
       case 'lua': t='custom Lua'; break;
       default: t=def? def.label : c.block;
     }
@@ -547,6 +617,8 @@ const WgHtn={
       case 'go_to_player': return 'go to the player';
       case 'follow_player': return 'follow the player '+A.seconds+' s';
       case 'attack_player': return 'attack the player';
+      case 'flee_player': return 'run from the player';
+      case 'use_item': return 'use '+(A.id||'?');
       case 'say': return '"'+String(A.text||'').slice(0, 40)+'"';
       case 'play_anim': return 'play '+A.group;
       case 'set_state': return 'set '+(A.var||'?')+' to '+A.value;
@@ -631,14 +703,74 @@ const WgHtn={
   },
   stopRun(){
     const R=this.run; if(!R) return;
-    if(R.cur && R.op) this.simStop(R, R.cur);
-    this.run=null; this.drawRun(); this.drawTree();
+    if(R.mode==='fluad'){
+      // The Lua started again without the page's mod; the actor's AI left to its own.
+      this.run=null; R.A.ai=null; R.A._route=null;
+      if(typeof WgLua==='object'){ WgLua.extra=null; if(WgScripts.on) WgLua.start(); }
+    }
+    else{ if(R.cur && R.op) this.simStop(R, R.cur); this.run=null; }
+    this.drawRun(); this.drawTree();
+  },
+  /** The run on FluadHTN itself: the domain exported for OpenMW with its planner's events printed,
+   *  for this actor alone, added to the Preview's Lua (`WgLua.extra`) and run on the FluadHTN the
+   *  load order has. Without Rubic0n's LuaJIT the Preview supplies its table functions (and says
+   *  so: OpenMW itself needs Rubic0n). */
+  async startFluad(key){
+    const S=typeof WgScripts==='object'? WgScripts : null;
+    if(!S || !S.on || typeof WgLua!=='object'){ toast('Turn on the Scripts in the Preview first', 'warn', 4000); return; }
+    if(!this.deps || !this.deps.omw){ toast('FluadHTN\'s OpenMW build is not in the data folders: running on Wraithguard\'s planner', 'warn', 4500); return this.startRun(key); }
+    const probs=this.validate().filter(p=>p.level==='error');
+    if(probs.length){ toast('Fix the problems first', 'warn', 3000); this.drawProblems(); return; }
+    const a=this.sceneActors().find(x=>x.key===key);
+    if(!a){ toast('That actor is not in the loaded cell', 'warn', 3000); return; }
+    const d=JSON.parse(JSON.stringify(this.doc));
+    d.attach={ids:[a.id], all:false}; d.engines={omw:true, mwse:false};
+    const dir='scripts/'+d.modId+'/';
+    const files=this.exportOmw(d, {trace:true}).filter(f=>/\.lua$/.test(f[0]));
+    const tableExt=this.deps.rubic0n!==true;
+    const t=this.thingOf(a), A=S.actorOf(t);
+    if(!A){ toast('That actor cannot be run', 'warn', 3000); return; }
+    A.packages=null; A.ai=null; A._route=null;
+    this.stopRun();
+    this.run={mode:'fluad', key, t, A, doc:d, ws:d.state.map(v=>+v.init||0), plan:[], curName:'', log:[], clock:0, status:'', _drawAt:0};
+    this.say('Running "'+d.name+'" on FluadHTN, on '+a.id);
+    if(tableExt) this.say('Rubic0n\'s table functions are supplied by the Preview: OpenMW itself needs Rubic0n installed to run this');
+    WgLua.extra={files, scripts:[[dir+'actor.lua', ['NPC', 'CREATURE']], [dir+'player.lua', ['PLAYER']]], tableExt};
+    await WgLua.start();
+    this.drawRun();
+  },
+  /** A line the Preview's Lua printed: the run's planner events (`[wg_htn_trace] kind|text`),
+   *  taken here; its script's errors noted in the run's log too. */
+  fromLua(path, kind, text){
+    const R=this.run; if(!R || R.mode!=='fluad') return false;
+    const m=/^\[wg_htn_trace\] (\w+)\|([\s\S]*)$/.exec(String(text||''));
+    if(!m){
+      if((kind==='error' || /^\[/.test(String(text))) && String(path||'').toLowerCase().includes('scripts/'+R.doc.modId+'/')) this.say((kind==='error'? 'Lua error: ' : '')+text);
+      return false;
+    }
+    const k=m[1], v=m[2];
+    switch(k){
+      case 'start': this.say('FluadHTN is planning for '+v); break;
+      case 'plan': case 'replan': R.plan=v? v.split('|') : []; this.say((k==='plan'? 'Plan: ' : 'New plan: ')+R.plan.join(' → ')); R.status='planned'; break;
+      case 'task': { R.curName=v; const i=R.plan.indexOf(v); if(i>=0) R.plan.splice(i, 1); this.say('Start: '+v); break; }
+      case 'done': this.say('Done: '+v); R.curName=''; break;
+      case 'fail': this.say('Failed: '+v+'; planning again'); R.curName=''; R.plan=[]; break;
+      case 'condfail': this.say(v+': its conditions no longer hold; planning again'); R.curName=''; R.plan=[]; break;
+      case 'execfail': this.say(v+': a while-running condition failed'); R.curName=''; R.plan=[]; break;
+      case 'stop': this.say('Stopped '+v+' for a better plan'); R.curName=''; break;
+      case 'ws': R.ws=v.split(',').map(Number); break;
+      default: return false;
+    }
+    this.drawTree();
+    return true;
   },
   say(text){ const R=this.run; if(!R) return; R.log.push([R.clock, text]); if(R.log.length>60) R.log.shift(); },
   /** One frame of the Scripts (73_wg_scripts.js `frame`): the run ticks at the domain's rate. */
   frame(dt){
     const R=this.run; if(!R || !(dt>0)) return;
     R.clock+=dt; R.wait+=dt;
+    // On FluadHTN the Lua runs it; the page only keeps the clock and the panel.
+    if(R.mode==='fluad'){ if(R.clock-R._drawAt>0.4){ R._drawAt=R.clock; this.drawRun(); } return; }
     if(R.A.dead){ this.say(R.A.id+' is dead'); this.stopRun(); return; }
     if(R.wait<R.doc.tick) return;
     const step=R.wait; R.wait=0;
@@ -660,6 +792,13 @@ const WgHtn={
       case 'hour_between': { const h=this.hour(), f=+A.from, t=+A.to; v=f<=t? (h>=f && h<t) : (h>=f || h<t); break; }
       case 'has_item': v=(R.A.items.get(String(A.id).toLowerCase())||0)>=+A.count; break;
       case 'random_chance': v=Math.random()*100<+A.percent; break;
+      case 'object_within': { const r=S.refById(String(A.id).toLowerCase()); v=!!r && S.dist(me, {key:r.key, ref:r})<=+A.distance; break; }
+      case 'magicka_below': v=(R.A.max && R.A.max[1]>0? R.A.mp/R.A.max[1]*100 : 100)<+A.percent; break;
+      case 'fatigue_below': v=(R.A.max && R.A.max[2]>0? R.A.fp/R.A.max[2]*100 : 100)<+A.percent; break;
+      case 'player_health_below': { const P=S.actorOf({player:true}, true); v=(P && P.max && P.max[0]>0? P.hp/P.max[0]*100 : 100)<+A.percent; break; }
+      case 'player_carries': { const P=S.actorOf({player:true}, true); v=(P && P.items? P.items.get(String(A.id).toLowerCase())||0 : 0)>=+A.count; break; }
+      case 'journal': { const j=S.state && S.state.journal, x=+((j && j.get(String(A.quest).toLowerCase()))||0), y=+A.value;
+        v=A.op==='=='? x===y : A.op==='~='? x!==y : A.op==='<'? x<y : A.op==='<='? x<=y : A.op==='>'? x>y : x>=y; break; }
       case 'lua': v=true; break;
       default: v=false;
     }
@@ -803,6 +942,15 @@ const WgHtn={
         if(S.dist(t, {player:true})<+A.near){ clear(); return 'success'; }
         return el>120? (clear(), 'failure') : 'continue';
       case 'follow_player': if(first) ai('follow', ['player', 0]); if(el>=+A.seconds){ clear(); return 'success'; } return 'continue';
+      case 'flee_player': {
+        if(first){
+          const pl=S.posOf({player:true}); let x=me[0]-pl[0], y=me[1]-pl[1]; let l=Math.hypot(x, y); if(l<1){ x=1; y=0; l=1; }
+          ai('travel', [pl[0]+x/l*(+A.distance+200), pl[1]+y/l*(+A.distance+200), me[2]]); R.A._running=true;
+        }
+        if(S.dist(t, {player:true})>=+A.distance){ clear(); return 'success'; }
+        return el>30? (clear(), 'failure') : 'continue';
+      }
+      case 'use_item': { const id=String(A.id).toLowerCase(); if(!(R.A.items.get(id)>0)){ this.say(R.A.id+' carries no '+id); return 'failure'; } this.say(R.A.id+' uses '+id); return 'success'; }
       case 'attack_player': R.A.combat={player:true}; this.say(R.A.id+' attacks the player'); return 'success';
       case 'say': S.say(R.A.id, 'do', String(A.text)); if(typeof toast==='function') toast(String(A.text), 'info', 3000); return 'success';
       case 'play_anim': if(first){ clear(); S.playAnim(t.key, String(A.group), 1, 1, 'HTN'); } return el>=+A.seconds? 'success' : 'continue';
@@ -813,7 +961,7 @@ const WgHtn={
   },
   simStop(R, n){
     if(!n || n.type!=='action') return;
-    if(['wander', 'walk_to', 'walk_to_object', 'go_to_player', 'follow_player'].includes(n.do.block)){ R.A.ai=null; R.A._route=null; }
+    if(['wander', 'walk_to', 'walk_to_object', 'go_to_player', 'follow_player', 'flee_player'].includes(n.do.block)){ R.A.ai=null; R.A._route=null; }
   },
 
   /* ---- the page --------------------------------------------------------------------------- */
@@ -884,7 +1032,9 @@ const WgHtn={
     box.textContent='';
     const probs=this.validate(), bad=new Map();
     for(const p of probs) if(p.at) bad.set(p.at, (bad.get(p.at)==='error' || p.level==='error')? 'error' : 'warn');
-    const R=this.run, cur=R && R.cur && R.cur.id, planned=new Set(R? R.plan.map(n=>n.id) : []);
+    const R=this.run, fl=R && R.mode==='fluad';
+    const byName=nm=>{ let id=''; if(nm) this.walk(n=>{ if(!id && n.type==='action' && n.name===nm) id=n.id; }); return id; };
+    const cur=R && (fl? byName(R.curName) : R.cur && R.cur.id), planned=new Set(R? (fl? R.plan.map(byName) : R.plan.map(n=>n.id)) : []);
     this.walk((n, parent, depth)=>{
       const row=this.el('div', 'wgHtnRow');
       row.dataset.id=n.id;
@@ -1128,7 +1278,7 @@ const WgHtn={
     const w=this.section('Try it in the Preview');
     const R=this.run;
     const S=typeof WgScripts==='object'? WgScripts : null;
-    if(R && !(S && S.on)){ this.run=null; return this.drawRun(); }
+    if(R && !(S && S.on)){ this.run=null; if(typeof WgLua==='object') WgLua.extra=null; return this.drawRun(); }
     if(!R){
       w.append(this.el('div', 'hint', 'Runs the behaviour on an actor of the loaded cell, by this page\'s own planner (close to FluadHTN\'s; custom Lua is not run). Turn on the Scripts first.'));
       if(!(S && S.on)){ w.append(this.el('div', 'hint', 'Turn on the Scripts in the Preview (its Scripts button), then come back to pick an actor.')); box.append(w); return; }
@@ -1138,14 +1288,18 @@ const WgHtn={
       const want=new Set((this.doc.attach.ids||[]).map(s=>String(s).toLowerCase()));
       acts.sort((a, b)=>(want.has(b.id)-want.has(a.id)) || a.id.localeCompare(b.id));
       for(const a of acts.slice(0, 400)){ const o=this.el('option', '', a.id+(want.has(a.id)? ' ★' : '')); o.value=a.key; sel.append(o); }
-      w.append(sel, ' ', this.btn('Run', ()=>this.startRun(sel.value), 'Plan and run it on this actor', ''));
+      const fl=this.deps && this.deps.omw;
+      const onF=this.btn('Run on FluadHTN', ()=>this.startFluad(sel.value), fl? 'The exported Lua, run in the Preview on the FluadHTN you installed' : 'FluadHTN\'s OpenMW build is not in the data folders', '');
+      onF.disabled=!fl;
+      w.append(sel, ' ', onF, ' ', this.btn('Run on Wraithguard\'s planner', ()=>this.startRun(sel.value), 'This page\'s own planner: no FluadHTN needed; custom Lua is not run'));
       box.append(w); return;
     }
-    w.append(this.btn('Stop', ()=>this.stopRun()), ' ', this.el('b', '', R.A.id), ' ', this.el('span', 'hint', R.cur? 'doing: '+R.cur.name : R.status==='none'? 'no plan' : 'between steps'));
+    const doing=R.mode==='fluad'? R.curName : R.cur && R.cur.name;
+    w.append(this.btn('Stop', ()=>this.stopRun()), ' ', this.el('b', '', R.A.id), ' ', this.el('span', 'hint', (R.mode==='fluad'? 'on FluadHTN · ' : 'on Wraithguard\'s planner · ')+(doing? 'doing: '+doing : R.status==='none'? 'no plan' : 'between steps')));
     const ws=this.el('div'); ws.style.cssText='font-family:var(--mono);font-size:11px;margin:4px 0';
     ws.textContent=R.doc.state.map((v, i)=>v.name+'='+(v.kind==='bool'? (R.ws[i]? 'true' : 'false') : R.ws[i])).join('  ') || '(no world state)';
     w.append(ws);
-    if(R.plan.length) w.append(this.el('div', 'hint', 'Next: '+R.plan.map(n=>n.name).join(' → ')));
+    if(R.plan.length) w.append(this.el('div', 'hint', 'Next: '+R.plan.map(n=>typeof n==='string'? n : n.name).join(' → ')));
     const log=this.el('div'); log.style.cssText='font-family:var(--mono);font-size:11px;max-height:180px;overflow:auto';
     for(const [t, s] of R.log.slice(-30)) log.append(this.el('div', '', t.toFixed(1)+'s  '+s));
     w.append(log);

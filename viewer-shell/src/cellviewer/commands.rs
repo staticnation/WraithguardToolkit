@@ -3811,7 +3811,7 @@ fn lua_worker(jit: Option<&std::path::Path>) -> Result<viewcore::luaproc::Proc, 
 /// `off`: the scripts turned off in the Scripts panel (paths, and `@builtins` for all of
 /// OpenMW's own), which are not started (`luarun::start_json`).
 #[tauri::command(async)]
-fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<String>>, state: State) -> Result<String, String> {
+fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<String>>, extra: Option<serde_json::Value>, state: State) -> Result<String, String> {
     let (vfs, order) = {
         let app = state.app();
         (app.vfs.clone().ok_or_else(|| viewcore::msg!("eng.no_install"))?, app.order_file.clone())
@@ -3844,6 +3844,19 @@ fn lua_run_start(weathers: Vec<String>, openmw: Option<String>, off: Option<Vec<
     let gmst: Vec<(String, f32)> = state.app().world.as_ref().map(|w| w.gmst.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default();
     let gmst_text: Vec<(String, String)> = state.app().world.as_ref().map(|w| w.gmst_text.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
     let start = viewcore::luarun::start_json(&vfs, resources.as_deref(), &reg, &weathers, &content, &off.unwrap_or_default(), &gmst, &gmst_text);
+    /* A mod the page made, run with the load order's (Tools → HTN AI's run on FluadHTN, Static
+       2026-11-23): `{files: [[path, text]...], scripts: [[path, [flags]]...], tableExt}`. */
+    let start = match extra.as_ref().filter(|e| e.is_object()) {
+        Some(e) => {
+            let files: Vec<(String, String)> = e["files"].as_array().map(|a| a.iter().filter_map(|f| Some((f.get(0)?.as_str()?.to_string(), f.get(1)?.as_str()?.to_string()))).collect()).unwrap_or_default();
+            let scripts: Vec<(String, Vec<String>)> = e["scripts"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|f| Some((f.get(0)?.as_str()?.to_string(), f.get(1)?.as_array()?.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()))).collect())
+                .unwrap_or_default();
+            viewcore::luarun::start_with_extra(&start, &vfs, &files, &scripts, e["tableExt"].as_bool().unwrap_or(false))
+        }
+        None => start,
+    };
     /* The settings the player saved in OpenMW (`player_storage.bin`, `global_storage.bin` beside
        openmw.cfg): in the storage sections before any script runs (`luafiles::storage_json`). */
     let start = {

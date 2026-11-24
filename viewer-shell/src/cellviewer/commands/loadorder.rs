@@ -129,7 +129,7 @@ pub(super) fn loadorder_compute(args: String) -> Result<tauri::ipc::Response, St
 /// Wraithguard: export the last sort (`ordercore::plan::export`). `args`: JSON with `cfg`,
 /// `writeCfg`, `emitToml`, `dryRun`, `noBackup`, `sortDataPaths`, `listName`, `stamp`,
 /// `finalOrder` / `dataOrder` (the panels' enabled entries; null: the plan's),
-/// `disabledPlugins`, `disabledData`, and `planFile` (where the Tk tools read the order from;
+/// `disabledPlugins`, `disabledData`, `addedPlugins` (dropped in after the sort), and `planFile` (where the Tk tools read the order from;
 /// empty: not written). Answers `{report, wroteCfg, wroteToml, toml}` as bytes (`WGTB`):
 /// `export` `uuus` (wrote the cfg 0/1, wrote the toml 0/1, a toml 0/1, its text) and the
 /// report (`lo_items`). Read by `loReadExport` (59_wg_loadorder.js).
@@ -171,11 +171,16 @@ pub(super) fn loadorder_export(args: String) -> Result<tauri::ipc::Response, Str
         toml_line_ending: None,
     };
     let counts = Counts { rule_warnings: got.predicate_warnings.len(), yml_warnings: got.yml_warnings.len() };
+    /* `addedPlugins`: plugins the page added after the sort (dropped in), counted as the
+       person's, so the TOML gets their inserts and the next sort keeps them (Static 2026-11-23:
+       "drag in a mod, export, get the save message, then hit sort and the mod ... is now gone"). */
+    let added = list("addedPlugins").unwrap_or_default();
+    let plan = if added.is_empty() { got.plan.clone() } else { got.plan.with_added(&added) };
     let final_order = list("finalOrder");
     let data_order = list("dataOrder");
     let done = export(
         &ex,
-        &got.plan,
+        &plan,
         counts,
         final_order.as_deref(),
         data_order.as_deref(),
@@ -196,7 +201,7 @@ pub(super) fn loadorder_export(args: String) -> Result<tauri::ipc::Response, Str
             "cfg": ex.cfg,
             "finalOrder": order,
             "dataLines": data,
-            "subset": got.plan.subset,
+            "subset": plan.subset,
             "scanDirs": got.scan_dirs,
             "customDataDirs": got.custom_data_dirs,
             "newDataLines": got.plan.data_result.iter().flatten().filter(|(_, n, _)| *n).map(|(l, _, _)| l.clone()).collect::<Vec<_>>(),

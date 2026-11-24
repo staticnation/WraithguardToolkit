@@ -17,6 +17,8 @@
    ===================================================================================== */
 const WgLua={
   running:false, busy:false, note:'', backend:'', resources:'', _status:null,
+  /** A mod a page made, added to the next start: `{files, scripts, tableExt}` (`lua_run_start`). */
+  extra:null,
   types:new Map(),       // lowercased object id -> record tag
   sent:new Map(),        // object key -> what was last sent of it (a signature)
   _sentG:new Map(), _sentA:new Map(), _sentL:new Map(), _sentJ:new Map(), _sentP:'',
@@ -31,6 +33,8 @@ const WgLua={
   _list:null,
 
   say(path, kind, text){
+    // Tools → HTN AI's run on FluadHTN reads its planner's events here (82_wg_htn.js `fromLua`).
+    if(typeof WgHtn==='object' && WgHtn.run && WgHtn.fromLua(path, kind, text)) return;
     // Wraithguard: each script's errors counted, for its badge in the Scripts panel (Static 2026-11-23).
     if(kind==='error' && path) this.errs.set(this.key(path), (this.errs.get(this.key(path))||0)+1);
     WgScripts.say(path? String(path).replace(/^scripts\//i, '') : 'lua', kind==='print'? 'do' : kind, text);
@@ -84,7 +88,8 @@ const WgLua={
        One runs with its own mod: when a script of the same content file, or of the same
        scripts/<mod>/ folder, is on. */
     off.push(...this.menuOff());
-    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null, off}); }
+    // A mod a page made, run with the load order's (Tools → HTN AI's run on FluadHTN).
+    try{ got=await Engine.call('lua_run_start',{weathers:this.weathers(), openmw:dir||null, off, extra:this.extra||null}); }
     catch(e){ this.say('', 'error', 'OpenMW Lua did not start: '+String(e && e.message || e)); return; }
     this.note=got.note||''; this.backend=got.backend||''; this.resources=got.resources||'';
     if(!got.answer){ if(this.note) this.say('', 'skip', this.note); return; }
