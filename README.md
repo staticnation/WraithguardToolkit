@@ -384,6 +384,22 @@ patch a moment after each stroke. With **Preview first** on, strokes wait for **
 - The brush has shapes, falloffs and dynamics: click, drag or hold; decay and fade;
   velocity, jitter, a stabilizer and a cap. Presets save the settings.
 - Overlays show hillshade, a height tint and contour lines.
+- **Mirror** lays each dab again across a north-south line, an east-west line, or four
+  ways, through the loaded cell's middle or a center you click. The ramp isn't mirrored.
+- **Pick** takes a height (Flatten), a texture, or now a vertex color from the ground.
+- **Road or path**: click points on the ground, then **Build road**. A strip of the width
+  asked is leveled along a curve through them, following the ground but no steeper than
+  the slope you set, its shoulders blended back into the ground, and a land texture
+  painted along it.
+- **Paint by rules**: textures put on the loaded land by height, slope and distance from
+  the water, the first rule that matches each texture cell winning (sand below 64 near the
+  water, rock steeper than 35°, grass the rest). All the land, or inside or outside the
+  painted mask.
+- **Heightmap PNG**: **Export…** saves the loaded cells' heights as a 16-bit grey PNG, its
+  height range kept in the file; **Import…** puts any PNG (grey or color, 8 or 16 bits) onto
+  the loaded cells between a lowest and a highest height, at a strength.
+- **Strokes** lists your strokes, roads, rules and imports as you make them; **Back to
+  before this** takes that one and every one after it back, as a new change to the patch.
 - Painting where a square has no land makes flat land at the sea floor first, as the
   Construction Set would.
 

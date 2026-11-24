@@ -136,6 +136,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `84_wg_views.js` | 6 KB | Camera views kept per cell (world units, `localStorage`) and put back; the 3D view saved as a PNG, clean of highlights and arrows on request. |
 | `85_wg_palette.js` | 10 KB | Ctrl+P: pages, tools, key actions, buttons on screen, saved views, cells and records by id, found by typing. |
 | `86_wg_editor_qol.js` | 16 KB | The Editor's back and forward, Pending's field-by-field diff with ↶ per field, Script Edit's Ctrl+Space and "Where is it set?", a response's placeholder check. |
+| `87_wg_land_qol.js` | 40 KB | The Land view's mirror, color pick, road or path, painting by rules, heightmap PNG out and in, and the strokes list with Back to before this. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
 ## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 159, and `pick.rs`: 2)

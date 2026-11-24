@@ -327,6 +327,25 @@
   camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
   orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
   the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **The Land view's batch** (Static 2026-11-24, "lets do all this"; `87_wg_land_qol.js`):
+  - **Mirror**: each dab laid again across a north-south line, an east-west line, or four ways,
+    round the loaded cell's middle or a center clicked; the lines drawn over the ground. Not the
+    ramp, whose line runs from where its stroke began.
+  - **Pick** for the Color brush: the vertex color under the next click.
+  - **Road or path**: points clicked on the ground (drawn, Backspace takes the last back), then
+    Build road: the ground's height along a curve through them, smoothed over the road's width
+    and held to a steepest slope both ways, leveled across the width and blended back over the
+    shoulder; a land texture painted along it (at least one 512-unit texture cell wide).
+  - **Paint by rules**: each texture cell of the loaded land gets the first rule's texture its
+    ground matches, by height, slope (across two vertices each way) and distance from ground
+    under the sea; all the land, or inside or outside the painted mask.
+  - **Heightmap PNG**: the loaded cells' heights out as a 16-bit grey PNG (north at the top, the
+    range in a `tEXt` entry and the file name), and any non-palette PNG put back on, stretched
+    over the loaded cells, between a lowest and a highest height, at a strength.
+  - **Strokes**: the last 30 strokes, roads, rule paintings and imports, each with the cells it
+    changed; "Back to before this" puts those cells back as they were before it (heights,
+    colors, textures) and sends them to the patch. The list is cleared when the Editor's undo or
+    redo steps the patch, and Drop takes the strokes it drops off it. Test: `land_qol.test.js`.
 - **The Editor's batch** (Static 2026-11-24, "lets do all this"; `85_wg_palette.js`,
   `86_wg_editor_qol.js`):
   - **Ctrl+P, a command palette**: pages, every tool, the Editor's key actions, the buttons and
