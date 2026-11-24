@@ -1082,7 +1082,9 @@ const WgHtn={
     const adv=this.el('label'); adv.style.marginLeft='8px';
     const ac=this.el('input'); ac.type='checkbox'; ac.id='tlHtnAdv'; adv.append(ac, ' Advanced');
     adv.title='Custom Lua blocks, effect kinds, while-running conditions and the generated Lua';
-    h.append(adv);
+    const view=this.el('select'); view.id='tlHtnView'; view.title='The tree as a list, or as a graph of its branches';
+    for(const [k, t] of [['list', 'List'], ['graph', 'Graph']]){ const o=this.el('option', '', t); o.value=k; view.append(o); }
+    h.append(adv, ' ', view);
     const deps=this.el('div', 'chips'); deps.id='tlHtnDeps';
     const grid=this.el('div'); grid.id='tlHtnGrid'; grid.style.cssText='display:grid;grid-template-columns:minmax(260px,1fr) minmax(320px,1.3fr);gap:10px;min-height:0;flex:1';
     const left=this.el('div', 'scroll'); left.id='tlHtnTree';
@@ -1102,6 +1104,8 @@ const WgHtn={
         else if(k==='y' || (k==='z' && e.shiftKey)){ e.preventDefault(); this.redo(); }
       });
     }
+    const vw=$('#tlHtnView');
+    if(vw){ try{ this.view=localStorage.getItem('wgHtnView')||'list'; }catch(_){ } vw.value=this.view; vw.onchange=()=>{ this.view=vw.value; try{ localStorage.setItem('wgHtnView', this.view); }catch(_){ } this.draw(); }; }
     const ac=$('#tlHtnAdv');
     if(ac){ try{ this.adv=localStorage.getItem('wgHtnAdv')==='1'; }catch(_){ } ac.checked=this.adv; ac.onchange=()=>{ this.adv=ac.checked; try{ localStorage.setItem('wgHtnAdv', this.adv? '1' : '0'); }catch(_){ } this.draw(); }; }
   },
@@ -1145,6 +1149,8 @@ const WgHtn={
   drawTree(){
     const box=$('#tlHtnTree'); if(!box || !this.doc) return;
     box.textContent='';
+    const grid=$('#tlHtnGrid'); if(grid) grid.style.gridTemplateColumns=this.view==='graph'? 'minmax(360px,2fr) minmax(320px,1fr)' : 'minmax(260px,1fr) minmax(320px,1.3fr)';
+    if(this.view==='graph'){ this.drawGraph(box); return; }
     const probs=this.validate(), bad=new Map();
     for(const p of probs) if(p.at) bad.set(p.at, (bad.get(p.at)==='error' || p.level==='error')? 'error' : 'warn');
     const R=this.run, fl=R && R.mode==='fluad';
@@ -1184,6 +1190,193 @@ const WgHtn={
     }
     box.append(add);
   },
+  /* ---- the graph view ----------------------------------------------------------------------
+     The domain drawn top-down as boxes joined by branches (SVG, built with the DOM): a Select's
+     branches numbered in the order they are tried, a Sequence's in the order they run; each
+     reusable part beside it as its own tree. Click a box to edit it; drag it onto another box
+     (onto a Select or Sequence's lower half to go in, else to its left or right); the + under a
+     Select or Sequence adds a step; double-click folds one away. Wheel zooms, dragging the
+     background pans, Fit shows it all. */
+  view:'list', fold:new Set(), gv:null,
+  GW:172, GH:48, GX:18, GY:58,
+  NS:'http://www.w3.org/2000/svg',
+  svg(tag, attrs, text){ const e=document.createElementNS(this.NS, tag); for(const k in attrs||{}) e.setAttribute(k, attrs[k]); if(text!=null) e.textContent=text; return e; },
+  /** Where each box goes: {id: {x, y, n, parent, depth, part}} and the drawing's width and height. */
+  layout(){
+    const pos=new Map(), W=this.GW, H=this.GH, GX=this.GX, GY=this.GY;
+    let left=0, bottom=0;
+    const place=(n, parent, depth, part)=>{
+      const kids=(n.children && !this.fold.has(n.id))? n.children : [];
+      let x;
+      if(!kids.length){ x=left+W/2; left+=W+GX; }
+      else{
+        const xs=kids.map(c=>place(c, n, depth+1, part));
+        x=(xs[0]+xs[xs.length-1])/2;
+      }
+      const y=depth*(H+GY);
+      bottom=Math.max(bottom, y+H);
+      pos.set(n.id, {x, y, n, parent, depth, part});
+      return x;
+    };
+    place(this.doc.root, null, 0, null);
+    for(const x of this.doc.subs||[]){ left+=W/2; place(x, null, 0, x); }
+    return {pos, w:Math.max(left, W), h:bottom};
+  },
+  drawGraph(box){
+    box.style.position='relative';
+    const bar=this.el('div'); bar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:4px';
+    bar.append(this.btn('Fit', ()=>{ this.gv=null; this.drawGraph2(); }, 'Show it all'), this.btn('−', ()=>this.zoom(1/1.25)), this.btn('+', ()=>this.zoom(1.25)),
+      this.btn('+ Reusable part', ()=>{ const x=this.node('select', 'Part '+((this.doc.subs||[]).length+1)); (this.doc.subs=this.doc.subs||[]).push(x); this.sel=x.id; this.changed(); }),
+      this.el('span', 'hint', 'Click to edit · drag onto a box to move · + adds a step · double-click folds'));
+    const host=this.el('div'); host.id='tlHtnGraph'; host.style.cssText='position:relative;flex:1;min-height:420px;height:calc(100% - 34px);overflow:hidden;border:1px solid var(--line, rgba(128,128,128,.3));border-radius:6px;touch-action:none';
+    box.append(bar, host);
+    this.drawGraph2();
+  },
+  zoom(f, cx, cy){
+    const host=$('#tlHtnGraph'); if(!host || !this.gv) return;
+    const r=host.getBoundingClientRect(); cx=cx==null? r.width/2 : cx; cy=cy==null? r.height/2 : cy;
+    const k=Math.max(0.2, Math.min(3, this.gv.k*f)), q=k/this.gv.k;
+    this.gv={x:cx-(cx-this.gv.x)*q, y:cy-(cy-this.gv.y)*q, k};
+    const g=host.querySelector('g[data-view]'); if(g) g.setAttribute('transform', 'translate('+this.gv.x+','+this.gv.y+') scale('+this.gv.k+')');
+  },
+  drawGraph2(){
+    const host=$('#tlHtnGraph'); if(!host) return;
+    host.textContent='';
+    const L=this.layout(), W=this.GW, H=this.GH;
+    const probs=this.validate(), bad=new Map();
+    for(const p of probs) if(p.at) bad.set(p.at, (bad.get(p.at)==='error' || p.level==='error')? 'error' : 'warn');
+    const R=this.run, fl=R && R.mode==='fluad';
+    const byName=nm=>{ let id=''; if(nm) this.walk(n=>{ if(!id && n.type==='action' && n.name===nm) id=n.id; }); return id; };
+    const cur=R && (fl? byName(R.curName) : R.cur && R.cur.id), planned=new Set(R? (fl? R.plan.map(byName) : R.plan.map(n=>n.id)) : []);
+    const box=host.getBoundingClientRect(), bw=box.width||800, bh=box.height||420;
+    if(!this.gv){ const k=Math.max(0.2, Math.min(1, (bw-40)/L.w, (bh-40)/(L.h||1))); this.gv={x:(bw-L.w*k)/2, y:20, k}; }
+    const svg=this.svg('svg', {width:'100%', height:'100%'});
+    svg.style.cssText='display:block;width:100%;height:100%;cursor:grab;user-select:none';
+    const g=this.svg('g', {'data-view':'1', transform:'translate('+this.gv.x+','+this.gv.y+') scale('+this.gv.k+')'});
+    svg.append(g);
+    const COL={select:'#6f9cf0', sequence:'#6cc38a', action:'#c9a85c', pause:'#999', splice:'#c07de0'};
+    // Branches first, under the boxes.
+    for(const [id, p] of L.pos){
+      if(!p.parent) continue;
+      const q=L.pos.get(p.parent.id); if(!q) continue;
+      const midY=q.y+H+this.GY/2;
+      g.append(this.svg('path', {d:'M'+q.x+','+(q.y+H)+' V'+midY+' H'+p.x+' V'+p.y, fill:'none', stroke:COL[p.parent.type]||'#888', 'stroke-width':planned.has(id) || cur===id? 3 : 1.5, opacity:.8}));
+      const i=p.parent.children.indexOf(p.n)+1;
+      const c=this.svg('g', {transform:'translate('+p.x+','+(p.y-11)+')'});
+      c.append(this.svg('circle', {r:9, fill:COL[p.parent.type]||'#888'}), this.svg('text', {'text-anchor':'middle', y:4, 'font-size':10, fill:'#fff'}, String(i)));
+      const tt=this.svg('title', {}, p.parent.type==='select'? 'Tried '+(i===1? 'first' : 'next ('+i+')') : 'Step '+i);
+      c.append(tt); g.append(c);
+    }
+    // Part names above each part's tree.
+    for(const x of this.doc.subs||[]){ const p=L.pos.get(x.id); if(p) g.append(this.svg('text', {x:p.x, y:p.y-8, 'text-anchor':'middle', 'font-size':11, fill:'currentColor', opacity:.7}, 'Reusable part')); }
+    for(const [id, p] of L.pos){
+      const n=p.n, x0=p.x-W/2;
+      const b=this.svg('g', {'data-id':id, transform:'translate('+x0+','+p.y+')', class:'wgHtnBox'});
+      b.style.cursor='pointer';
+      const isRoot=!p.parent;
+      b.append(this.svg('rect', {width:W, height:H, rx:7, fill:'var(--bg2, #222)', stroke:COL[n.type]||'#888', 'stroke-width':id===this.sel? 3 : 1.5}));
+      if(id===cur) b.append(this.svg('rect', {x:-4, y:-4, width:W+8, height:H+8, rx:9, fill:'none', stroke:'var(--ac, #4af)', 'stroke-width':2.5}));
+      else if(planned.has(id)) b.append(this.svg('rect', {x:-3, y:-3, width:W+6, height:H+6, rx:8, fill:'none', stroke:'var(--ac, #4af)', 'stroke-dasharray':'4 3'}));
+      const kind=isRoot && p.part? 'Part' : this.NODE_TYPES[n.type];
+      const icon={select:'?', sequence:'→', action:'●', pause:'⏸', splice:'⧉'}[n.type]||'';
+      b.append(this.svg('text', {x:8, y:15, 'font-size':10, fill:COL[n.type]||'#888'}, icon+' '+kind+(this.fold.has(id)? '  (+'+this.count(n)+' folded)' : '')));
+      const name=n.type==='pause'? 'Pause plan' : (n.name||'');
+      b.append(this.svg('text', {x:8, y:30, 'font-size':12, 'font-weight':600, fill:'currentColor'}, name.length>24? name.slice(0, 23)+'…' : name));
+      let sub='';
+      if(n.type==='action') sub=this.actText(n.do);
+      else if(n.type==='splice'){ const x=this.sub(n.sub); sub=x? 'uses "'+x.name+'"' : 'uses nothing yet'; }
+      if((n.conds||[]).length) sub=(sub? sub+' · ' : '')+'if '+n.conds.map(c=>this.checkText(c)).join(' & ');
+      if(sub) b.append(this.svg('text', {x:8, y:43, 'font-size':9.5, fill:'currentColor', opacity:.65}, sub.length>34? sub.slice(0, 33)+'…' : sub));
+      if(bad.has(id)){ const m=this.svg('text', {x:W-16, y:15, 'font-size':12}, bad.get(id)==='error'? '⛔' : '⚠'); m.append(this.svg('title', {}, probs.filter(q=>q.at===id).map(q=>q.text).join('\n'))); b.append(m); }
+      b.append(this.svg('title', {}, kind+': '+name+(sub? '\n'+sub : '')));
+      // The + under a Select or Sequence: a step added to it.
+      if(n.children && !this.fold.has(id)){
+        const plus=this.svg('g', {transform:'translate('+(W/2)+','+(H+9)+')', 'data-plus':id});
+        plus.append(this.svg('circle', {r:8, fill:'var(--bg, #111)', stroke:COL[n.type], 'stroke-width':1.5}), this.svg('text', {'text-anchor':'middle', y:4, 'font-size':12, fill:COL[n.type]}, '+'));
+        plus.append(this.svg('title', {}, 'Add a step to '+(name||kind)));
+        plus.onpointerdown=e=>e.stopPropagation();
+        plus.onclick=e=>{ e.stopPropagation(); this.addMenu(n, e); };
+        b.append(plus);
+      }
+      b.onpointerdown=e=>this.graphDrag(e, id, !isRoot);
+      b.ondblclick=e=>{ e.stopPropagation(); if(n.children){ if(this.fold.has(id)) this.fold.delete(id); else this.fold.add(id); this.drawGraph2(); } };
+      g.append(b);
+    }
+    // Pan and zoom.
+    svg.onpointerdown=e=>{
+      if(e.button!==0) return;
+      const x0=e.clientX, y0=e.clientY, v0=Object.assign({}, this.gv);
+      const mv=ev=>{ this.gv={x:v0.x+ev.clientX-x0, y:v0.y+ev.clientY-y0, k:v0.k}; g.setAttribute('transform', 'translate('+this.gv.x+','+this.gv.y+') scale('+this.gv.k+')'); };
+      const up=()=>{ document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); };
+      document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+    };
+    svg.onwheel=e=>{ e.preventDefault(); const r=host.getBoundingClientRect(); this.zoom(e.deltaY<0? 1.15 : 1/1.15, e.clientX-r.left, e.clientY-r.top); };
+    host.append(svg);
+  },
+  /** How many nodes are below `n`. */
+  count(n){ let c=-1; this.walk(()=>c++, n); return c; },
+  /** The step menu by a + : Action, Select, Sequence, Pause (in a Sequence), Use part. */
+  addMenu(target, e){
+    const host=$('#tlHtnGraph'); if(!host) return;
+    const old=host.querySelector('.wgHtnMenu'); if(old) old.remove();
+    const r=host.getBoundingClientRect();
+    const m=this.el('div', 'wgHtnMenu');
+    m.style.cssText='position:absolute;z-index:5;background:var(--bg2, #222);border:1px solid var(--line, #555);border-radius:6px;padding:4px;display:flex;flex-direction:column;gap:2px;left:'+Math.max(0, (e.clientX||0)-r.left)+'px;top:'+Math.max(0, (e.clientY||0)-r.top)+'px';
+    for(const t of ['action', 'select', 'sequence', 'pause', 'splice']){
+      if(t==='pause' && target.type!=='sequence') continue;
+      if(t==='splice' && !(this.doc.subs||[]).some(x=>x!==this.partOf(target.id))) continue;
+      m.append(this.btn('+ '+this.NODE_TYPES[t], ()=>{
+        m.remove();
+        const n=this.node(t);
+        if(t==='splice'){ const x=this.doc.subs.find(y=>y!==this.partOf(target.id)); n.sub=x.id; n.name=x.name; }
+        target.children.push(n); this.sel=n.id; this.changed();
+      }));
+    }
+    m.append(this.btn('Cancel', ()=>m.remove()));
+    host.append(m);
+  },
+  /** A box dragged onto another: into a Select or Sequence (the lower half of its box), else
+   *  beside it (left half: before; right half: after). A click when it did not move. */
+  graphDrag(e, id, movable){
+    if(e.button!==0) return;
+    e.stopPropagation();
+    const host=$('#tlHtnGraph'); if(!host) return;
+    const box=host.querySelector('[data-id="'+(window.CSS && CSS.escape? CSS.escape(id) : id)+'"]');
+    const x0=e.clientX, y0=e.clientY, t0=box && box.getAttribute('transform');
+    let on=false, where=null, mark=null;
+    const clear=()=>{ if(mark){ mark.remove(); mark=null; } };
+    const move=ev=>{
+      if(!movable) return;
+      if(!on && Math.hypot(ev.clientX-x0, ev.clientY-y0)<5) return;
+      on=true;
+      if(box){ box.style.pointerEvents='none'; box.style.opacity='.6'; const k=this.gv.k; const m=/translate\(([-\d.]+),([-\d.]+)\)/.exec(t0||''); if(m) box.setAttribute('transform', 'translate('+(+m[1]+(ev.clientX-x0)/k)+','+(+m[2]+(ev.clientY-y0)/k)+')'); }
+      clear(); where=null;
+      const el=document.elementFromPoint? document.elementFromPoint(ev.clientX, ev.clientY) : null;
+      const tg=el && el.closest && el.closest('[data-id]'); if(!tg || tg.dataset.id===id) return;
+      where=this.graphWhere(tg.dataset.id, tg.getBoundingClientRect(), ev.clientX, ev.clientY);
+      if(!where) return;
+      const rect=tg.querySelector('rect');
+      mark=this.svg('rect', {x:-5, y:-5, width:this.GW+10, height:this.GH+10, rx:9, fill:'none', stroke:'var(--ac, #4af)', 'stroke-width':3, 'stroke-dasharray':where.inside? '' : '6 4'});
+      if(!where.inside){ mark.setAttribute('width', 6); mark.setAttribute('x', where.after? this.GW+2 : -8); }
+      if(rect) tg.append(mark);
+    };
+    const up=()=>{
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
+      clear();
+      if(!on){ this.sel=id; this.drawTree(); this.drawSide(); return; }
+      if(!(where && this.moveTo(id, where))) this.drawGraph2();
+    };
+    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+  },
+  /** Where a box let go over `to` goes: into it (a Select or Sequence, the lower half), else
+   *  before or after it by the side; nothing beside a root. */
+  graphWhere(to, r, x, y){
+    const t=this.find(to); if(!t) return null;
+    if(t.n.children && y>r.top+r.height/2) return {to, inside:true};
+    if(!t.parent) return t.n.children? {to, inside:true} : null;
+    return {to, inside:false, after:x>r.left+r.width/2};
+  },
+
   /** The reusable part a node is in (null: the domain itself). */
   partOf(id){ for(const x of this.doc.subs||[]){ let hit=false; this.walk(n=>{ if(n.id===id) hit=true; }, x); if(hit) return x; } return null; },
   /** Whether `id` is `anc` or below it. */

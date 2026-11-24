@@ -187,6 +187,29 @@ module.exports = async (t) => {
   H.doc.state.find(v => v.name === 'Greeted').name = 'Welcomed'; H.rename('Greeted', 'Welcomed');
   const g2 = H.doc.root.children.find(n => n.name === 'Greet the player');
   t.ok(g2.conds[1].args.var === 'Welcomed' && g2.effects[0].var === 'Welcomed', 'a value renamed is renamed where it is used');
+  // The graph view: a box each node, branches numbered, + adds, folding, and a drop moves.
+  d.getElementById('tlHtnView').value = 'graph'; d.getElementById('tlHtnView').onchange();
+  const boxes = () => d.querySelectorAll('#tlHtnGraph [data-id]');
+  let nodes = 0; H.walk(() => nodes++);
+  t.ok(boxes().length === nodes, 'a box each node (' + boxes().length + '/' + nodes + ')');
+  const pat = H.doc.root.children.find(n => n.name === 'Patrol');
+  const lay = H.layout();
+  t.ok(lay.pos.get(pat.children[0].id).y > lay.pos.get(pat.id).y && lay.pos.get(pat.children[0].id).x < lay.pos.get(pat.children[1].id).x, 'children below their parent, in order left to right');
+  const plus = d.querySelector('#tlHtnGraph [data-plus="' + pat.id + '"]');
+  plus.onclick({ stopPropagation() {}, clientX: 10, clientY: 10 });
+  const menu = d.querySelector('#tlHtnGraph .wgHtnMenu');
+  t.ok(menu && [...menu.querySelectorAll('button')].some(b => b.textContent === '+ Pause plan'), 'the + menu offers a Pause in a Sequence');
+  [...menu.querySelectorAll('button')].find(b => b.textContent === '+ Action').onclick();
+  t.ok(pat.children.length === 3 && H.sel === pat.children[2].id, 'an Action added under it, and selected');
+  const n0 = boxes().length;
+  d.querySelector('#tlHtnGraph [data-id="' + pat.id + '"]').ondblclick({ stopPropagation() {} });
+  t.ok(boxes().length === n0 - 3 && /folded/.test(d.querySelector('#tlHtnGraph [data-id="' + pat.id + '"]').textContent), 'double-click folds its steps away');
+  H.fold.clear();
+  const rect = { top: 0, height: 40, left: 0, width: 100 };
+  t.ok(H.graphWhere(pat.id, rect, 50, 30).inside === true && H.graphWhere(pat.id, rect, 80, 10).after === true && H.graphWhere(pat.id, rect, 10, 10).after === false, 'a drop: lower half in, else by the side');
+  d.getElementById('tlHtnView').value = 'list'; d.getElementById('tlHtnView').onchange();
+  H.doc.root.children.find(n => n.name === 'Patrol').children.pop();
+
   // Export: the files sent to the folder picked.
   w.Engine.pick = async () => 'D:\\Mods\\Guard';
   H.doc.root.children.pop();

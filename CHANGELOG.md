@@ -332,6 +332,13 @@
   that use it, parts that use each other in a circle refused. A message or an item use that
   changes nothing is warned of (it repeats every tick it can be planned). The guard example now
   yields once. Checked: a part spliced in on FluadHTN's Nexus OpenMW build.
+- **HTN AI: the graph view** (List / Graph beside Advanced): the domain drawn top-down as boxes
+  joined by branches, a Select's numbered in the order they are tried and a Sequence's in the
+  order they run, each reusable part beside it as its own tree; the Preview run's step and plan
+  marked. Click a box to edit it; drag it onto another (onto a Select or Sequence's lower half to
+  go in, else to its left or right); the + under a Select or Sequence adds a step; double-click
+  folds one away. Wheel zooms, dragging the background pans, Fit shows it all. SVG built with
+  the DOM.
 - **The Preview's MWSE mods find libraries in `MWSE/lib`** (`luarun.rs`, `luarun.lua`): `require`
   looks there after `MWSE/mods` and `MWSE/lua`, as MWSE does, and the folder's files are read as
   sources, never started on their own. FluadHTN's MWSE build lives there. Test:
