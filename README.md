@@ -18,7 +18,8 @@ beside it for scripts and headless machines.
   choose to edit.
 - **Land.** Sculpt, paint and tint the terrain with a brush, into the same patch.
 - **Tools.** Lint, backups, broken masters, save checks, the quest journal, tes3cmd (built
-  in, no Perl), Merged Lands, merge to master and a mesh optimizer.
+  in, no Perl), Merged Lands, merge to master, a mesh optimizer, a Lua mod checker and
+  settings editor, and an HTN AI builder for FluadHTN.
 
 Nothing is written until you ask, and your `openmw.cfg`, customizations and plugins are
 backed up before they change.
@@ -139,7 +140,9 @@ see, never a plugin.
 - **The panel's groups:**
   - **Cell**: the cell, its textures and reloading.
   - **Light & sky**: the hour, weather and sun.
-  - **Scene**: draw distance, distant land and objects, grass.
+  - **Scene**: draw distance, distant land and objects, grass, and **Occlusion culling**
+    (on by default): what stands wholly behind a building or a hill is not drawn, judged
+    from the last frame's depth.
   - **Water**, and **Effects**: MGE XE's water, ambient occlusion, bloom, depth of field,
     shadows and rain ripples.
   - **Review a mod**: the loaded cells with one mod's part marked, or with that mod left
@@ -161,6 +164,10 @@ see, never a plugin.
   - **OpenMW folder…** points it at your install's LuaJIT and built-in scripts (`I.AI`,
     `I.Combat`, `I.UI`, music, activation).
   - Ctrl+click an object to activate it.
+- **NPCs and creatures** follow their AI packages: they wander, travel, follow and escort
+  over the path grids or OpenMW's navmesh, turning as they walk and climbing stairs.
+  **Actor info** (🛈) shows over each one its package, the animation it plays and how often it
+  is posed.
 - **Body** walks the cell in first person at your character's pace. Speed, Athletics and
   Acrobatics come from a preset or **From a save…**, with swimming, levitation, collision
   and footsteps.
@@ -315,8 +322,11 @@ that plugin is kept byte for byte, and the plugin as it was is kept once as
   is placed in. **Replace with** repoints them all, including scripts and dialogue
   results, which are recompiled.
 - **Dialogue.** Topics and responses in the engine's order, drag to reorder, and a
-  condition editor. Four other views:
+  condition editor. Five other views:
   - **Flow**: a topic as the engine reads it, choices branching.
+  - **Graph**: the topic as a tree of boxes, its responses in the order the engine tries
+    them, their choices and what each does (topics added, journal entries, variables,
+    items). Click to open a response; double-click a topic or quest to draw it.
   - **Map**: the topics around one, zoomable.
   - **Flags**: every variable, quest index and item the dialogue reads or writes.
   - **In game**: a rehearsal with any NPC, in a cell you pick and a game state set by hand
@@ -371,13 +381,16 @@ Each tool is a section on the left with its work on the right.
 | **Backups** | Every copy the program and tes3cmd took before changing a file (a master removed, a plugin edited in place or run through tes3cmd, a merge's output replaced): restore or delete it. |
 | **Remove / rename master** | A master OpenMW can't find: removed (references renumbered, a dry run first) or pointed at the file that replaced it. The original is kept once as `.premaster.bak`. |
 | **Save Check** | Whether a save loads with this order (the content files it needs that the order lacks), the space each mod takes in it and how to shrink it, and two saves compared. |
-| **Journal** | Every quest's stages in index order, each with the scripts and responses that set it, and their conditions. |
+| **Journal** | Every quest's stages in index order, each with the scripts and responses that set it, and their conditions. **List / Graph**: the same as a tree, each stage with what sets it, or that nothing does. |
 | **tes3cmd** | tes3cmd built in ([tes3cmd-rs](https://github.com/staticnation/tes3cmd-rs), no tes3cmd.exe or Perl needed) on each plugin: clean, header or any command, on a copy with its masters read from your data folders and never changed, a backup kept; master sizes synced in-app. `fixit`, `multipatch` and `resetdates` run once over the plugins added, `common` and `diff` on two; a multipatch.esp made goes beside them. Every record a run removed, added or changed is listed under it, filtered by plugin, kind or text, and **Undo selected** puts the ticked records back as they were. Tick *Use external* to run your own tes3cmd instead; commands that run Perl code (`modify --run`) use it either way. |
 | **Merge Lands** | One `Merged Lands.esp` holding the terrain edits of every mod that reshapes a cell, loaded last. Each plugin is measured against the load order before it (the default, as OpenMWMergedLands does) or against its masters (contested vertices blended, as the original Merged Lands does). Seams are repaired along the cells plugins changed, and optionally the seams the terrain already had. Plugins can be left out by name or folder, and cells for every plugin or for one (Tamriel Rebuilt's Hunza Camp by default). **Import from OpenMWMergedLands** reads its `merged_lands.toml`. *Dry run*, *Verbose* (with each step's time and the peak memory) and *Cancel* are beside **Build**. See [MERGED_LANDS.md](MERGED_LANDS.md). |
 | **Merge objects** | One `Merged Objects.esp` holding every mod's changes to the records two or more plugins change, not only the last one's: [TES3Merge](https://github.com/NullCascade/TES3Merge)'s merge, ported. Each field another plugin changed is kept, leveled lists are combined, and effects merge slot by slot. TES3Merge's fog-bug, summons and cell-name fixes apply. The record types are ticked (TES3Merge's list by default), and plugins can be left out and ids filtered. *Inclusive inventories* gives an NPC every item any plugin gives it, *Leveled lists only* writes `multipatch.esp`, and *Dry run* writes nothing. It reads the load order as the setup has it, for OpenMW, MO2 or the game's own. Load the plugin last. |
 | **Merge settings** | A plugin's `.mergedlands.toml`: which of its land layers Merge Lands takes, and how collisions resolve. |
 | **Merge to master** | A plugin folded into its master, or a whole load order into one master. |
 | **Mesh optimizer** | Draw-order copies of the load order's meshes, written only where it helps, each checked to mean the same mesh as the original. A mesh that Check meshes can mend with a proven repair is optimized from the repaired copy. Meshes in the load order's archives are read too; a copy is written as a loose file. |
+| **Lua mods** | Each Lua mod of the load order (OpenMW's and MWSE's) run on its own, and what its scripts said sorted into what you can act on: another mod needed, a plugin not loaded, the mod's own fault, other errors, and what the Preview does not run yet. Above them the load-order lint: interfaces used that no script provides, settings registered twice, a mod in two data folders. |
+| **Lua settings** | The settings OpenMW keeps for your Lua mods (`player_storage.bin`, `global_storage.bin`), by section, changed one value at a time with OpenMW closed. The file is written only when it reads back as exactly what you meant, and the original is kept once as `<file>.wg-backup`. |
+| **HTN AI** | An actor's behaviour built from game blocks (wait, wander, walk to, follow the player, attack, say, play an animation, set a value) and checks (the player near, health low, the hour, an item carried...), as a [FluadHTN](https://www.nexusmods.com/morrowind/mods/52111) domain: a list or a graph to edit, undo, templates and reusable parts. It is checked as you build, tried on an actor of the loaded cell in the Preview (on the page's own planner, or on FluadHTN itself), and exported as a mod for OpenMW and MWSE. The chips above it say whether your setup has FluadHTN's builds and Rubic0n's LuaJIT; click a FluadHTN chip to choose its folder. FluadHTN is the player's to install and is not included. |
 | **Check meshes** | The winning copy of every mesh, loose or in the load order's archives, read for the faults exporters write. **Mendable** means every fault has a repair that is proven to keep the mesh the same: a `Has UV` flag left off where there are UV sets, which OpenMW and older tools misread as the triangles, or UV sets counted that aren't there. **Mendable by a guess** means a node whose lists don't read, which nothing else links to, kept with no children (written only when you tick it). **Unreadable** names why: another NIF version, a block type outside Morrowind's format, or not a NIF. **Write repaired** puts the ticked ones, at their own paths, into a folder you add last in the load order; your mods aren't touched. |
 
 ### Help, Report and Settings
@@ -385,7 +398,9 @@ Each tool is a section on the left with its work on the right.
 - **Help** shows this document, the [Quick Start](QUICKSTART.md) and
   [Writing mlox rules](MLOX_RULES.md), with their contents beside them.
 - **Report** lists what was read: the plugins with their masters, the archives, the meshes
-  and textures found, and anything that couldn't be read.
+  and textures found, and anything that couldn't be read. Its **Performance** part says
+  where a frame's time goes: the GPU by pass, the page's own work (drawing, MWScript, the
+  actors), what occlusion culling left out, and the Lua round trips.
 - **Settings** (the gear) holds the theme, the language, how the mouse moves the camera,
   and the side panel. **Read past unknown subrecords** (off by default) lets the scans, the
   Editor and Merge objects read a plugin with a subrecord its record type doesn't know, instead
@@ -581,7 +596,12 @@ runs every check CI runs:
 - The page tests live in `viewer-shell/ui/tests`:
   - `node editor/run.js` for the page's own tests;
   - `node boot.js` for the whole page against `wg-view-serve`, the headless engine built
-    by `viewer-shell/check-commands`.
+    by `viewer-shell/check-commands` (`WG_MESH_VIEW=1` for the mesh viewer, `WG_SETUP=1`
+    for a first start). It starts whichever build is there (`target/serve`, `release`, then
+    `debug`; `WG_VIEW_SERVE` names another), fails at once if there is none, and fails
+    after ten minutes (`WG_BOOT_LIMIT`) naming the engine calls still waiting;
+  - `npm run preview` for the Preview's loading races, and `npm run sinks` for the
+    innerHTML lint (a new place the page writes markup from a string fails it).
 
 CI (`.github/workflows/ci.yml`) runs exactly that list; `deny.yml` checks every dependency's
 source and license (`viewer-shell/deny.toml`), `audit.yml` and `osv-scanner.yml` look for

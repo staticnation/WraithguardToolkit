@@ -58,6 +58,7 @@ them):
 cargo build --profile serve --manifest-path viewer-shell\check-commands\Cargo.toml --bin wg-view-serve
 cd viewer-shell\ui\tests
 npm ci --no-audit --no-fund
+npm run sinks                            # no new place the page writes markup from a string
 npm run preview                          # the preview's loading races
 node boot.js                             # the cell viewer boots
 $env:WG_MESH_VIEW=1; node boot.js; Remove-Item Env:WG_MESH_VIEW   # the mesh viewer
@@ -66,7 +67,9 @@ node editor\run.js                       # the page's own tests (editor\*.test.j
 cd ..\..\..
 ```
 
-Each `boot.js` run must end with `page errors: 0`.
+Each `boot.js` run must end with `page errors: 0`. It starts the engine build that is there
+(`serve`, then `release` as CI builds it, then `debug`), fails at once when there is none, and
+fails after ten minutes (`WG_BOOT_LIMIT`, in ms) naming the engine calls still waiting.
 
 After adding a page file to `viewer-shell\ui\ORDER`, list it in `viewer-shell\MANIFEST.md`
 too.

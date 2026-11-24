@@ -72,7 +72,9 @@ The top bar switches between the pages.
 - **Land**: sculpt, paint and color the terrain with a brush, into the Editor's patch.
 - **Tools**: Lint, Backups, Remove / rename master, Save Check, Journal, tes3cmd, Merge
   Lands, Merge objects (TES3Merge's merge), Merge settings, Merge to master, the Mesh
-  optimizer and Check meshes (repaired copies of meshes exporters wrote wrong).
+  optimizer and Check meshes (repaired copies of meshes exporters wrote wrong), Lua mods
+  (what each needs), Lua settings, and HTN AI (an actor's behaviour for FluadHTN, built
+  from blocks and tried in the Preview).
 - **Help**: these documents, inside the program.
 
 ---

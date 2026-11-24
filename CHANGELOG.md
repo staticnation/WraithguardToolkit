@@ -312,6 +312,13 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **Docs brought up to date**: the README (the Tools table's Lua mods, Lua settings and HTN AI;
+  the Journal's and the Dialogue window's graphs; occlusion culling; the actors; the Report's
+  performance part; how `boot.js` finds the engine), QUICKSTART's tools, PREFLIGHT's page checks
+  (`npm run sinks`, the engine `boot.js` starts), TODO (the Preview on a weak GPU, HTN AI's run on
+  FluadHTN), and `viewer-shell/MANIFEST.md` (seven page files, five engine modules and the
+  commands: 157 now, the sixteen new ones listed and the eight replaced by their byte versions
+  taken out).
 - **NPCs climb stairs again** (`73_wg_scripts.js` `stepTo`, `CLIMB_LAG`; `71_wg_walk.js`
   `aiBlocked`; Static 2026-11-24: "npcs seem to get stuck on stairs? one step and then they
   stop"). Two faults. The eased height (the smoother movement of 2026-11-23) trailed a rising

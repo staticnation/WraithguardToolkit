@@ -123,6 +123,17 @@ master is told by its extension everywhere; the master check only notes a header
   tiles. Not carried along between rebuilds: a carried torch's light and flame, and a static
   or activator a script moves (they still step, a few times a second).
 
+- **The Preview on a weak GPU** (Static's report, 2026-11-24: Intel UHD, Balmora with 615 plugins,
+  260 ms of GPU a frame). Occlusion culling (`29_wg_occlusion.js`) covers the main view's objects, the
+  batches drawn on their own and the grass; **its effect is not measured yet** - the Report's
+  "occlusion culling" line and the GPU's "objects" pass with it on and off. Left: the reflection pass
+  (63 ms of it there: its camera is under the water, and the main view's depth says nothing for it;
+  a read-back of its own would), distant objects (`58_wg_distant_objects.js`, not tested against
+  the read-back), and the ground's chunks. The OpenMW Lua round trip (median 23-37 ms, worst 2-3 s)
+  is off the frame but makes scripted actors answer late.
+- **HTN AI's "Run on FluadHTN"** has run on the Nexus builds here (OpenMW with Rubic0n, MWSE); not yet
+  in Static's own Preview on his install.
+
 ## After 5.0
 
 Decided (Static, 2026-10-26): the command line stays, in Rust; translations keep the `.po`
