@@ -25,6 +25,7 @@
 26_water.js
 28_particles.js
 29_ssao.js
+29_wg_occlusion.js
 33_fxaa.js
 34_outline.js
 35_underwater.js

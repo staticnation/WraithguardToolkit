@@ -232,6 +232,9 @@
                    over the viewport or the window minimised holds it whatever this says. -->
               <div class="row"><label data-tx="preview.pause_still" data-txt="preview.pause_still_title" title="While the camera is not moving, nothing is redrawn. Less work for your hardware, but no animated water, particles etc.">Don't render when still</label><div class="ctl">
                 <label class="sw"><input type="checkbox" id="p_pause"><span class="tr"></span></label></div></div>
+              <!-- Wraithguard: occlusion culling (29_wg_occlusion.js). On by default. -->
+              <div class="row"><label data-tx="preview.occlusion" data-txt="preview.occlusion_title" title="Objects hidden behind what was drawn in front of them - a building, a hill - are not drawn at all. Judged from the last frame's depth, reprojected to where the camera is now. Off draws everything in view.">Occlusion culling</label><div class="ctl">
+                <label class="sw"><input type="checkbox" id="p_occl" checked><span class="tr"></span></label></div></div>
               <!-- Round 17w: the meshes' own particle systems - a waterfall's mist, a torch's
                    flame and smoke, a candle's flicker - run from the NIF's numbers. On by
                    default; the switch is for a machine that would rather not, and for

@@ -2789,6 +2789,7 @@ class Renderer{
        option), 'covered' (a dialogue over the viewport) or 'hidden' (the window
        minimised) - the last two hold whatever the option says. See `_loop`. */
     this.pauseStill=false;
+    this.occlusion=true;   // Wraithguard: 29_wg_occlusion.js; the Preview's "Occlusion culling" switch
     this._hold=false; this._holdWhy='';
     /* Round 18fj: the frame cap - the most frames a second the loop will draw, or 0
        for as many as the screen offers. A frame that comes due early is put off to the
@@ -4377,6 +4378,7 @@ class Renderer{
     if(!b || !b.live) return false;
     // WebGL takes a typed array only: a plain one throws (and every move was lost with it).
     if(b.mb){ const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER, b.mb); gl.bufferSubData(gl.ARRAY_BUFFER, k*48, m instanceof Float32Array? m : new Float32Array(m)); }
+    this._occEdits=(this._occEdits|0)+1;   // Wraithguard: the depth read back before the move is stale (29_wg_occlusion.js)
     this.dirty=true;
     return true;
   }
@@ -4657,9 +4659,10 @@ class Renderer{
    *  Cached on the view matrix: the opaque and the translucent phase of one frame look
    *  through the same one, the reflection through its own. Round 18cs: the bake runs
    *  too, neighbours merged into one index range. */
-  _cullGroups(G,planes,VP,clipZ,far,eye){
-    if(G.cullVP===VP && G.cullFar===(far||0)) return;
-    G.cullVP=VP; G.cullFar=far||0;
+  _cullGroups(G,planes,VP,clipZ,far,eye,occ){
+    occ=occ||null;
+    if(G.cullVP===VP && G.cullFar===(far||0) && G.cullOcc===occ) return;
+    G.cullVP=VP; G.cullFar=far||0; G.cullOcc=occ;
     /* Round 18hi: and past the room's view distance (`uViewFade`): a run whose box is
        wholly further than the distance from the eye has no fragment the shader would
        keep, so it is skipped before the draw. The nearest point of the box to the eye,
@@ -4686,6 +4689,9 @@ class Renderer{
         const x=p[0]>=0? box[o+3] : box[o], y=p[1]>=0? box[o+4] : box[o+1], z=p[2]>=0? box[o+5] : box[o+2];
         if(p[0]*x+p[1]*y+p[2]*z+p[3]<0) return false;
       }
+      /* Wraithguard: and behind what the view drew a frame or two ago, reprojected
+         (29_wg_occlusion.js). Only the main view passes one. */
+      if(occ && occ.hidden(box,o)) return false;
       return true;
     };
     for(const g of G.all){
@@ -9607,6 +9613,7 @@ class Renderer{
        it back: Robin's GPU clock put the grass at 9.4 ms for 16.6 M triangles - bound by
        the triangles, not by the shading the early rejections would have saved - and the
        sort's second pass over the runs was page time for nothing. Batch order, as built. */
+    const occG=(!reflect && this._occFor)? this._occFor(VP) : null;   // Wraithguard: 29_wg_occlusion.js
     for(const b of this.batches){
       if(!b.n || !b.hold || !b.hold.it) continue;
       if(b.box && !this._boxInView(gplanes,b.box)) continue;
@@ -9622,6 +9629,7 @@ class Renderer{
         for(const gr of b.groups){
           if(!this._boxInView(gplanes,gr.b)) continue;
           if(gfar>0 && farOff(gr.b)) continue;
+          if(occG && occG.hidden(gr.b,0)) continue;   // Wraithguard: a cell's grass behind a building or a hill
           const n=Math.min(gr.n, cap-gr.at);
           if(n<=0) continue;
           if(nr && gBase[nr-1]+gInst[nr-1]===gr.at) gInst[nr-1]+=n;
@@ -9731,7 +9739,8 @@ class Renderer{
       const G=(this._groups && this._groups.src===this.statics)? this._groups : null;
       if(G && G.all.length){
         gl.activeTexture(gl.TEXTURE0+INST_UNIT); gl.bindTexture(gl.TEXTURE_2D,G.instTex); gl.activeTexture(gl.TEXTURE0);
-        this._cullGroups(G,planes,VP, reflect? pass.clipZ : null, +o.viewFar||0, curEye);
+        this._cullGroups(G,planes,VP, reflect? pass.clipZ : null, +o.viewFar||0, curEye,
+                         (!reflect && this._occFor)? this._occFor(VP) : null);
         gl.bindVertexArray(G.vao);
         /* Round 18cs: two programs - the bakes' (one index range a group, no uniform
            between) and the runs' (by instance). Round 18ct: the runs first, then the
@@ -9799,6 +9808,9 @@ class Renderer{
       /* Round 18cr: the runs a frame merges, in two arrays reused across batches and
          frames rather than an object a run - a few thousand short-lived objects a frame
          were a garbage-collector pause every few frames, felt as a hitch. */
+      /* Wraithguard: the occlusion test for the batches drawn on their own, the same one
+         the groups use (29_wg_occlusion.js); the main view only. */
+      const occL=(!reflect && this._occFor)? this._occFor(VP) : null;
       const runAt=this._runAt||(this._runAt=new Int32Array(256));
       const runN=this._runN||(this._runN=new Int32Array(256));
       const drawStatic=b=>{
@@ -9819,6 +9831,7 @@ class Renderer{
         const zc=reflect? pass.clipZ : -Infinity;   // 18ct: nothing wholly under the water line
         for(const g of b.groups){
           if(g.b[5]<zc || !this._boxInView(planes,g.b)) continue;
+          if(occL && occL.hidden(g.b,0)) continue;   // Wraithguard: behind what was drawn (29_wg_occlusion.js)
           if(nr && runAt[nr-1]+runN[nr-1]===g.at) runN[nr-1]+=g.n;
           else if(nr<runAt.length){ runAt[nr]=g.at; runN[nr]=g.n; nr++; }
           else runN[nr-1]+=g.at+g.n-(runAt[nr-1]+runN[nr-1]);   // past the array: widen the last run over the gap

@@ -312,6 +312,21 @@
   continues after a Pause), told to need Rubic0n on stock LuaJIT, and on FluadHTN's Nexus MWSE build
   (`MWSE/lib/sb_htn`, which the setup check looks for); the ignored test `survey_htn_export` runs an
   export for 30 ticks.
+- **Occlusion culling** (`29_wg_occlusion.js`; Preview › Scene › "Occlusion culling", on by
+  default; saved as `occlusion_culling`): objects, the batches drawn on their own and the
+  grass's cell runs that stand wholly behind what was drawn in front of them (a building,
+  a hill) are no longer drawn. After the main view's opaque phase its depth is cut into
+  8x8-pixel blocks, each keeping its furthest depth, and read back through a pixel buffer
+  and a fence (asked for now, taken a frame or two later: the page never waits on the GPU).
+  Each frame that read-back is reprojected into the current view (a block's far point back
+  into the world through the old view and out through the new one; the furthest wins where
+  several land, an empty block hides nothing, every block widened to its 3x3's furthest),
+  and a run's box is skipped when the furthest thing drawn anywhere over its rectangle is
+  still 2% and 8 units nearer than the box's nearest point. A read-back is dropped when the
+  groups are rebuilt, when an object is moved, and after 30 frames; the reflection and the
+  shadows do not use it. The Report says how many of the runs on screen it left out, and how
+  old the read-back was. Tests: `occlusion.test.js` (behind, in front, through, round the
+  eye, an occluder's edge, the camera moved, turned round, walked through the wall).
 - **HTN AI: FluadHTN found when it is not loaded yet** (`htn::in_toml`, `htn::why_missing`,
   `htn_deps`): the setup check also reads the customizations TOML set in Wraithguard's settings, and
   when FluadHTN's OpenMW build is in one of its data folders but openmw.cfg has no data= line for it

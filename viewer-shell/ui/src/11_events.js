@@ -331,6 +331,8 @@ function boot(){
   { const e=$('#p_npcdrawn'); if(e) e.onchange=()=>{ App.npcDrawn=e.checked; if(typeof schedulePreview==='function') schedulePreview(); }; }
   // Round 18fh: pause the viewport while the camera stands still.
   { const e=$('#p_pause'); if(e){ const apply=()=>{ if(App.R){ App.R.pauseStill=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
+  // Wraithguard: occlusion culling (29_wg_occlusion.js).
+  { const e=$('#p_occl'); if(e){ const apply=()=>{ if(App.R){ App.R.occlusion=e.checked; App.R.dirty=true; } }; e.onchange=apply; apply(); } }
   /* Gardenfell 18fj's frame-cap switch is not here: Wraithguard's Settings has the cap
      (38_wg_viewport.js, `opts.fpsCap`), and the renderer paces by it (06_gl.js). */
   /* Wraithguard: distant land (57_wg_distant.js). The switch shows what is drawn - the
@@ -1796,6 +1798,12 @@ function openLog(){
       else if(G) line({k:'ok', t:'baked: nothing — no whole batch in a solid group'}); }
     line({k:'ok', t:'submitted last frame: '+n(R._drawn||0)+' draw calls ('+n(R._drawnBaked||0)+' of them baked ranges), '+
                     n(R._drawnInst||0)+' instances — the rest was culled'});
+    /* Wraithguard: what the occlusion culling left out (29_wg_occlusion.js), of the runs
+       the frustum kept, in the last view it tested. */
+    { const st=R._occStat;
+      line({k:'ok', t: R.occlusion===false? 'occlusion culling: off'
+        : !st? 'occlusion culling: on, nothing tested yet (it needs a frame drawn offscreen and read back)'
+        : 'occlusion culling: '+n(st.hidden)+' of '+n(st.tested)+' runs on screen hidden behind what was drawn in front of them (a read-back '+st.lag+' frame'+(st.lag===1?'':'s')+' old, reprojected)'}); }
     /* Round 18cs: the reflection pass, drawn for the part of the screen the water can
        show on, or not at all when it shows nowhere. */
     if(R.water && R.opts.mgeWater!==false){

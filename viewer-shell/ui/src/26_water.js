@@ -889,7 +889,8 @@ Object.assign(Renderer.prototype,{
     // Round 18dt: and the underwater post pass, which reads the finished frame and its depth.
     // Round 18dy: and the depth of field (36_dof.js), which reads both.
     // Wraithguard: and the bloom (42_wg_bloom.js), which reads the finished frame and its depth.
-    return !!((this.water && o.mgeWater!==false) || (o.sunshafts && scat && now) || o.ssao || o.fxaa || (this.wantsOutline && this.wantsOutline()) || this.underNow || o.dof || o.bloom);
+    // Wraithguard: and the occlusion culling (29_wg_occlusion.js), which reads the frame's depth.
+    return !!((this.water && o.mgeWater!==false) || (o.sunshafts && scat && now) || o.ssao || o.fxaa || (this.wantsOutline && this.wantsOutline()) || this.underNow || o.dof || o.bloom || (this.occlusion!==false && this._occCapture));
   },
 
   /** The whole frame, offscreen: MGE's water when it is on, the sunshafts after.
@@ -922,6 +923,7 @@ Object.assign(Renderer.prototype,{
         this._gpuMark('occlusion');
         if(this.ssaoCompute(T,P,V)) this.ssaoApply(T,this.ssaoFade(now,scat),airOn,fogK,V);
       } else drawScene(VP,eye,{phase:'opaque'});
+      if(this._occCapture) this._occCapture(T,VP,P);   // Wraithguard: 29_wg_occlusion.js
       // The plain sheet, when there is water but MGE's is off (round 17b: it was left
       // out here, so the sunshafts switch made the sea vanish). Between the two phases,
       // as everywhere (round 17x). Round 18f: the particles under the line go under it.
@@ -992,6 +994,7 @@ Object.assign(Renderer.prototype,{
       this._gpuMark('occlusion');
       if(this.ssaoCompute(T,P,V)) this.ssaoApply(T,this.ssaoFade(now,scat),airOn,fogK,V);
     } else drawScene(VP,eye,{phase:'opaque'});
+    if(this._occCapture) this._occCapture(T,VP,P);   // Wraithguard: the depth for the next frame's culling (29_wg_occlusion.js)
     /* Round 18f: the particles under the water line, into the picture the surface will
        refract - a puff that sank is seen through the water, dimmed by its depth, as the
        game shows it, rather than drawn over the surface at full strength. */
