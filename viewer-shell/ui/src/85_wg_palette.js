@@ -106,7 +106,7 @@ const WgPalette={
     if(this._el){ this._el.querySelector('input').focus(); return; }
     const box=document.createElement('div'); box.id='wgPalette';
     box.style.cssText='position:fixed;left:50%;top:12%;transform:translateX(-50%);width:min(640px,90vw);z-index:9999;'+
-      'background:var(--panel,#1d1f22);border:1px solid var(--line,#444);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5);padding:8px';
+      'background:var(--bg2);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5);padding:8px';
     const inp=document.createElement('input'); inp.className='fld'; inp.placeholder='Type an action, a tool, a cell or a record id…';
     inp.style.cssText='width:100%;box-sizing:border-box;font-size:14px;padding:6px 8px';
     const list=document.createElement('div'); list.style.cssText='max-height:55vh;overflow:auto;margin-top:6px';
@@ -160,7 +160,7 @@ const WgPalette={
     if(!this._items.length){ const h=document.createElement('div'); h.className='hint'; h.textContent='Nothing matches.'; list.append(h); return; }
     this._items.forEach((it, i)=>{
       const r=document.createElement('div');
-      r.style.cssText='display:flex;gap:8px;align-items:baseline;padding:4px 6px;border-radius:4px;cursor:pointer'+(i===this._sel? ';background:var(--sel,#2d4a6b)' : '');
+      r.style.cssText='display:flex;gap:8px;align-items:baseline;padding:4px 6px;border-radius:4px;cursor:pointer'+(i===this._sel? ';background:var(--acd)' : '');
       const k=document.createElement('span'); k.textContent=it.kind; k.style.cssText='font-size:10px;opacity:.6;width:52px;flex:none';
       const l=document.createElement('span'); l.textContent=it.label; l.style.cssText='flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       const h=document.createElement('span'); h.className='hint'; h.textContent=it.hint; h.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap';

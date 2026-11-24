@@ -186,6 +186,9 @@ fn dispatch(cmd: &str, a: &Val, app: &Mutex<App>) -> Result<Reply, String> {
         "anim_blend_config" => Reply::Json(t::anim_blend_config(strs(a, "models"), st())?),
         "lua_run_start" => Reply::Json(t::lua_run_start(strs(a, "weathers"), Some(s(a, "openmw")).filter(|x| !x.is_empty()), Some(strs(a, "off")), Some(val(a, "extra")).filter(|x| x.is_object()), st())?),
         "lua_check" => Reply::Json(t::lua_check(Some(s(a, "openmw")).filter(|x| !x.is_empty()), st())?),
+        "lua_check_cancel" => Reply::Raw(t::lua_check_cancel().to_string()),
+        "meshes_cancel" => Reply::Raw(t::meshes_cancel().to_string()),
+        "open_path" => Reply::Json(t::open_path(s(a, "path"))?),
         "lua_find" => Reply::Json(t::lua_find(val(a, "needs"), strs(a, "extra"), st())?),
         "open_web" => { t::open_web(s(a, "url"))?; Reply::Raw("null".into()) }
         "lua_deps" => Reply::Json(t::lua_deps(Some(s(a, "openmw")).filter(|x| !x.is_empty()), st())?),

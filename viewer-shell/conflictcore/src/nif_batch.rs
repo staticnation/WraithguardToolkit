@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gardenfell_bsa::bsa::Bsa;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use editcore::cache::Cache;
 use serde_json::{Value, json};
@@ -40,6 +40,14 @@ const VERSION: u64 = 2;
 /// How far a run has got (meshes done of meshes to do), for a progress readout.
 pub static DONE: AtomicUsize = AtomicUsize::new(0);
 pub static TOTAL: AtomicUsize = AtomicUsize::new(0);
+/// Asked to stop (the jobs panel's Cancel, Static 2026-11-24): a write run leaves the meshes not
+/// yet written, each said as cancelled. Cleared as a write run starts.
+pub static STOP: AtomicBool = AtomicBool::new(false);
+
+/// A mesh a stopped run did not write.
+pub(crate) fn not_written(c: &Candidate) -> Written {
+    Written { rel: c.rel.clone(), from: PathBuf::from(c.from()), before: 0, after: 0, error: "cancelled".into() }
+}
 
 /// What makes a mesh worth rewriting.
 #[derive(Clone, Debug)]
@@ -505,8 +513,9 @@ pub fn write_one(c: &Candidate, out_dir: &Path) -> Written {
 pub fn write_all(cands: &[&Candidate], out_dir: &Path) -> Vec<Written> {
     DONE.store(0, Ordering::Relaxed);
     TOTAL.store(cands.len(), Ordering::Relaxed);
+    STOP.store(false, Ordering::Relaxed);
     par_map(cands, |c| {
-        let w = write_one(c, out_dir);
+        let w = if STOP.load(Ordering::Relaxed) { not_written(c) } else { write_one(c, out_dir) };
         DONE.fetch_add(1, Ordering::Relaxed);
         w
     })

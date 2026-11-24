@@ -4119,6 +4119,7 @@ fn lua_check(openmw: Option<String>, state: State) -> Result<String, String> {
     }
     let records = std::sync::Arc::new(std::sync::Mutex::new(world.clone().map(viewcore::luarec::Records::of_world)));
     let next = std::sync::atomic::AtomicUsize::new(0);
+    LUA_CHECK_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
     let runs: std::sync::Mutex<Vec<(usize, viewcore::luacheck::ModRun)>> = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|sc| {
         for _ in 0..3 {
@@ -4126,6 +4127,13 @@ fn lua_check(openmw: Option<String>, state: State) -> Result<String, String> {
                 let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let Some((name, kind, scripts, start)) = jobs.get(i) else { break };
                 let mut run = viewcore::luacheck::ModRun { name: name.clone(), kind: kind.clone(), scripts: scripts.clone(), ..Default::default() };
+                if LUA_CHECK_STOP.load(std::sync::atomic::Ordering::Relaxed) {
+                    run.failed = Some("cancelled".into());
+                    if let Ok(mut g) = runs.lock() {
+                        g.push((i, run));
+                    }
+                    continue;
+                }
                 let collect = |run: &mut viewcore::luacheck::ModRun, a: &str| {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(a) {
                         for l in v["log"].as_array().into_iter().flatten() {
@@ -4185,6 +4193,44 @@ fn lua_check(openmw: Option<String>, state: State) -> Result<String, String> {
     report["lint"] = viewcore::luacheck::lint(&sources, &copies);
     report["resources"] = serde_json::json!(resources.map(|p| p.display().to_string()));
     Ok(report.to_string())
+}
+
+/// The Lua check's stop switch (the jobs panel's Cancel, Static 2026-11-24): the mods not yet
+/// started are said as cancelled.
+static LUA_CHECK_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Wraithguard: stops the running Lua check after the mods already running; `true`.
+#[tauri::command(async)]
+fn lua_check_cancel() -> bool {
+    LUA_CHECK_STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+    true
+}
+
+/// Wraithguard: stops the running mesh write (Mesh optimizer, Check meshes) after the meshes
+/// already being written; the rest are said as cancelled. `true`.
+#[tauri::command(async)]
+fn meshes_cancel() -> bool {
+    conflictcore::nif_batch::STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+    true
+}
+
+/// Wraithguard: a job's output folder in the system's file browser (the jobs panel, Static
+/// 2026-11-24). Only a folder (or a file's folder) the person chose this run, as the writes are
+/// held to (`granted`): the page cannot open anything else through this.
+#[tauri::command(async)]
+fn open_path(path: String) -> Result<String, String> {
+    let p = std::path::PathBuf::from(path.trim());
+    if path.trim().is_empty() || !granted::may_write(&p) {
+        return Err("only a folder you chose for a tool's output opens from here".into());
+    }
+    let dir = if p.is_dir() { p } else { p.parent().map(std::path::Path::to_path_buf).ok_or("that path has no folder")? };
+    if !dir.is_dir() {
+        return Err(format!("{} is not there", dir.display()));
+    }
+    if std::env::var_os("GARDENFELL_NO_OPEN").is_none() {
+        viewcore::profiles::show_folder(&dir)?;
+    }
+    Ok(serde_json::json!({"dir": dir.display().to_string()}).to_string())
 }
 
 /// Wraithguard: OpenMW's Lua storage file `which` (`player` / `global`): beside openmw.cfg.
@@ -4270,6 +4316,7 @@ fn lua_ui_font() -> Result<tauri::ipc::Response, String> {
 /// `luarun.lua`'s `__wg_step`), `{effects, log, status}` out.
 #[tauri::command(async)]
 fn lua_run_step(frame: String, state: State) -> Result<String, String> {
+    let t0 = std::time::Instant::now();
     let delta = lua_collision(&frame, &state);
     let mut g = LUA_RUN.lock().map_err(|e| e.to_string())?;
     let run = g.as_mut().ok_or("OpenMW Lua is not running")?;
@@ -4277,12 +4324,26 @@ fn lua_run_step(frame: String, state: State) -> Result<String, String> {
     if let Some(d) = delta {
         run.send_col(&d);
     }
+    let col = t0.elapsed().as_secs_f64() * 1000.0;
+    let t1 = std::time::Instant::now();
     let got = run.call("__wg_step", &frame, LUA_STEP_LIMIT);
+    let call = t1.elapsed().as_secs_f64() * 1000.0;
     // A worker that was stopped is let go: the next start makes a new one.
     if !run.alive() {
         *g = None;
     }
-    got.map_err(|e| e.replacen(viewcore::luaproc::STOPPED, "", 1).trim().to_string())
+    got.map(|a| lua_host_times(a, col, call, g.as_ref().map_or(0.0, |r| r.last_ms)))
+        .map_err(|e| e.replacen(viewcore::luaproc::STOPPED, "", 1).trim().to_string())
+}
+
+/// The step's answer with the program's part of its time in front (Static 2026-11-24, "cut the
+/// OpenMW Lua round-trip latency"): `host: {col, call, worker}` in ms - the collision brought up
+/// to date, the call to the worker, and the call's time inside the worker - for the performance
+/// report's split of the round trip. Put in as text: the answer is not read again here.
+fn lua_host_times(a: String, col: f64, call: f64, worker: f64) -> String {
+    let Some(rest) = a.strip_prefix('{') else { return a };
+    let sep = if rest.trim_start().starts_with('}') { "" } else { "," };
+    format!("{{\"host\":{{\"col\":{col:.3},\"call\":{call:.3},\"worker\":{worker:.3}}}{sep}{rest}")
 }
 
 /// Wraithguard: each mesh's collision triangles, read once while the Lua runs (`None`: the
@@ -5064,6 +5125,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             lua_check,
             lua_deps,
             lua_find,
+            lua_check_cancel,
+            meshes_cancel,
+            open_path,
             open_web,
             lua_settings_read,
             lua_settings_write,

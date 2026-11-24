@@ -1018,7 +1018,7 @@ const WgToolsPage={
     const eff=list=>list.length? `<div style="margin:2px 0 0 12px">${list.map(e=>`<div style="font-family:var(--mono)">${loEsc(e.raw)}${e.conditions.length?' <span class="empty" style="padding:0">('+e.conditions.map(loEsc).join(' &rsaquo; ')+')</span>':''}</div>`).join('')}</div>` : '';
     const link=c=>c.target? `<a href="#" data-jq="${loEsc(c.target.quest)}" data-ji="${loEsc(c.target.infoId)}">${loEsc(c.target.quest)} ${c.index}</a>` : `${loEsc(c.quest)} ${c.index} <span style="color:var(--warn)">(no such stage)</span>`;
     const box=$('#tlJrStages');
-    box.innerHTML=quest.stages.map(st=>`<div class="warn" id="jr_${loEsc(st.infoId)}" style="border-color:${st.finished?'var(--ok,#4a9)':'var(--line2)'}">
+    box.innerHTML=quest.stages.map(st=>`<div class="warn" id="jr_${loEsc(st.infoId)}" style="border-color:${st.finished?'var(--grow)':'var(--line2)'}">
       <span class="kind">${st.index}${st.state? ' - '+loEsc(st.state) : ''} - ${st.plugins.map(loEsc).join(' &rarr; ')}</span>${loEsc(st.text||'(no text)')}
       ${st.conditions.length? `<div class="empty" style="padding:2px 0">${st.conditions.map(loEsc).join('<br>')}</div>` : ''}
       ${st.effects.length? '<div><b>Its script does</b>'+eff(st.effects)+'</div>' : ''}
@@ -1076,7 +1076,7 @@ const WgToolsPage={
       deps.innerHTML=r.saves.map(sv=>{
         if(sv.error) return `<div class="warn FOGBUG"><span class="kind">${loEsc(sv.name)}</span>${loEsc(sv.error)}</div>`;
         if(sv.missing.length) return `<div class="warn FOGBUG"><span class="kind">${loEsc(sv.name)}: ${sv.missing.length} content file(s) missing - OpenMW will refuse to load it</span>${sv.missing.map(loEsc).join('<br>')}</div>`;
-        return `<div class="warn" style="border-color:var(--ok,#4a9)"><span class="kind">${loEsc(sv.name)}</span>All ${sv.files.length} content files it depends on are in this load order.</div>`;
+        return `<div class="warn" style="border-color:var(--grow)"><span class="kind">${loEsc(sv.name)}</span>All ${sv.files.length} content files it depends on are in this load order.</div>`;
       }).join('');
       out.textContent=r.report;
     }catch(e){ deps.textContent=String(e.message||e); }

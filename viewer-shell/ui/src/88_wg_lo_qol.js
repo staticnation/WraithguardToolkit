@@ -29,8 +29,8 @@ const WgLoQol={
     if(!d){
       d=this.el('div'); d.id=id;
       d.style.cssText='position:fixed;z-index:80;right:16px;top:calc(var(--top-h,40px) + 16px);width:min(520px,90vw);max-height:75vh;display:flex;flex-direction:column;'+
-        'background:var(--bg2,#1d1f22);color:var(--tx,#ddd);border:1px solid var(--line2,#555);border-radius:var(--r-box,6px);box-shadow:0 6px 24px rgba(0,0,0,.45);font-size:12px';
-      const h=this.el('div'); h.style.cssText='display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line,#444)';
+        'background:var(--bg2);color:var(--tx);border:1px solid var(--line2);border-radius:var(--r-box,6px);box-shadow:0 6px 24px rgba(0,0,0,.45);font-size:12px';
+      const h=this.el('div'); h.style.cssText='display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line)';
       const t=this.el('b'); t.className='ttl';
       const x=this.btn('✕', 'Close (Esc)', ()=>{ d.hidden=true; }, 'dim');
       h.append(t, this.el('span'), x); h.children[1].style.flex='1';
@@ -96,14 +96,14 @@ const WgLoQol={
     else for(const m of w.masters){
       const ok=m.at!=null && at!=null && m.at<at;
       const d=this.line(ok? '✓ ' : '✗ ', this.link(m.name), m.at==null? ': not in the order (OpenMW will not load it)' : ok? '' : ': loads after it (OpenMW will refuse it)');
-      if(!ok) d.style.color='var(--bad,#e06c6c)';
+      if(!ok) d.style.color='var(--err)';
       body.append(d);
     }
     // Rules.
     body.append(this.head('Rules that name it'));
     if(!w.rules.length) body.append(this.el('div', 'empty', 'No rule names it.'));
     for(const r of w.rules){
-      const card=this.el('div'); card.style.cssText='border:1px solid var(--line,#444);border-radius:4px;padding:4px 6px';
+      const card=this.el('div'); card.style.cssText='border:1px solid var(--line);border-radius:4px;padding:4px 6px';
       const k=r.kind==='order'? '[Order]' : r.kind==='nearstart'? '[NearStart]' : '[NearEnd]';
       const h=this.el('div', '', r.file+', line '+r.line+': '+k); h.style.opacity='.8';
       card.append(h);
@@ -112,7 +112,7 @@ const WgLoQol={
         if(r.before.length) card.append(this.line('Before it: ', this.names(r.before)));
         if(r.after.length) card.append(this.line('After it: ', this.names(r.after)));
         if(!r.before.length && !r.after.length) card.append(this.el('div', 'empty', 'Nothing else in the block is installed.'));
-        if(r.broken.length){ const b=this.line('Not followed for ', this.names(r.broken), ': the curated list, another rule, or a cycle came first.'); b.style.color='var(--warn,#d8a14a)'; card.append(b); }
+        if(r.broken.length){ const b=this.line('Not followed for ', this.names(r.broken), ': the curated list, another rule, or a cycle came first.'); b.style.color='var(--warn)'; card.append(b); }
       }
       const all=this.el('div', 'empty', r.names.join(' → ')); all.style.cssText='font-family:var(--mono);font-size:11px;white-space:normal';
       card.append(all);
@@ -194,7 +194,7 @@ const WgLoQol={
     if(!list.length) body.append(this.el('div', 'empty', 'None yet. One is kept on its own before each Sort and after each Export that writes.'));
     const out=this.el('div');
     for(const s of list){
-      const r=this.el('div'); r.style.cssText='display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--line,#333);padding:3px 0';
+      const r=this.el('div'); r.style.cssText='display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--line);padding:3px 0';
       const t=this.el('span', '', s.name); t.style.cssText='flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       t.title=new Date(s.t).toLocaleString()+' · '+s.content.length+' plugins';
       if(s.auto) t.style.opacity='.75';
@@ -255,7 +255,7 @@ const WgLoQol={
     const R=this.rev(), mk=(state, title, fn)=>{
       const b=this.el('span', 'cfRevMk', state==='yes'? '✓' : state==='changed'? '↻' : '○');
       b.title=state==='yes'? 'Reviewed (click to unmark)' : state==='changed'? 'Changed since you reviewed it: another plugin touches it now (click to mark again)' : 'Not reviewed (click to mark)';
-      b.style.cssText='cursor:pointer;margin-right:4px;'+(state==='yes'? 'color:var(--ok,#7cc47c)' : state==='changed'? 'color:var(--warn,#d8a14a)' : 'opacity:.45');
+      b.style.cssText='cursor:pointer;margin-right:4px;'+(state==='yes'? 'color:var(--grow)' : state==='changed'? 'color:var(--warn)' : 'opacity:.45');
       b.onclick=e=>{ e.stopPropagation(); fn(); this.CF().draw(); };
       return b;
     };

@@ -104,7 +104,7 @@ const WgLuaCheck={
     if(!mods.length){ const e=document.createElement('div'); e.className='empty'; e.textContent='None.'; body.append(e); }
     for(const m of mods){
       const w=document.createElement('div'); w.className='warn';
-      w.style.borderLeftColor=m.status==='ok'? 'var(--ok,#5a5)' : (m.status==='mod' || m.status==='failed')? 'var(--err)' : 'var(--warn)';
+      w.style.borderLeftColor=m.status==='ok'? 'var(--grow)' : (m.status==='mod' || m.status==='failed')? 'var(--err)' : 'var(--warn)';
       const k=document.createElement('span'); k.className='kind';
       k.textContent=(m.kind==='mwse'? 'MWSE · ' : '')+(this.CLASS[m.status]||m.status)+' · '+(m.scripts||[]).length+' script'+((m.scripts||[]).length===1? '' : 's');
       const name=document.createElement('b'); name.textContent=m.name;

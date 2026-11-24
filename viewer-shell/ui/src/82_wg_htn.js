@@ -1315,13 +1315,13 @@ const WgHtn={
       const r=this.el('div', 'wgHtnRow');
       r.dataset.id=n.id;
       r.style.cssText='display:flex;gap:6px;align-items:center;padding:2px 4px;cursor:pointer;border-radius:4px;user-select:none;margin-left:'+(depth*16)+'px';
-      if(n.id===this.sel) r.style.background='var(--sel, rgba(120,160,255,.18))';
+      if(n.id===this.sel) r.style.background='var(--acd)';
       if(n.id===cur) r.style.outline='2px solid var(--ac)';
       else if(planned.has(n.id)) r.style.outline='1px dashed var(--ac)';
       if(n.type==='action'){
         const on=this.bps.has(n.id), bp=this.el('span', '', on? '●' : '○');
         bp.title=on? 'Breakpoint: the Preview run pauses as this step starts (click to remove)' : 'Click to pause the Preview run as this step starts';
-        bp.style.cssText='cursor:pointer;width:12px;text-align:center;'+(on? 'color:var(--bad,#e06c6c)' : 'opacity:.35');
+        bp.style.cssText='cursor:pointer;width:12px;text-align:center;'+(on? 'color:var(--err)' : 'opacity:.35');
         bp.onclick=e=>{ e.stopPropagation(); this.toggleBp(n.id); };
         bp.onpointerdown=e=>e.stopPropagation();
         r.append(bp);

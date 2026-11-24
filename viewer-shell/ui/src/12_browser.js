@@ -108,7 +108,7 @@ const Favourites={
       const on=Favourites.has(kind,item);
       el.textContent=on?'\u2605':'\u2606';
       el.dataset.on=on?'1':'';
-      el.style.color=on?'var(--acc)':'var(--tx3)';
+      el.style.color=on?'var(--ac)':'var(--tx3)';
       el.style.opacity=on?'1':(row.dataset.favhover?'0.8':'0');
       el.title=on? T('browse.star_on_title') : T('browse.star_off_title');
     };

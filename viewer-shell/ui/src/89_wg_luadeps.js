@@ -99,7 +99,7 @@ const WgLuaDeps={
     box.append(h);
     for(const n of F){
       const w=document.createElement('div'); w.className='warn';
-      w.style.borderLeftColor=n.found.length? 'var(--ok,#5a5)' : 'var(--warn)';
+      w.style.borderLeftColor=n.found.length? 'var(--grow)' : 'var(--warn)';
       const k=document.createElement('span'); k.className='kind';
       k.textContent='needed by '+n.mods.slice(0, 4).join(', ')+(n.mods.length>4? ' and '+(n.mods.length-4)+' more' : '');
       const name=document.createElement('b'); name.textContent=this.label(n);

@@ -121,7 +121,7 @@ const WgEdDiff={
       const cell=(text, style)=>{ const td=document.createElement('td'); td.textContent=text; td.style.cssText='padding:1px 4px;vertical-align:top;'+(style||''); tr.append(td); return td; };
       cell(f.path, 'font-family:var(--mono)');
       cell(this.show(f.value), 'opacity:.75');
-      cell(this.show(f.queued)+(f.source && f.source!=='typed'? '  (from '+f.source+')' : ''), 'color:var(--acc,#6cb6ff)');
+      cell(this.show(f.queued)+(f.source && f.source!=='typed'? '  (from '+f.source+')' : ''), 'color:var(--ac)');
       const td=cell('');
       const b=document.createElement('button'); b.className='btn dim ic'; b.textContent='↶'; b.title='Take back this field alone';
       b.onclick=async()=>{
@@ -194,7 +194,7 @@ const WgScriptHelp={
   open(ta, a, b, items){
     this.close();
     const pop=document.createElement('div');
-    pop.style.cssText='position:fixed;z-index:9999;background:var(--panel,#1d1f22);border:1px solid var(--line,#444);border-radius:4px;max-height:220px;overflow:auto;min-width:220px;font-size:12px';
+    pop.style.cssText='position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--line);border-radius:4px;max-height:220px;overflow:auto;min-width:220px;font-size:12px';
     const r=ta.getBoundingClientRect(), lines=ta.value.slice(0, a).split('\n'), lh=parseFloat(getComputedStyle(ta).lineHeight)||16;
     pop.style.left=Math.min(window.innerWidth-240, r.left+8+Math.min(60, lines[lines.length-1].length)*7)+'px';
     pop.style.top=Math.min(window.innerHeight-230, r.top+4+(lines.length-ta.scrollTop/lh)*lh)+'px';
@@ -213,7 +213,7 @@ const WgScriptHelp={
   move(d){
     const P=this._pop; if(!P) return;
     P.sel=Math.max(0, Math.min(P.items.length-1, P.sel+d));
-    [...P.el.children].forEach((c, i)=>{ c.style.background=i===P.sel? 'var(--sel,#2d4a6b)' : ''; });
+    [...P.el.children].forEach((c, i)=>{ c.style.background=i===P.sel? 'var(--acd)' : ''; });
     const c=P.el.children[P.sel]; if(c && c.scrollIntoView) c.scrollIntoView({block:'nearest'});
   },
   accept(ta){
@@ -245,7 +245,7 @@ const WgScriptHelp={
     box.append(h);
     for(const x of hits){
       const r=document.createElement('div'); r.style.cssText='display:flex;gap:6px;cursor:pointer;padding:1px 0';
-      const a=document.createElement('span'); a.textContent=x.id+':'+x.line; a.style.cssText='flex:none;color:var(--acc,#6cb6ff)';
+      const a=document.createElement('span'); a.textContent=x.id+':'+x.line; a.style.cssText='flex:none;color:var(--ac)';
       const t=document.createElement('span'); t.textContent=x.text; t.style.fontFamily='var(--mono)';
       r.append(a, t);
       r.title='Open '+x.id;
@@ -288,7 +288,7 @@ const WgTextCheck={
       }
       for(const l of r.links) bad.push('@'+l+' has no closing #');
       note.textContent=bad.join(' · ');
-      note.style.color=bad.length? 'var(--warn,#d8a14a)' : '';
+      note.style.color=bad.length? 'var(--warn)' : '';
     };
     let t=0;
     ta.addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(run, 400); });

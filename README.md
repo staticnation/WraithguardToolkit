@@ -448,7 +448,14 @@ Each tool is a section on the left with its work on the right.
 - **Report** lists what was read: the plugins with their masters, the archives, the meshes
   and textures found, and anything that couldn't be read. Its **Performance** part says
   where a frame's time goes: the GPU by pass, the page's own work (drawing, MWScript, the
-  actors), what occlusion culling left out, and the Lua round trips.
+  actors), what occlusion culling left out, and the Lua round trips, split into their parts
+  (making the frame, the call across, the collision, the pipe, reading the frame, the scripts,
+  writing the answer).
+- **Jobs** (beside Report, while a long job runs or after one has) lists Merge Lands, Merge
+  objects, the Mesh optimizer, Check meshes, the Lua check, tes3cmd, Save Check, the Conflicts
+  scans and the Load order's sort and export: how long each has taken and how far it has got,
+  **Cancel** for Merge Lands, the mesh writes and the Lua check, and **Open folder** for what
+  one wrote.
 - **Settings** (the gear) holds the theme, the language, how the mouse moves the camera,
   and the side panel. **Read past unknown subrecords** (off by default) lets the scans, the
   Editor and Merge objects read a plugin with a subrecord its record type doesn't know, instead

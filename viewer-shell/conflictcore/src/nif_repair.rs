@@ -21,7 +21,7 @@ use editcore::cache::Cache;
 use gardenfell_nif::netimmerse::repair::{Kind, repair};
 use serde_json::{Value, json};
 
-use crate::nif_batch::{Candidate, DONE, TOTAL, Written};
+use crate::nif_batch::{not_written, Candidate, DONE, STOP, TOTAL, Written};
 use crate::vfs::par_map;
 
 /// The cache tag of a mesh's check.
@@ -237,8 +237,9 @@ pub fn write_one(c: &Candidate, out_dir: &Path, guesses: bool) -> Written {
 pub fn write_all(cands: &[&Candidate], out_dir: &Path, guesses: bool) -> Vec<Written> {
     DONE.store(0, Ordering::Relaxed);
     TOTAL.store(cands.len(), Ordering::Relaxed);
+    STOP.store(false, Ordering::Relaxed);
     par_map(cands, |c| {
-        let w = write_one(c, out_dir, guesses);
+        let w = if STOP.load(Ordering::Relaxed) { not_written(c) } else { write_one(c, out_dir, guesses) };
         DONE.fetch_add(1, Ordering::Relaxed);
         w
     })

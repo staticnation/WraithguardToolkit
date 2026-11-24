@@ -1032,6 +1032,63 @@ mod tests {
         runs_a_scene(&mut r);
     }
 
+    /// A step's time on a busy scene (Static 2026-11-24, "cut the OpenMW Lua round-trip
+    /// latency"): 300 actors each with a local script, 20 global scripts, the actors' changes
+    /// sent each frame as the page sends them. Prints the split; `--ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn step_time_on_a_busy_scene() {
+        let mut r = match std::env::var("WG_LUAJIT") {
+            Ok(p) => Runner::new(Some(Path::new(&p)), false).unwrap(),
+            _ => Runner::new(None, true).unwrap(),
+        };
+        let q = |s: &str| { let mut o = String::from("\""); crate::json::escape_into(s, &mut o); o.push('"'); o };
+        let local = "local self = require('openmw.self') local n = 0\nreturn { engineHandlers = { onUpdate = function(dt) n = n + dt if n > 1 then n = 0 local p = self.position end end } }";
+        let global = "local world = require('openmw.world') local t = 0\nreturn { engineHandlers = { onUpdate = function(dt) t = t + dt if t > 0.5 then t = 0 local c = #world.activeActors end end } }";
+        let mut scripts = vec![r#"{"path":"scripts/b/actor.lua","flags":["NPC"]}"#.to_string()];
+        let mut sources = vec![format!(r#""scripts/b/actor.lua":{}"#, q(local))];
+        for i in 0..20 {
+            scripts.push(format!(r#"{{"path":"scripts/b/g{i}.lua","flags":["GLOBAL"]}}"#));
+            sources.push(format!(r#""scripts/b/g{i}.lua":{}"#, q(global)));
+        }
+        let start = format!(r#"{{"scripts":[{}],"sources":{{{}}},"files":[],"weathers":["Clear"]}}"#, scripts.join(","), sources.join(","));
+        r.call("__wg_start", &start).unwrap();
+        let objs: Vec<String> = (0..300).map(|i| format!(r#""n{i}":{{"id":"npc{i}","tag":"NPC_","pos":[{i},0,0],"cell":{{"name":"Balmora","ext":false}}}}"#)).collect();
+        r.call("__wg_step", &format!(r#"{{"dt":0.016,"player":{{"pos":[0,0,0],"cell":{{"name":"Balmora","ext":false}}}},"objects":{{{}}}}}"#, objs.join(","))).unwrap();
+        let mut times = Vec::new();
+        for f in 0..60 {
+            // The actors' changes, as the page sends them: health, AI, items.
+            let actors: Vec<String> = (0..300).map(|i| format!(r#""n{i}":{{"hp":{},"mp":50,"fp":80,"max":[100,100,100],"dead":false,"items":{{"gold_001":{}}},"ai":{{"kind":"wander","done":false,"target":null,"dest":null}},"combat":null}}"#, 100 - (f % 7), f)).collect();
+            let frame = format!(r#"{{"dt":0.016,"hour":12,"actors":{{{}}},"sounds":[]}}"#, actors.join(","));
+            let t = std::time::Instant::now();
+            let a = r.call("__wg_step", &frame).unwrap();
+            let total = t.elapsed().as_secs_f64() * 1000.0;
+            let v: serde_json::Value = serde_json::from_str(&a).unwrap();
+            let dec = v["status"]["t"]["dec"].as_f64().unwrap_or(0.0);
+            let run = v["status"]["t"]["run"].as_f64().unwrap_or(0.0);
+            times.push((total, dec, run, frame.len()));
+        }
+        times.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (total, dec, run, len) = times[times.len() / 2];
+        println!("{}: median step {total:.2} ms = read the frame {dec:.2} + scripts {run:.2} + the rest {:.2} (frame {len} bytes); worst {:.2}", r.backend, total - dec - run, times[times.len() - 1].0);
+    }
+
+    /// The prelude's JSON reader alone in a plain Lua 5.4, against the same frame in the runner.
+    #[test]
+    #[ignore]
+    fn json_alone() {
+        let src = PRELUDE;
+        let i = src.find("local json = {}").unwrap();
+        let j = i + src[i + 40..].find("------").unwrap() + 40;
+        let lua = mlua::Lua::new();
+        lua.load(format!("floor = math.floor huge = math.huge\n{}", src[i..j].replace("local json = {}", "json = {}"))).exec().unwrap();
+        let actors: Vec<String> = (0..300).map(|i| format!(r#""n{i}":{{"hp":90,"mp":50,"fp":80,"max":[100,100,100],"dead":false,"items":{{"gold_001":3}},"ai":{{"kind":"wander","done":false,"target":null,"dest":null}},"combat":null}}"#)).collect();
+        let frame = format!(r#"{{"dt":0.016,"hour":12,"actors":{{{}}},"sounds":[]}}"#, actors.join(","));
+        let f: mlua::Function = lua.load("return function(s) local c = os.clock() json.decode(s) return (os.clock() - c) * 1000 end").eval().unwrap();
+        let ms: f64 = f.call(frame.as_str()).unwrap();
+        println!("plain mlua decode {ms:.2} ms");
+    }
+
     #[test]
     fn requires_found_by_name() {
         assert_eq!(required("local a = require('scripts.x.y')\nlocal b=require \"m\" local c = require('openmw.core') local d = myrequire('z')"),

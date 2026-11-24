@@ -1749,6 +1749,10 @@ function openLog(){
                      (cpuSum.long.n? ' — '+cpuSum.long.n+' long task'+(cpuSum.long.n===1? '' : 's')+' (over 50 ms, the collector\'s pauses among them), worst '+cpuSum.long.worst.toFixed(0)+' ms' : '')});
       if(cpuSum.trip) line({k:'ok', t:'OpenMW Lua: a step there and back median '+cpuSum.trip.median.toFixed(1)+' ms, worst '+cpuSum.trip.worst.toFixed(1)+
                      ' ms over '+cpuSum.trip.n+' steps (off the frame: the actors move on meanwhile)'});
+      // Where a step's time goes (Static 2026-11-24, "cut the OpenMW Lua round-trip latency").
+      { const P=cpuSum.trip && cpuSum.trip.parts;
+        if(P) line({k:'ok', t:'  its parts (medians): making the frame '+P.page.toFixed(1)+', across to the program '+P.ipc.toFixed(1)+', collision '+P.collision.toFixed(1)+
+          ', the pipe '+P.pipe.toFixed(1)+', reading the frame '+P.read.toFixed(1)+', the scripts '+P.scripts.toFixed(1)+', writing the answer '+P.write.toFixed(1)+' ms'}); }
     }
     if(calls) line({k:'ok', t:'WebGL calls last frame: '+n(calls.total)+' ('+n(calls.draws)+' draws'+
                       (calls.multi? ', '+n(calls.multi)+' multi-draw' : '')+', '+n(calls.uniforms)+' uniforms, '+

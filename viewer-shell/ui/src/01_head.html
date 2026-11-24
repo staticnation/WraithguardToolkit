@@ -158,6 +158,10 @@
    visible on the glass. */
 [hidden]{display:none!important}
 html,body{height:100%}
+/* Links in the theme's accent (Static 2026-11-24: "links should follow our themes so we can read
+   them" - the browser's own blue was unreadable on the dark themes); visited ones the same. */
+a,a:visited{color:var(--ac);cursor:pointer}
+a:hover{text-decoration:underline}
 body{
   background:var(--bg); color:var(--tx); overflow:hidden;
   font:13px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;

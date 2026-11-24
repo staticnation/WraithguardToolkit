@@ -139,16 +139,17 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `87_wg_land_qol.js` | 40 KB | The Land view's mirror, color pick, road or path, painting by rules, heightmap PNG out and in, and the strokes list with Back to before this. |
 | `88_wg_lo_qol.js` | 21 KB | Load order's Why here? and snapshots (compare, restore); Conflicts' reviewed marks. |
 | `89_wg_luadeps.js` | 8 KB | The Lua mods check's missing dependencies found in the setup, turned on through the Load order page, or searched for on Nexus. |
+| `90_wg_jobs.js` | 9 KB | The jobs panel: the long commands seen as they go through the engine, with how long, how far, Cancel and Open folder. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 162, and `pick.rs`: 2)
+## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 165, and `pick.rs`: 2)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.
 
 - **path** (`pick.rs`): `path_pick`, `path_allow`
 - **connect**: `connect_stage`
-- **open**: `open_install`, `open_folder`, `open_web` (a Nexus Mods or modding-openmw.com page)
+- **open**: `open_install`, `open_folder`, `open_web` (a Nexus Mods or modding-openmw.com page), `open_path` (a job's output folder)
 - **startup**: `startup_install`
 - **theme**: `theme_set`
 - **picker**: `picker_set`
@@ -180,12 +181,13 @@ names a command that is not defined, or one is left unregistered.
 - **record**: `record_search` (records by id, best first)
 - **editor**: `editor_tags_bytes`, `editor_records`, `editor_rows`, `editor_actors`, `editor_cell_refs_bytes`, `editor_ref_names`, `editor_record_tag`, `editor_script_flowchart`, `editor_preview_patch`, `editor_open`, `editor_setup`, `editor_link`, `editor_land_link`
 - **htn**: `htn_deps`, `htn_read`, `htn_export` (Tools → HTN AI)
-- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`, `lua_deps`, `lua_check`, `lua_find`, `lua_record`, `lua_settings_read`, `lua_settings_write`, `anim_blend_config`
+- **lua**: `lua_scan`, `lua_chart`, `lua_scene`, `anim_groups`, `lua_run_start`, `lua_ui_font`, `lua_run_step`, `lua_run_stop`, `lua_deps`, `lua_check`, `lua_check_cancel`, `lua_find`, `lua_record`, `lua_settings_read`, `lua_settings_write`, `anim_blend_config`
 - **wg**: `wg_post`, `wg_save_edited` (the page tests' seam to a stand-in host; nothing serves them since 5.0)
 - **scan**: `scan_cache_warm`
 - **loadorder**: `loadorder_drop_probe`, `loadorder_compute`, `loadorder_export`, `loadorder_rule_ages`, `loadorder_scan`, `loadorder_update_rules`, `loadorder_update_yml`, `loadorder_fetch_data_paths`, `loadorder_author`, `loadorder_plain_sort`, `loadorder_plain_write`, `loadorder_plain_restore_dates`, `loadorder_why`
 - **meshopt**: `meshopt_analyse`, `meshopt_write`, `meshopt_progress`
 - **meshcheck**: `meshcheck_scan`, `meshcheck_write` (progress is `meshopt_progress`)
+- **meshes**: `meshes_cancel` (stops either tool's write)
 - **conflicts**: `conflicts_scan`, `conflicts_fields`, `conflicts_land_surfaces`, `conflicts_resources`, `conflicts_texture`, `conflicts_report`, `conflicts_csv`, `conflicts_patch`, `conflicts_by_plugin`, `conflicts_plugin_group`, `conflicts_verdicts`, `conflicts_plugin_bulk`, `conflicts_plugin_bulk_apply`
 - **land**: `land_meta_read`, `land_meta_preview`, `land_meta_write`, `land_merge_home`, `land_merge`, `land_merge_cancel`, `land_merge_progress`, `land_merge_fork_config`
 - **help**: `help_docs`, `help_doc`, `help_open_link`
@@ -225,8 +227,8 @@ names a command that is not defined, or one is left unregistered.
 | `luacheck.rs` | 352 | Tools → Lua mods: each Lua mod run on its own and what its scripts said sorted; what each script needs on with it (`deps`). |
 | `luafind.rs` | 216 | Where a Lua mod's missing interface, module or global is when it is installed and not turned on: content files outside `content=`, the mods folder's folders outside `data=`. |
 | `luafiles.rs` | 543 | The files a Lua mod reads (on demand, through the worker) and the settings the player saved (`player_storage.bin`, `global_storage.bin`): read for the scripts, and one value written back for Tools → Lua settings. |
-| `luaproc.rs` | 267 | The Preview's Lua in a worker process (the program with `--lua-worker`), ended when a call runs past its time. |
-| `luarun.rs` | 1586 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins, the load order's scripts and MWSE mods' main.lua, luarun.lua's API. |
+| `luaproc.rs` | 493 | The Preview's Lua in a worker process (the program with `--lua-worker`), ended when a call runs past its time. |
+| `luarun.rs` | 2295 | OpenMW Lua run against the Preview's scene: the install's LuaJIT (else Lua 5.4), OpenMW's built-ins, the load order's scripts and MWSE mods' main.lua, luarun.lua's API. |
 | `luarec.rs` | 569 | Any record of the load order for the Preview's Lua, by id, as OpenMW's Lua gives it (`types.X.records[id]`), and the record dialog's "As Lua sees it". |
 | `lua_api/mwse.json` | - | MWSE's Lua API surface (names, documented types, events and `tes3`'s constants, from MWSE's autocomplete definitions; `tools/mwse_api_surface.py`), filled into MWSE mods' environment. |
 | `lua_api/openmw.json` | - | OpenMW's Lua API surface (names and documented types, from OpenMW's `files/lua_api`; `tools/lua_api_surface.py`), filled into the Preview's Lua. |

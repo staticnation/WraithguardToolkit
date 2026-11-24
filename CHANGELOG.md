@@ -327,6 +327,31 @@
   camera stands, by name, for the loaded cell (in world units, kept on this machine), and go back to it,
   orbiting, flying or walking as it was; **Screenshot…** saves the 3D view as a PNG where you choose,
   the panels never in it and, ticked, without the selection's highlight and the stepping arrows.
+- **The jobs batch, and the Lua round trip** (Static 2026-11-24, "lets do all this"; `90_wg_jobs.js`):
+  - **Jobs** on the top bar: every long command the pages start (Merge Lands, Merge objects, the
+    Mesh optimizer, Check meshes, the Lua check, tes3cmd, Save Check, the Conflicts scans, the Load
+    order's sort and export) seen as it goes through `Engine.inv`, no page changed for it; its
+    panel says how long each has taken and how far it has got (the mesh tools' count, Merge Lands'
+    last line). **Cancel** where the engine can stop one: Merge Lands (as before), the mesh writes
+    (`meshes_cancel`, `nif_batch::STOP`: the meshes not yet written are said as cancelled) and the
+    Lua check (`lua_check_cancel`: the mods not yet started). **Open folder** for what one wrote
+    (`open_path`: only a folder the person chose this run, as the writes are held to). A job under
+    half a second is not listed.
+  - **The OpenMW Lua round trip, about ten times shorter.** The prelude read each frame's JSON with
+    `string.find`, which the scripts' safety layer answers with a matcher in Lua for a repeating
+    pattern on a long string; the reader's own patterns are fixed and linear, so it now takes the C
+    functions before they are replaced, and compares bytes instead of making a string a character.
+    On a frame of 300 actors (`step_time_on_a_busy_scene`, release build): a step from 98 to 8.8 ms
+    median, its worst from 175 to 16 ms; reading the frame from 94 to 7.6 ms. The reader answers as
+    before (216 frames, edge cases and random ones, compared with the old one).
+  - **The round trip split** in the Report's performance part: making the frame, the call across to
+    the program, the collision, the pipe to the worker, and in the worker reading the frame, the
+    scripts and writing the answer (`status.t`, the worker's `ms`, the program's `host` times).
+  - **Links follow the theme** (Static 2026-11-24: "links should follow our themes so we can read
+    them"): every link in the accent color, visited ones too; the new panels' colors are the
+    theme's own (`--err`, `--grow`, `--ac`, `--acd`, `--bg2`) where they named ones it does not
+    define, and so is the file browser's favorite star.
+  Tests: `jobs.test.js`; viewcore `step_time_on_a_busy_scene` and `json_alone` (ignored: timings).
 - **The Lua and HTN batch** (Static 2026-11-24, "lets do all this"; `89_wg_luadeps.js`, `82_wg_htn.js`,
   `viewcore::luafind`, `lua_find`, `open_web`):
   - **Lua mods: what the mods need, turned on.** The check's findings gathered into one list at the

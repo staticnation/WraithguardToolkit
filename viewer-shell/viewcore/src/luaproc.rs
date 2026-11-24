@@ -125,6 +125,7 @@ pub fn serve() -> i32 {
         }));
     }
     let mut run: Option<Runner> = None;
+    let mut took = 0.0;
     loop {
         let Some(m) = read_msg(&mut std::io::stdin().lock()) else { return 0 };
         let s = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -145,13 +146,19 @@ pub fn serve() -> i32 {
                 continue;
             }
             "call" => match run.as_mut() {
-                Some(r) => r.call(&s("func"), &s("arg")),
+                Some(r) => {
+                    let t = Instant::now();
+                    let got = r.call(&s("func"), &s("arg"));
+                    took = t.elapsed().as_secs_f64() * 1000.0;
+                    got
+                }
                 None => Err("the Lua was not started".into()),
             },
             _ => continue,
         };
         let msg = match answer {
-            Ok(v) => serde_json::json!({"t": "ok", "v": v}),
+            // `ms`: the call's own time in the worker, for the round trip's split.
+            Ok(v) => serde_json::json!({"t": "ok", "v": v, "ms": took}),
             Err(e) => serde_json::json!({"t": "err", "v": e}),
         };
         if send(&mut std::io::stdout().lock(), &msg).is_err() {
@@ -168,6 +175,8 @@ pub struct Proc {
     /// What runs the scripts (`Runner::backend`), said by the worker.
     pub backend: String,
     dead: bool,
+    /// The last call's time in the worker, ms (the round trip less the pipe).
+    pub last_ms: f64,
     /// Who answers the scripts' records (`{"t":"rec"}`): the load order's (`luarec::Records`).
     pub records: Option<luarun::RecordAsk>,
 }
@@ -196,7 +205,7 @@ impl Proc {
                 }
             }
         });
-        let mut p = Proc { child, to, from, backend: String::new(), dead: false, records: None };
+        let mut p = Proc { child, to, from, backend: String::new(), dead: false, last_ms: 0.0, records: None };
         let jit = jit.map(|j| j.to_string_lossy().into_owned());
         p.backend = p.ask(&serde_json::json!({"t": "new", "jit": jit, "force54": force_54}), limit)?;
         Ok(p)
@@ -243,7 +252,10 @@ impl Proc {
                 Ok(m) => {
                     let v = m.get("v").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     match m.get("t").and_then(|t| t.as_str()) {
-                        Some("ok") => return Ok(v),
+                        Some("ok") => {
+                            self.last_ms = m.get("ms").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                            return Ok(v);
+                        }
                         Some("err") => return Err(v),
                         Some("rec") => {
                             let g = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();

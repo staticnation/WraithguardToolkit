@@ -583,7 +583,7 @@ const WgLandQol={
     box.textContent='';
     const rules=WgLand.b.rules||[];
     rules.forEach((r, i)=>{
-      const card=this.el('div'); card.style.cssText='border:1px solid var(--line,#444);border-radius:4px;padding:3px;margin:3px 0';
+      const card=this.el('div'); card.style.cssText='border:1px solid var(--line);border-radius:4px;padding:3px;margin:3px 0';
       const top=this.el('div', 'lrow');
       top.append(this.el('b', '', (i+1)+'.'), this.texInput(r.tex, v=>{ r.tex=v; WgLand.keep(); }),
         this.btn('↑', 'Earlier: tried first', ()=>{ if(i>0){ rules.splice(i-1, 0, rules.splice(i, 1)[0]); WgLand.keep(); this.drawRules(); } }, 'dim ic'),

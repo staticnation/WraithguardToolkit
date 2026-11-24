@@ -18,7 +18,7 @@
    counted when the engine has them. A few `performance.now()` calls a frame: always on. */
 const WgPerf={
   N:120,
-  cur:{}, counts:{}, ring:[], trips:[], long:[],
+  cur:{}, counts:{}, ring:[], trips:[], tripParts:[], long:[],
   _t:0,
   now(){ return performance.now(); },
   /** `ms` more for `name` this frame. */
@@ -29,12 +29,26 @@ const WgPerf={
   time(name, fn){ const t=performance.now(); try{ return fn(); } finally{ this.add(name, performance.now()-t); } },
   /** A Lua step's round trip (off the frame). */
   trip(ms){ this.trips.push(ms); if(this.trips.length>this.N) this.trips.shift(); },
+  /** Where a Lua step's round trip went (Static 2026-11-24): `p` ms by part - the page making the
+   *  frame, the call across to the program, the collision, the pipe to the worker, and in the
+   *  worker reading the frame, the scripts and writing the answer. */
+  tripPart(p){ this.tripParts.push(p); if(this.tripParts.length>this.N) this.tripParts.shift(); },
   /** A frame was drawn: its books closed. */
   frame(){
     const t=performance.now();
     this.ring.push({at:t, gap:this._t? t-this._t : 0, ms:this.cur, n:this.counts});
     if(this.ring.length>this.N) this.ring.shift();
     this._t=t; this.cur={}; this.counts={};
+  },
+  /** Each part of the round trip's median, in the order a step goes through them (none: not split). */
+  tripSplit(){
+    const P=this.tripParts; if(!P.length) return null;
+    const out={};
+    for(const k of ['page', 'ipc', 'collision', 'pipe', 'read', 'scripts', 'write']){
+      const v=P.map(p=>+p[k]||0).sort((a, b)=>a-b);
+      out[k]=v[Math.floor(v.length/2)];
+    }
+    return out;
   },
   /** The last frames: each name's mean and worst a frame, the counts' means, the frames'
    *  gaps, Lua's round trips and the long tasks over the same stretch. */
@@ -57,7 +71,7 @@ const WgPerf={
     const trips=this.trips.slice().sort((a, b)=>a-b);
     return {frames:n, parts, counts,
             gap:{median:pct(0.5), p95:pct(0.95), worst:gaps.length? gaps[gaps.length-1] : 0},
-            trip:trips.length? {median:trips[Math.floor(trips.length/2)], worst:trips[trips.length-1], n:trips.length} : null,
+            trip:trips.length? {median:trips[Math.floor(trips.length/2)], worst:trips[trips.length-1], n:trips.length, parts:this.tripSplit()} : null,
             long:{n:long.length, ms:long.reduce((a, l)=>a+l.ms, 0), worst:long.reduce((a, l)=>Math.max(a, l.ms), 0)}};
   },
 };

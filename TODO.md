@@ -128,8 +128,10 @@ master is told by its extension everywhere; the master check only notes a header
   its own), the ground's chunks and the grass (distant objects are in the material groups, so they are
   covered), and the Light GPU switch. **Not measured yet on the UHD**: the GPU's "reflection: objects"
   and "objects" passes with each on and off. On Static's RTX 3060 (Seyda Neen) the culling hid 130 of
-  422 runs on screen. The OpenMW Lua round trip (median 23-132 ms, worst 0.4-3 s) is off the frame but
-  makes scripted actors answer late.
+  422 runs on screen. The OpenMW Lua round trip (median 23-132 ms, worst 0.4-3 s) was mostly the
+  prelude reading each frame's JSON through the scripts' safe pattern matcher (2026-11-24: on a frame
+  of 300 actors, 94 of a 98 ms step; now 7.6 of 8.8 ms). **Not measured yet on Static's install**: the
+  Report's split of the round trip, to see what is left.
 - **HTN AI's "Run on FluadHTN"** has run on the Nexus builds here (OpenMW with Rubic0n, MWSE); not yet
   in Static's own Preview on his install.
 

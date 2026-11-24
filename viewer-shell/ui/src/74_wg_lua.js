@@ -299,12 +299,24 @@ const WgLua={
     if(this.busy) return;
     const step=this._dt; this._dt=0;
     let body;
+    const made=performance.now();
     try{ body=JSON.stringify(this.delta(step)); }catch(e){ this.say('', 'error', 'the scene for Lua: '+String(e && e.message || e)); return; }
     this.busy=true;
     const sent=performance.now();
     return Engine.call('lua_run_step',{frame:body}).then(a=>{
       this.busy=false;
-      if(typeof WgPerf==='object') WgPerf.trip(performance.now()-sent);
+      const trip=performance.now()-sent;
+      if(typeof WgPerf==='object'){
+        WgPerf.trip(trip);
+        // Where it went (Static 2026-11-24): the program's part says its own times (`host`), the
+        // worker its reading and scripts (`status.t`); the rest is the call across and the pipe.
+        const h=a && a.host, t=a && a.status && a.status.t;
+        if(h && WgPerf.tripPart){
+          const dec=t? +t.dec||0 : 0, run=t? +t.run||0 : 0;
+          WgPerf.tripPart({page:sent-made, ipc:Math.max(0, trip-h.col-h.call), collision:h.col, pipe:Math.max(0, h.call-h.worker),
+            read:dec, scripts:run, write:Math.max(0, h.worker-dec-run)});
+        }
+      }
       if(!this.running) return;
       if(typeof WgPerf==='object') WgPerf.time('lua.apply', ()=>this.apply(a)); else this.apply(a);
       // Each script's time this step, smoothed for the Scripts panel's cost column.

@@ -30,6 +30,8 @@ local RAY = __wg_ray
 __wg_ray = nil
 local unpack = unpack or table.unpack
 local floor, huge = math.floor, math.huge
+-- The C string functions, before the scripts' safe ones replace them (`string.find` below).
+local RAW_FIND, RAW_SUB, RAW_BYTE = string.find, string.sub, string.byte
 local atan2 = math.atan2 or math.atan
 
 ------------------------------------------------------------------------ limits on mod scripts
@@ -466,55 +468,65 @@ do
     if n < 0x800 then return string.char(0xC0 + floor(n / 64), 0x80 + n % 64) end
     return string.char(0xE0 + floor(n / 4096), 0x80 + floor(n / 64) % 64, 0x80 + n % 64)
   end
+  -- The host's own reader (Static 2026-11-24, "cut the OpenMW Lua round-trip latency"): the C
+  -- string functions taken before the scripts' safe ones replace them (`string.find` with a
+  -- repeating pattern on a long string runs a matcher in Lua, to keep a mod's pattern from running
+  -- past the time limit; these patterns are fixed and linear, and on a frame of 300 actors that
+  -- matcher was 90 of a step's 98 ms), and bytes compared rather than one-character strings made.
+  local find, sub, byte = RAW_FIND, RAW_SUB, RAW_BYTE
+  local ESC = { b = '\b', f = '\f', n = '\n', r = '\r', t = '\t' }
   json.decode = function(s)
-    local i = 1
-    local function ws() i = s:find('[^ \t\r\n]', i) or #s + 1 end
+    local i, n = 1, #s
+    local function ws() i = find(s, '[^ \t\r\n]', i) or n + 1 end
     local val
     local function strv()
-      local out, j = {}, i + 1
+      local out, j = nil, i + 1
       while true do
-        local c = s:sub(j, j)
-        if c == '"' then i = j + 1 return table.concat(out) end
-        if c == '\\' then
-          local e = s:sub(j + 1, j + 1)
-          if e == 'u' then out[#out + 1] = utf8(tonumber(s:sub(j + 2, j + 5), 16)) j = j + 6
-          else out[#out + 1] = ({ b = '\b', f = '\f', n = '\n', r = '\r', t = '\t' })[e] or e j = j + 2 end
-        elseif c == '' then error('JSON: unterminated string')
-        else
-          local k = s:find('["\\]', j) or #s + 1
-          out[#out + 1] = s:sub(j, k - 1) j = k
+        local k = find(s, '["\\]', j)
+        if not k then error('JSON: unterminated string') end
+        local piece = sub(s, j, k - 1)
+        if byte(s, k) == 34 then
+          i = k + 1
+          if out then out[#out + 1] = piece return table.concat(out) end
+          return piece
         end
+        out = out or {}
+        out[#out + 1] = piece
+        local e = sub(s, k + 1, k + 1)
+        if e == 'u' then out[#out + 1] = utf8(tonumber(sub(s, k + 2, k + 5), 16)) j = k + 6
+        elseif e == '' then error('JSON: unterminated string')
+        else out[#out + 1] = ESC[e] or e j = k + 2 end
       end
     end
     val = function()
       ws()
-      local c = s:sub(i, i)
-      if c == '{' then
+      local c = byte(s, i)
+      if c == 123 then
         local t = {} i = i + 1 ws()
-        if s:sub(i, i) == '}' then i = i + 1 return t end
+        if byte(s, i) == 125 then i = i + 1 return t end
         while true do
           ws() local k = strv() ws() i = i + 1
           t[k] = val() ws()
-          local d = s:sub(i, i) i = i + 1
-          if d == '}' then return t end
+          local d = byte(s, i) i = i + 1
+          if d == 125 then return t end
         end
-      elseif c == '[' then
+      elseif c == 91 then
         local t = json.array() i = i + 1 ws()
-        if s:sub(i, i) == ']' then i = i + 1 return t end
+        if byte(s, i) == 93 then i = i + 1 return t end
         while true do
           t[#t + 1] = val() ws()
-          local d = s:sub(i, i) i = i + 1
-          if d == ']' then return t end
+          local d = byte(s, i) i = i + 1
+          if d == 93 then return t end
         end
-      elseif c == '"' then return strv()
-      elseif s:sub(i, i + 3) == 'true' then i = i + 4 return true
-      elseif s:sub(i, i + 4) == 'false' then i = i + 5 return false
-      elseif s:sub(i, i + 3) == 'null' then i = i + 4 return nil
+      elseif c == 34 then return strv()
+      elseif c == 116 and sub(s, i, i + 3) == 'true' then i = i + 4 return true
+      elseif c == 102 and sub(s, i, i + 4) == 'false' then i = i + 5 return false
+      elseif c == 110 and sub(s, i, i + 3) == 'null' then i = i + 4 return nil
       else
-        local a, b = s:find('^-?%d+%.?%d*[eE]?[-+]?%d*', i)
-        if not a then error('JSON: unexpected ' .. c .. ' at ' .. i) end
+        local a, b = find(s, '^-?%d+%.?%d*[eE]?[-+]?%d*', i)
+        if not a then error('JSON: unexpected ' .. sub(s, i, i) .. ' at ' .. i) end
         i = b + 1
-        return tonumber(s:sub(a, b))
+        return tonumber(sub(s, a, b))
       end
     end
     return val()
@@ -2904,6 +2916,9 @@ local function mwse_activate(key, by)
 end
 
 ------------------------------------------------------------------- the frame, from the page
+-- Each step's own time (Static 2026-11-24, "cut the OpenMW Lua round-trip latency"): reading the
+-- frame and running the scripts, in ms, for the performance report's split of the round trip.
+local stepT = { dec = 0, run = 0 }
 local function status()
   local g, p, l, bad = 0, 0, 0, json.array()
   for _, i in ipairs(scripts) do
@@ -2915,7 +2930,8 @@ local function status()
   for _, i in ipairs(mwse_on) do if (i.errors or 0) > 0 and not i.dead then bad[#bad + 1] = i.path end end
   local cost = {}
   for path, ms in pairs(costs) do cost[path] = math.floor(ms * 1000 + 0.5) / 1000 end
-  return { global = g, player = p, ['local'] = l, mwse = #mwse_on, failing = bad, timers = #timers + #mwse_timers, cost = cost }
+  return { global = g, player = p, ['local'] = l, mwse = #mwse_on, failing = bad, timers = #timers + #mwse_timers, cost = cost,
+    t = { dec = math.floor(stepT.dec * 1000 + 0.5) / 1000, run = math.floor(stepT.run * 1000 + 0.5) / 1000 } }
 end
 local function answer()
   uiFlush()
@@ -2999,7 +3015,9 @@ end
 
 -- `{dt, ...what changed, activations: [{key, by}]}` -> `{effects, log, status}`
 function __wg_step(arg)
+  local t0 = clock()
   local a = json.decode(arg)
+  stepT.dec = (clock() - t0) * 1000
   __wg_merge(a)
   for k in pairs(a.objects or {}) do if S.objects[k] then attach(k) end end
   local dt = a.dt or 0
@@ -3057,6 +3075,7 @@ function __wg_step(arg)
       end
     end
   end
+  stepT.run = (clock() - t0) * 1000 - stepT.dec
   return answer()
 end
 

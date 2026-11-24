@@ -1831,7 +1831,7 @@ const WgScripts={
   },
   drawLogNow(){
     const box=this._el && this._el.querySelector('#wgScrLog'); if(!box) return;
-    const col={do:'', warn:'color:var(--warn)', error:'color:var(--bad,#e66)', skip:'opacity:0.6'};
+    const col={do:'', warn:'color:var(--warn)', error:'color:var(--err)', skip:'opacity:0.6'};
     box.innerHTML=this.log.slice(-200).reverse().map(l=>'<div style="'+(col[l.kind]||'')+'">'+escHtml(l.script)+': '+escHtml(l.text)+(l.n>1? ' <span class="hint">×'+l.n+'</span>' : '')+'</div>').join('');
   },
 };
