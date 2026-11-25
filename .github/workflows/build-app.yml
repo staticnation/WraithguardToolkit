@@ -141,9 +141,9 @@ jobs:
           test -f "$f"
           # The jobs of a matrix run at once: if the release does not exist yet they all try to create
           # it, and the ones that lose the race upload to the one that won.
-          # The SHA-256 sum beside it (`shasum` is on all three runners), so a download can be
+          # The SHA-256 sum beside it (`sha256sum` on Windows' Git Bash and Linux, `shasum` on macOS), so a download can be
           # checked against a file the release carries (security audit 2026-11-20, F9).
-          shasum -a 256 "$f" > "$f.sha256"
+          if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
           gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber \
             || gh release create "${GITHUB_REF_NAME}" "$f" "$f.sha256" --generate-notes \
             || gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber
@@ -226,9 +226,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           f=Wraithguard_Toolkit-x86_64.AppImage
-          # The SHA-256 sum beside it (`shasum` is on all three runners), so a download can be
+          # The SHA-256 sum beside it (`sha256sum` on Windows' Git Bash and Linux, `shasum` on macOS), so a download can be
           # checked against a file the release carries (security audit 2026-11-20, F9).
-          shasum -a 256 "$f" > "$f.sha256"
+          if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
           gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber \
             || gh release create "${GITHUB_REF_NAME}" "$f" "$f.sha256" --generate-notes \
             || gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber
@@ -319,9 +319,9 @@ jobs:
           f=wraithguard-windows-x86_64-webview2.zip
           # The jobs of a matrix run at once: if the release does not exist yet they all try to create
           # it, and the ones that lose the race upload to the one that won.
-          # The SHA-256 sum beside it (`shasum` is on all three runners), so a download can be
+          # The SHA-256 sum beside it (`sha256sum` on Windows' Git Bash and Linux, `shasum` on macOS), so a download can be
           # checked against a file the release carries (security audit 2026-11-20, F9).
-          shasum -a 256 "$f" > "$f.sha256"
+          if command -v sha256sum >/dev/null; then sha256sum "$f" > "$f.sha256"; else shasum -a 256 "$f" > "$f.sha256"; fi
           gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber \
             || gh release create "${GITHUB_REF_NAME}" "$f" "$f.sha256" --generate-notes \
             || gh release upload "${GITHUB_REF_NAME}" "$f" "$f.sha256" --clobber
