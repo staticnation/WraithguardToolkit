@@ -142,7 +142,7 @@ the MIT code. See `ui/LICENSE`, `../License/Gardenfell`, `../License/MGE-XE` and
 | `90_wg_jobs.js` | 9 KB | The jobs panel: the long commands seen as they go through the engine, with how long, how far, Cancel and Open folder. |
 | `11_events.js` | 120 KB | Wires every button, key and mouse event (WASD fly, orbit, picking). Loads last. |
 
-## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 165, and `pick.rs`: 2)
+## Engine commands (`src/cellviewer/commands.rs` and `commands/`: 163, and `pick.rs`: 2; 165 registered)
 
 By the word they start with. `check-commands/build.rs` fails the build if `generate_handler!`
 names a command that is not defined, or one is left unregistered.

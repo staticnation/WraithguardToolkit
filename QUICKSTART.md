@@ -68,13 +68,15 @@ The top bar switches between the pages.
 - **Editor**: the Construction Set's windows around the render window. Change records,
   place and move objects, edit dialogue, scripts, path grids and terrain, then **Build
   patch** writes one new plugin. Your mods are never modified. **Test in OpenMW** starts
-  the game on it.
-- **Land**: sculpt, paint and color the terrain with a brush, into the Editor's patch.
+  the game on it. **Ctrl+P** finds any page, tool, cell or record by typing.
+- **Land**: sculpt, paint and color the terrain with a brush, into the Editor's patch; lay
+  roads, paint textures by height, slope and water, and import or export a heightmap PNG.
 - **Tools**: Lint, Backups, Remove / rename master, Save Check, Journal, tes3cmd, Merge
   Lands, Merge objects (TES3Merge's merge), Merge settings, Merge to master, the Mesh
   optimizer and Check meshes (repaired copies of meshes exporters wrote wrong), Lua mods
-  (what each needs), Lua settings, and HTN AI (an actor's behaviour for FluadHTN, built
-  from blocks and tried in the Preview).
+  (what each needs, and turning it on), Lua settings, and HTN AI (an actor's behaviour
+  for FluadHTN, built from blocks, with places and a daily schedule, tried in the Preview).
+- **Jobs** (beside Report): the long jobs running, with Cancel and Open folder.
 - **Help**: these documents, inside the program.
 
 ---
