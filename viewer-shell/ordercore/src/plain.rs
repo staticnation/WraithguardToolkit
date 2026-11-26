@@ -189,7 +189,14 @@ pub fn write(ini: &Path, order: &[String], off: &[String], mo2_profile: Option<&
         Some(dir) => {
             for file in ["loadorder.txt", "plugins.txt"] {
                 let p = dir.join(file);
-                let Ok(bytes) = std::fs::read(&p) else { continue };
+                let Ok(bytes) = std::fs::read(&p) else {
+                    // plugins.txt is not Morrowind's (MO2's Morrowind has none); loadorder.txt is, and
+                    // without it MO2 reads the order from the file dates when it next starts.
+                    if file == "loadorder.txt" {
+                        said.push(format!("{} has no loadorder.txt: the order is in the Morrowind.ini only", dir.display()));
+                    }
+                    continue;
+                };
                 let was = latin1(&bytes);
                 let now = if file == "plugins.txt" { plugins_txt_with_order(&was, order, &offs) } else { list_with_order(&was, order) };
                 put(&p, &was, &now, "the order", dry, stamp, &mut said)?;
@@ -548,7 +555,7 @@ pub fn write_exported_cfg(cfg: &Path, order: &[String], off: &[String], dry: boo
     let mut said = write_cfg(cfg, order, off, None, dry, stamp)?;
     let gone: Vec<&String> = order.iter().filter(|n| !have.contains(&n.to_lowercase())).collect();
     if !gone.is_empty() {
-        said.push(format!("{}: {} plugin(s) of the profile are not in it (run Export to OpenMW in MO2): {}", cfg.display(), gone.len(), gone.iter().take(8).map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+        said.push(format!("{}: {} plugin(s) of the profile are not in it (run OpenMW from MO2, or Export to OpenMW): {}", cfg.display(), gone.len(), gone.iter().take(8).map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
     }
     Ok(said)
 }

@@ -554,18 +554,38 @@ pub fn show_folder(dir: &Path) -> Result<(), String> {
         .map_err(|e| crate::msg!("eng.open_failed", dir = dir.display().to_string(), err = e.to_string()))
 }
 
-/// An https page in the person's browser, through the same opener as [`show_folder`] (Windows'
-/// explorer and macOS' open hand a URL to the default browser; xdg-open does too). The caller
-/// checks the URL.
+/// An https page in the person's browser. Not through `explorer.exe` on Windows (as a folder is):
+/// Explorer takes its argument for a place in the shell, and a link with a query, such as the Nexus
+/// search (`...mods?keyword=...`), opens a folder window instead of the browser. Windows' own URL
+/// handler, `rundll32 url.dll,FileProtocolHandler <url>`, is what hands a link to the default
+/// browser; macOS' `open` and `xdg-open` do it directly. The caller checks the URL.
 pub fn show_web(url: &str) -> Result<(), String> {
-    std::process::Command::new(file_browser())
-        .arg(url)
+    let (program, args) = web_command(cfg!(target_os = "windows"), url, &file_browser(), &system_root());
+    std::process::Command::new(program)
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
         .map(|_| ())
         .map_err(|e| crate::msg!("eng.open_failed", dir = url.to_string(), err = e.to_string()))
+}
+
+/// `%SystemRoot%`, where Windows is.
+fn system_root() -> PathBuf {
+    std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+}
+
+/// The program and arguments that open `url` in the browser: on Windows `System32\rundll32.exe`
+/// by its full path (a bare name is looked for beside the program first, security audit F8) with
+/// `url.dll,FileProtocolHandler`; elsewhere `opener`, the system's own (`open`, `xdg-open`), given
+/// the link. Only the link goes in as an argument, so nothing in it is read as a switch or a path.
+fn web_command(windows: bool, url: &str, opener: &Path, system_root: &Path) -> (PathBuf, Vec<String>) {
+    if windows {
+        (system_root.join("System32").join("rundll32.exe"), vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()])
+    } else {
+        (opener.to_path_buf(), vec![url.to_string()])
+    }
 }
 
 /// The system's file browser by its full path (security audit F8): a bare name is looked
@@ -660,5 +680,23 @@ pub fn user_data_dir() -> Option<PathBuf> {
         }
         let home = std::env::var_os("HOME")?;
         Some(PathBuf::from(home).join(".local").join("share").join("gardenfell"))
+    }
+}
+
+#[cfg(test)]
+mod web_tests {
+    use super::*;
+
+    /// The Nexus search link, with its query, goes to Windows' URL handler and not to Explorer
+    /// (which opens a folder for it); elsewhere to the system opener, as the only argument.
+    #[test]
+    fn a_link_with_a_query_opens_through_the_url_handler_on_windows() {
+        let url = "https://www.nexusmods.com/games/morrowind/mods?keyword=Magic%20Window%20Extender&x=1";
+        let (prog, args) = web_command(true, url, Path::new("explorer.exe"), Path::new(r"C:\Windows"));
+        assert_eq!(prog.file_name().unwrap(), "rundll32.exe");
+        assert!(prog.starts_with(r"C:\Windows") && prog.to_string_lossy().to_lowercase().contains("system32"), "{prog:?}");
+        assert_eq!(args, ["url.dll,FileProtocolHandler", url]);
+        let (prog, args) = web_command(false, url, Path::new("/usr/bin/xdg-open"), Path::new(""));
+        assert_eq!((prog.to_str().unwrap(), args), ("/usr/bin/xdg-open", vec![url.to_string()]));
     }
 }

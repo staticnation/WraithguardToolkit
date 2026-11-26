@@ -250,7 +250,9 @@ fn open_overlay(kind: &str, path: &str, profile: Option<&str>) -> Result<Opened,
     let lap = |since: &mut u128| { let now = clock.elapsed().as_millis(); let d = now - *since; *since = now; d as u64 };
     let mut since = 0u128;
     let l = match kind {
-        "mo2" => layout::mo2_profile(&p, profile)?,
+        // Wraithguard: the plugin list from the Morrowind.ini MO2 itself reads (profile-specific INIs
+        // on: the profile's, off: the game folder's), not whichever copy lists plugins.
+        "mo2" => viewcore::ordercore::install::mo2_layout(&p, profile)?,
         "openmw" => layout::openmw(&p)?,
         _ => layout::vanilla(&p)?,
     };

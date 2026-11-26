@@ -137,6 +137,13 @@
 
 ### Fixed
 
+- **Search Nexus (Lua check) opened a folder window, not the browser, on Windows.** Web links went through
+  `explorer.exe`, which takes its argument for a place in the shell: a link with a query, as the Nexus search
+  has (`...mods?keyword=...`), opened a folder. They now go through Windows' URL handler
+  (`System32\rundll32.exe url.dll,FileProtocolHandler`, by its full path), as the default browser's own
+  link opening does; macOS (`open`) and Linux (`xdg-open`) are as they were. Every link opened from the app
+  (`open_web`) takes this route. A test builds the command for the Nexus search link.
+
 - **Load order: a mod dropped in after the sort survives the next Sort** (`ordercore::export::Plan::with_added`,
   `loadorder_export`'s `addedPlugins`). Export wrote content= inserts into the customizations TOML only
   for the plugins of the person's own list, so a plugin dragged onto the page after the sort was in
@@ -254,6 +261,39 @@
   second). Chains of the same nodes (their still parts alike) blend node by node as before; otherwise the
   bone's whole transform blends. A rigid part on another chain is another shape, and is not blended.
   Test: `animblend.test.js` (chains of other nodes told apart; the bone starts where it was and turns in place).
+
+- **MO2 with Kezyma's OpenMW Player is read and sorted as MO2 has it** (`ordercore::install`, `plain.rs`,
+  the viewer's connect). Reported on the Discord: choosing the MO2 install did not read the `openmw.cfg`,
+  choosing the cfg changed nothing in MO2, and what MO2 had switched off showed as on. Four causes, all
+  from MO2's own files and the two plugins' source:
+  - *The plugin was not known.* The cfg an MO2 install feeds OpenMW with was looked for only as
+    AnyOldName3's Export to OpenMW (`OpenMW Exporter\config path`), so an install with OpenMW Player was
+    taken for one that runs the game itself and its cfg was never read. OpenMW Player's is found: the
+    profile's own `openmw.cfg` (in the profile folder when the profile keeps its own INI files, else under
+    `plugins/data/OpenMWPlayer`), else the path set in its options (`OpenMWPlayer\openmwcfgpath`), else
+    `Documents/My Games/OpenMW/openmw.cfg`. The older plugin is found as before.
+  - *The wrong `Morrowind.ini`.* MO2's Morrowind support keeps the plugins that are on in a
+    `Morrowind.ini`'s `[Game Files]`: the profile's when "use profile-specific game INI files" is on
+    (`LocalSettings` in the profile's `settings.ini`; on when nothing says), the game folder's when it is
+    off, and a copy left in the profile is then stale. The reader took the first ini that listed plugins,
+    so a stale copy showed every plugin MO2 had switched off as on. It now takes the one MO2 reads, and
+    when the other lists plugins the profile has off, says which file is used and which is not.
+  - *The sort went to the wrong folder.* The profile's folder was taken to be the folder of the ini that
+    was read, which is the game's when the profile keeps none: `loadorder.txt` was looked for there, not
+    found, and skipped in silence, so MO2 read its own old order on the next start and wrote the ini back.
+    The profile's folder is now the profile's, and a profile with no `loadorder.txt` is told so.
+  - *Dummy plugins.* With "dummy esp" on, OpenMW Player has MO2 list `X.omwaddon.esp` and
+    `X.omwscripts.esp` for the `.omwaddon` and `.omwscripts` it switches on. They are read as the files
+    they stand for (so they count as OpenMW's, and match the cfg), and written back under the names MO2
+    lists. Only with OpenMW Player installed.
+
+  Choose the MO2 install, not its `openmw.cfg`, to sort a list MO2 manages: OpenMW Player rebuilds the cfg's
+  `content=` from MO2's plugin list each time OpenMW is run from MO2. Tests: `with_profile_inis_off_mo2_uses_the_games_ini_not_a_stale_copy_in_the_profile`,
+  `with_profile_inis_on_mo2_uses_the_profiles_ini`, `a_profile_that_says_nothing_follows_mo2s_default_which_is_profile_inis_on`,
+  `the_profile_folder_is_the_profiles_not_the_inis`, `kezymas_openmw_player_is_found_by_its_profile_cfg_or_its_setting`,
+  `the_older_export_plugin_is_still_found`, `open_mw_players_dummy_plugins_are_read_as_the_files_they_stand_for`,
+  `a_sort_reaches_the_profiles_load_order_whichever_ini_is_in_use` (the installs are built as MO2 and the
+  plugin lay them out; the first fails without the fix). Not run here: MO2 itself, or OpenMW Player running.
 
 ### Added
 

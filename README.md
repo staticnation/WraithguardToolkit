@@ -107,8 +107,12 @@ load** saves the settings and loads your install.
 On an MO2 or `Morrowind.ini` install the fields that are OpenMW's or MOMW's alone (the
 customizations TOML, plugin-order.yml, the list, grass plugins, the OpenMW folder) are
 hidden, and the Load order page sorts by the mlox rules alone. An MO2 install that feeds
-OpenMW through MO2's *Export to OpenMW* counts as OpenMW's: its OpenMW folder still applies,
-and Export writes both MO2's order and that `openmw.cfg`.
+OpenMW through MO2's *OpenMW Player* (Kezyma) or *Export to OpenMW* counts as OpenMW's: its
+OpenMW folder still applies, and Export writes both MO2's order and that `openmw.cfg`. MO2 keeps
+its plugins in the profile's `Morrowind.ini` (the game folder's when the profile does not keep its
+own INI files) and their order in `loadorder.txt`; Wraithguard reads and writes those, and OpenMW
+Player rebuilds its `openmw.cfg` from them each time OpenMW is run from MO2. So choose the MO2
+install, not an `openmw.cfg`, to sort a list MO2 manages: a cfg MO2 regenerates is overwritten.
 
 Setup is always one click away in the top bar. It also opens by itself after a start that
 never finished loading, so a broken install can't lock you out; **Restart** starts the

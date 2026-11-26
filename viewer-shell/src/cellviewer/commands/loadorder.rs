@@ -501,8 +501,22 @@ pub(super) fn loadorder_plain_write(
         lines
     } else {
         let ini = c.files.first().cloned().ok_or("the install has no Morrowind.ini")?;
-        let profile = if kind == "mo2" { ini.parent().map(Path::to_path_buf) } else { None };
-        let mut lines = viewcore::ordercore::plain::write(&ini, &order, &off, profile.as_deref(), &find, dry_run, &stamp)?;
+        // An MO2 profile's own folder, where its loadorder.txt is: not the folder of the ini, which
+        // is the game's when the profile does not keep its own INI files.
+        let profile = if kind == "mo2" {
+            Some(viewcore::ordercore::install::profile_dir_of(&cfg).ok_or("the MO2 profile's folder could not be found")?)
+        } else {
+            None
+        };
+        // MO2 with OpenMW Player lists a dummy .esp for each .omwaddon/.omwscripts: MO2's own files
+        // (the ini, loadorder.txt) get those names; the openmw.cfg below keeps OpenMW's.
+        let (listed_order, listed_off) = if kind == "mo2" {
+            let listed = viewcore::ordercore::install::game_files(&ini);
+            (viewcore::ordercore::install::as_listed(&listed, &order), viewcore::ordercore::install::as_listed(&listed, &off))
+        } else {
+            (order.clone(), off.clone())
+        };
+        let mut lines = viewcore::ordercore::plain::write(&ini, &listed_order, &listed_off, profile.as_deref(), &find, dry_run, &stamp)?;
         // An MO2 install that feeds OpenMW: the cfg it exports to as well, so OpenMW has it now.
         if let Some(omw) = viewcore::ordercore::install::feeds_openmw(&cfg) {
             lines.extend(viewcore::ordercore::plain::write_exported_cfg(&omw, &order, &off, dry_run, &stamp)?);

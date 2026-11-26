@@ -36,7 +36,7 @@ function wgSetupKind(spec){
   return s.trim()? setupSpec(s).kind : 'openmw';
 }
 /** Whether the setup runs on OpenMW (`spec`; by default the install the viewer opened): an
- *  openmw.cfg, or an MO2 install that feeds one through MO2's Export to OpenMW - as far as
+ *  openmw.cfg, or an MO2 install that feeds one through MO2's OpenMW Player or Export to OpenMW - as far as
  *  `wgSetupProbe` has asked the engine (an MO2 install not asked yet: no). */
 const WgRuns={};
 function wgSetupOpenmw(spec){
