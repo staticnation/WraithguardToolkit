@@ -69,10 +69,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # A version, not `stable`: the same compiler until this line is changed (security audit F9). The
+      # compiler is the branch this commit is the tip of: its action.yml fixes `toolchain: 1.100.0` and
+      # takes no `toolchain` input (passing one only draws a warning on every job).
       - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # the 1.100.0 branch
-        with:
-          # A version, not `stable`: the same compiler until this line is changed (security audit F9).
-          toolchain: 1.100.0
 
       - name: Cache Cargo registry and build output
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -166,10 +166,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # A version, not `stable`: the same compiler until this line is changed (security audit F9). The
+      # compiler is the branch this commit is the tip of: its action.yml fixes `toolchain: 1.100.0` and
+      # takes no `toolchain` input (passing one only draws a warning on every job).
       - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # the 1.100.0 branch
-        with:
-          # A version, not `stable`: the same compiler until this line is changed (security audit F9).
-          toolchain: 1.100.0
 
       - name: Cache Cargo registry and build output
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -249,10 +249,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # A version, not `stable`: the same compiler until this line is changed (security audit F9). The
+      # compiler is the branch this commit is the tip of: its action.yml fixes `toolchain: 1.100.0` and
+      # takes no `toolchain` input (passing one only draws a warning on every job).
       - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # the 1.100.0 branch
-        with:
-          # A version, not `stable`: the same compiler until this line is changed (security audit F9).
-          toolchain: 1.100.0
 
       - name: Cache Cargo registry and build output
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

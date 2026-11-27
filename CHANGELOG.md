@@ -97,6 +97,14 @@
 
 ### Changed
 
+
+- **The release workflow no longer warns on every Rust job** (`build-app.yml`: `build`, `linux-appimage`,
+  `windows-webview2`). The `dtolnay/rust-toolchain` pin is the commit at the tip of its `1.100.0` branch, whose
+  `action.yml` fixes `toolchain: 1.100.0` and declares no `toolchain` input, so `with: toolchain: 1.100.0`
+  was ignored and GitHub said so ("Unexpected input(s) 'toolchain'") once per job. The input is gone; the
+  compiler is the same, as the pinned commit decides it. (`ci.yml` and `audit.yml` pin the `stable` branch,
+  whose action does take `toolchain:`, and are unchanged. GitHub's other note on those runs, that macOS arm64
+  runners may queue longer, is its own and not ours.)
 - **Lua mods start turned off** (`74_wg_lua.js`, Static 2026-11-23). The Preview runs no Lua script - a
   load order's OpenMW scripts, OpenMW's built-ins or MWSE mods - until it is turned on in the Scripts
   panel's Which scripts run; what is turned on is kept (`wgLuaOn`). It ran everything unless turned off,
